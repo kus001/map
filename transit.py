@@ -1,4 +1,4 @@
 import time
-from print_color import red, blue, bold
+from print_color import red, blue, bold, green
 
-print(bold(red("test123")))
+print(bold(green("-------------------- Starting Transit Router --------------------")))

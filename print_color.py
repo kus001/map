@@ -4,6 +4,8 @@ Copyright © 2026 Madhav Garg <gargm0325@wrdsb.ca>
 Licensed under the MIT License (the "License"); you may not use this file 
 except in compliance with the License. You may obtain a copy of the License 
 at https://opensource.org
+
+File sourced from: https://github.com/roc-ket-cod-er/Python-Transit-API/blob/main/src/print_color.py
 """
 
 import os

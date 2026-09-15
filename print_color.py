@@ -10,7 +10,6 @@ File sourced from: https://github.com/roc-ket-cod-er/Python-Transit-API/blob/mai
 
 import os
 import asyncio
-from time import sleep
 from aioconsole import ainput
 
 #----------- Text Colors -----------

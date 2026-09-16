@@ -24,6 +24,8 @@ stop_times = sorted(stop_times, key=lambda x: (x["trip_id"], x["stop_sequence"])
 
 last_stop_id = None
 
+i = 0
+
 for stop_time in stop_times:
     trip_id = stop_time["trip_id"]
     stop_id = stop_time["stop_id"]
@@ -34,8 +36,10 @@ for stop_time in stop_times:
         else:
             if (last_stop_id, 1) not in graph[stop_id]:
                 graph[stop_id].append((last_stop_id, 1))
+                graph[stop_id].append(trip_id)
             if (stop_id, 1) not in graph[last_stop_id]:
                 graph[last_stop_id].append((stop_id, 1))
+                graph[last_stop_id].append(trip_id)
 
     arrival_time = stop_time["arrival_time"]
     departure_time = stop_time["departure_time"]
@@ -44,4 +48,10 @@ for stop_time in stop_times:
     last_stop_id = stop_id
 
 for list in graph:
-    print(f"Stop ID: {list}, Neighbors: {graph[list]}")
+    print(f"\nStop ID: {list}")
+
+    for i in range(len(graph[list])):
+        if isinstance(graph[list][i], tuple):
+            print(f"Connection: {graph[list][i]}", end=", ")
+        else:
+            print(f"Trip ID: {graph[list][i]}")

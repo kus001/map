@@ -4,6 +4,11 @@ from pathlib import Path
 
 graph = {}
 
+def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
+    if stop_id not in graph:
+        graph[stop_id] = []
+    graph[stop_id].append([(neighbor_stop_id, distance), trip_id])
+
 # Assumes that the GTFS data is already downloaded and unzipped in the "transit/GTFS" directory.
 with open(Path("transit") / "GTFS_Files" / "go" / "stops.txt", encoding="utf-8-sig", mode="r") as f:
     reader = csv.DictReader(f)
@@ -11,47 +16,48 @@ with open(Path("transit") / "GTFS_Files" / "go" / "stops.txt", encoding="utf-8-s
 
 with open(Path("transit") / "GTFS_Files" / "go" / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
     reader = csv.DictReader(f)
-    stop_times = list(reader)
 
-for stop in stops:
-    stop_id = stop["stop_id"]
-    stop_name = stop["stop_name"]
-    stop_lat = stop["stop_lat"]
-    stop_lon = stop["stop_lon"]
-    #print(f"Stop ID: {stop_id}, Name: {stop_name}, Latitude: {stop_lat}, Longitude: {stop_lon}")
+    trips = {}
 
-stop_times = sorted(stop_times, key=lambda x: (x["trip_id"], x["stop_sequence"]))
+    for row in reader:
+        trip_id = row["trip_id"]
+        stop_id = row["stop_id"]
+        arrival_time = row["arrival_time"]
+        departure_time = row["departure_time"]
+        sequence = int(row["stop_sequence"])
 
-last_stop_id = None
+        if trip_id not in trips:
+            trips[trip_id] = []
+
+        trips[trip_id].append(({
+            "stop_id": stop_id,
+            "arrival_time": arrival_time,
+            "departure_time": departure_time
+        }, sequence))
+
+for trip_id in trips:
+    trips[trip_id].sort(key=lambda x: x[1])
+
+# for stop in stops:
+#     stop_id = stop["stop_id"]
+#     stop_name = stop["stop_name"]
+#     stop_lat = stop["stop_lat"]
+#     stop_lon = stop["stop_lon"]
+#     print(f"Stop ID: {stop_id}, Name: {stop_name}, Latitude: {stop_lat}, Longitude: {stop_lon}")
 
 i = 0
 
-for stop_time in stop_times:
-    trip_id = stop_time["trip_id"]
-    stop_id = stop_time["stop_id"]
+for trip_id in trips:
+    last_stop = None
+    for stop, sequence in trips[trip_id]:
+        stop_id = stop["stop_id"]
+        add_neighbor(last_stop, stop_id, trip_id) if last_stop else None
+        last_stop = stop_id
 
-    if last_stop_id is not None and last_stop_id != stop_id:
-        if graph.get(stop_id, None) is None:
-            graph[stop_id] = []
-        else:
-            if (last_stop_id, 1) not in graph[stop_id]:
-                graph[stop_id].append((last_stop_id, 1))
-                graph[stop_id].append(trip_id)
-            if (stop_id, 1) not in graph[last_stop_id]:
-                graph[last_stop_id].append((stop_id, 1))
-                graph[last_stop_id].append(trip_id)
+        i += 1
 
-    arrival_time = stop_time["arrival_time"]
-    departure_time = stop_time["departure_time"]
-    #print(f"Trip ID: {trip_id}, Stop ID: {stop_id}, Arrival Time: {arrival_time}, Departure Time: {departure_time}")
+    if i > 1000:
+        break
 
-    last_stop_id = stop_id
-
-for list in graph:
-    print(f"\nStop ID: {list}")
-
-    for i in range(len(graph[list])):
-        if isinstance(graph[list][i], tuple):
-            print(f"Connection: {graph[list][i]}", end=", ")
-        else:
-            print(f"Trip ID: {graph[list][i]}")
+for stop_id in graph:
+    print(f"Stop ID: {stop_id}, Neighbors: {graph[stop_id]}")

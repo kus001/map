@@ -38,13 +38,6 @@ with open(Path("transit") / "GTFS_Files" / "go" / "stop_times.txt", encoding="ut
 for trip_id in trips:
     trips[trip_id].sort(key=lambda x: x[1])
 
-# for stop in stops:
-#     stop_id = stop["stop_id"]
-#     stop_name = stop["stop_name"]
-#     stop_lat = stop["stop_lat"]
-#     stop_lon = stop["stop_lon"]
-#     print(f"Stop ID: {stop_id}, Name: {stop_name}, Latitude: {stop_lat}, Longitude: {stop_lon}")
-
 i = 0
 
 for trip_id in trips:
@@ -52,6 +45,7 @@ for trip_id in trips:
     for stop, sequence in trips[trip_id]:
         stop_id = stop["stop_id"]
         add_neighbor(last_stop, stop_id, trip_id) if last_stop else None
+        add_neighbor(stop_id, last_stop, trip_id) if last_stop else None
         last_stop = stop_id
 
         i += 1

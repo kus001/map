@@ -68,4 +68,4 @@ def download_multiple_gtfs(*agencies:str):
     for agency in agencies:
         download_gtfs(agency)
 
-download_multiple_gtfs("grt_trains")
+download_multiple_gtfs("grt_trains", "grt_busses", "go")

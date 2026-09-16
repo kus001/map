@@ -1,8 +1,24 @@
 import csv
+import math
 from heapq import heappop, heappush
 from pathlib import Path
 
 graph = {}
+all_stops = []
+
+def find_dist(coord1, coord2):
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+
+    rad_lat = math.radians(lat1)
+
+    deg_to_km = 111.32  # Approximate conversion factor from degrees to kilometers
+    dlat = (lat2 - lat1) * deg_to_km
+    dlon = (lon2 - lon1) * deg_to_km * math.cos(rad_lat)
+
+    distance = math.sqrt(dlat**2 + dlon**2) * 1000  # Convert to meters
+
+    return distance
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     if stop_id not in graph:
@@ -17,10 +33,20 @@ def add_agency_to_graph(agency):
     with open(Path("transit") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
         stops = list(reader)
+        all_stops.extend(stops)  # Add the stops to the global list of all stops
+
+    for stop in stops:
+        for stop2 in all_stops:
+            if stop["stop_id"] != stop2["stop_id"]:
+                stop_coords2 = (float(stop2["stop_lat"]), float(stop2["stop_lon"]))
+                stop_coords = (float(stop["stop_lat"]), float(stop["stop_lon"]))
+                distance = find_dist(stop_coords, stop_coords2)
+                if distance < 100:
+                    add_neighbor(agency + ":" + stop["stop_id"], agency + ":" + stop2["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
+                    add_neighbor(agency + ":" + stop2["stop_id"], agency + ":" + stop["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
 
     with open(Path("transit") / "GTFS_Files" / agency / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
-
         trips = {}
 
         for row in reader:
@@ -49,18 +75,18 @@ def add_agency_to_graph(agency):
             stop_id = stop["stop_id"]
             if last_stop is not None and last_stop != stop_id:
                 #if :
-                    add_neighbor(last_stop, stop_id, trip_id)
+                    add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id)
             last_stop = stop_id
 
-    for stop_id in graph:
-        print(f"Stop ID {stop_id}:")
-        for item in graph[stop_id]:
-            if isinstance(item, tuple):
-                neighbor_stop_id, distance = item
-                print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
-            else:
-                trip_id = item
-                print(f"\t\tTrip ID: {trip_id}")
+    # for stop_id in graph:
+    #     print(f"Stop ID {stop_id}:")
+    #     for item in graph[stop_id]:
+    #         if isinstance(item, tuple):
+    #             neighbor_stop_id, distance = item
+    #             print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
+    #         else:
+    #             trip_id = item
+    #             print(f"\t\tTrip ID: {trip_id}")
 
 def add_multiple_agencies_to_graph(*agencies):
     for agency in agencies:
@@ -68,3 +94,14 @@ def add_multiple_agencies_to_graph(*agencies):
 
 if __name__ == "__main__":
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
+
+    for stop_id in graph:
+        if len(graph[stop_id]) > 10:  # More than 3 neighbors (including trip IDs)
+            print(f"Stop ID {stop_id}:")
+            for item in graph[stop_id]:
+                if isinstance(item, tuple):
+                    neighbor_stop_id, distance = item
+                    print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
+                else:
+                    trip_id = item
+                    print(f"\t\tTrip ID: {trip_id}")

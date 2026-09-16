@@ -7,14 +7,17 @@ graph = {}
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     if stop_id not in graph:
         graph[stop_id] = []
-    graph[stop_id].append([(neighbor_stop_id, distance), trip_id])
+    elif (neighbor_stop_id, distance) in graph[stop_id]:
+        return  # Avoid adding duplicate neighbors
+    graph[stop_id].append((neighbor_stop_id, distance))
+    graph[stop_id].append(trip_id)  # Add the trip_id to the list of neighbors
 
 # Assumes that the GTFS data is already downloaded and unzipped in the "transit/GTFS" directory.
-with open(Path("transit") / "GTFS_Files" / "go" / "stops.txt", encoding="utf-8-sig", mode="r") as f:
+with open(Path("transit") / "GTFS_Files" / "grt_trains" / "stops.txt", encoding="utf-8-sig", mode="r") as f:
     reader = csv.DictReader(f)
     stops = list(reader)
 
-with open(Path("transit") / "GTFS_Files" / "go" / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
+with open(Path("transit") / "GTFS_Files" / "grt_trains" / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
     reader = csv.DictReader(f)
 
     trips = {}
@@ -29,29 +32,28 @@ with open(Path("transit") / "GTFS_Files" / "go" / "stop_times.txt", encoding="ut
         if trip_id not in trips:
             trips[trip_id] = []
 
-        trips[trip_id].append(({
+        trips[trip_id].append({
             "stop_id": stop_id,
             "arrival_time": arrival_time,
-            "departure_time": departure_time
-        }, sequence))
+            "departure_time": departure_time,
+            "sequence": sequence
+        })
 
 for trip_id in trips:
-    trips[trip_id].sort(key=lambda x: x[1])
+    trips[trip_id].sort(key=lambda x: x["sequence"])
 
 i = 0
 
 for trip_id in trips:
     last_stop = None
-    for stop, sequence in trips[trip_id]:
+    for stop in trips[trip_id]:
         stop_id = stop["stop_id"]
-        add_neighbor(last_stop, stop_id, trip_id) if last_stop else None
-        add_neighbor(stop_id, last_stop, trip_id) if last_stop else None
+        if last_stop is not None and last_stop != stop_id:
+            #if :
+                add_neighbor(last_stop, stop_id, trip_id)
         last_stop = stop_id
 
         i += 1
-
-    if i > 1000:
-        break
 
 for stop_id in graph:
     print(f"Stop ID: {stop_id}, Neighbors: {graph[stop_id]}")

@@ -1,4 +1,5 @@
 import requests
+from helpers.print_color import red, green, blue
 
 # get location
 startLat = float(input("Enter starting latitute: "))
@@ -15,5 +16,5 @@ duration = response['routes'][0]['duration']
 print()
 print("Walking: ")
 print()
-print(f"Distance: {distance / 1000:.2f} km")
+print(blue(f"Distance: {distance / 1000:.2f} km"))
 print(f"Duration: {duration / 60:.2f} minutes")

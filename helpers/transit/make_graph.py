@@ -18,6 +18,15 @@ def add_agency_to_graph(agency):
         reader = csv.DictReader(f)
         stops = list(reader)
 
+    for stop in stops:
+        for stop2 in stops:
+            if stop["stop_id"] != stop2["stop_id"]:
+                stop_coords2 = (float(stop2["stop_lat"]), float(stop2["stop_lon"]))
+                stop_coords = (float(stop["stop_lat"]), float(stop["stop_lon"]))
+                if find_dist(stop_coords, stop_coords2) < 100:
+                    add_neighbor(stop["stop_id"], stop2["stop_id"], None)
+                    add_neighbor(stop2["stop_id"], stop["stop_id"], None)
+
     with open(Path("transit") / "GTFS_Files" / agency / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
 

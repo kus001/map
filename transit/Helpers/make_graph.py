@@ -42,8 +42,6 @@ with open(Path("transit") / "GTFS_Files" / "grt_trains" / "stop_times.txt", enco
 for trip_id in trips:
     trips[trip_id].sort(key=lambda x: x["sequence"])
 
-i = 0
-
 for trip_id in trips:
     last_stop = None
     for stop in trips[trip_id]:
@@ -52,8 +50,6 @@ for trip_id in trips:
             #if :
                 add_neighbor(last_stop, stop_id, trip_id)
         last_stop = stop_id
-
-        i += 1
 
 for stop_id in graph:
     print(f"Stop ID: {stop_id}, Neighbors: {graph[stop_id]}")

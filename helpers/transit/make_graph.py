@@ -53,7 +53,7 @@ def add_agency_to_graph(agency):
             last_stop = stop_id
 
     for stop_id in graph:
-        print(bold(f"Stop ID {stop_id}:"))
+        print(f"Stop ID {stop_id}:")
         for item in graph[stop_id]:
             if isinstance(item, tuple):
                 neighbor_stop_id, distance = item

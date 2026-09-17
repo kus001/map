@@ -111,7 +111,7 @@ if __name__ == "__main__":
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
 
     for stop_id in graph:
-        if len(graph[stop_id]) > 10:  # More than 3 neighbors (including trip IDs)
+        if len(graph[stop_id]) > 5:
             print(bold(f"\nStop ID {stop_id}:"))
             for stop in graph[stop_id]:
                 print(f"  Neighbor: {stop},\t\tDistance: {graph[stop_id][stop]['distance']},\t\tTrip ID: {graph[stop_id][stop]['trip_id']}")

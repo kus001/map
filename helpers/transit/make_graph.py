@@ -1,7 +1,10 @@
 import csv
 import math
+import pickle
 from heapq import heappop, heappush
 from pathlib import Path
+
+from download_gtfs import download_gtfs
 
 graph = {}
 all_stops = []
@@ -29,7 +32,10 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     graph[stop_id].append(trip_id)  # Add the trip_id to the list of neighbors
 
 def add_agency_to_graph(agency):
-    # Assumes that the GTFS data is already downloaded and unzipped in the "transit/GTFS" directory.
+    if not Path("transit") / "GTFS_Files" / agency:
+        print(f"GTFS data for {agency} not found. Downloading...")
+        download_gtfs(agency)
+
     with open(Path("transit") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
         stops = list(reader)
@@ -78,19 +84,19 @@ def add_agency_to_graph(agency):
                     add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id)
             last_stop = stop_id
 
-    # for stop_id in graph:
-    #     print(f"Stop ID {stop_id}:")
-    #     for item in graph[stop_id]:
-    #         if isinstance(item, tuple):
-    #             neighbor_stop_id, distance = item
-    #             print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
-    #         else:
-    #             trip_id = item
-    #             print(f"\t\tTrip ID: {trip_id}")
-
 def add_multiple_agencies_to_graph(*agencies):
-    for agency in agencies:
-        add_agency_to_graph(agency)
+    GRAPH_NAME = f"{'_&_'.join(agencies)}.pkl"
+    if Path(Path("transit") / GRAPH_NAME).exists():
+        with open(Path("transit") / GRAPH_NAME, "rb") as f:
+            global graph
+            graph = pickle.load(f)
+    else:
+        for agency in agencies:
+            add_agency_to_graph(agency)
+
+    # Save the graph to a pickle file
+    with open(Path("transit") / GRAPH_NAME, "wb") as f:
+        pickle.dump(graph, f)
 
 if __name__ == "__main__":
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")

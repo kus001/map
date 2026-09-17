@@ -10,6 +10,7 @@ sys.path.append(str(cwd / "helpers"))
 
 from download_gtfs import download_gtfs
 from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
+from print_color import bold
 
 graph = {}
 all_stops = []
@@ -111,6 +112,6 @@ if __name__ == "__main__":
 
     for stop_id in graph:
         if len(graph[stop_id]) > 10:  # More than 3 neighbors (including trip IDs)
-            print(f"Stop ID {stop_id}:")
+            print(bold(f"\nStop ID {stop_id}:"))
             for stop in graph[stop_id]:
                 print(f"  Neighbor: {stop},\t\tDistance: {graph[stop_id][stop]['distance']},\t\tTrip ID: {graph[stop_id][stop]['trip_id']}")

@@ -30,11 +30,11 @@ def find_dist(coord1, coord2):
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     if stop_id not in graph:
-        graph[stop_id] = []
-    elif (neighbor_stop_id, distance) in graph[stop_id]:
+        graph[stop_id] = {}
+    elif neighbor_stop_id in graph[stop_id]:
         return  # Avoid adding duplicate neighbors
-    graph[stop_id].append((neighbor_stop_id, distance))
-    graph[stop_id].append(trip_id)  # Add the trip_id to the list of neighbors
+    graph[stop_id][neighbor_stop_id] = {"distance": distance}
+    graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
 
 def add_agency_to_graph(agency):
     if not Path("transit") / "GTFS_Files" / agency:
@@ -112,10 +112,5 @@ if __name__ == "__main__":
     for stop_id in graph:
         if len(graph[stop_id]) > 10:  # More than 3 neighbors (including trip IDs)
             print(f"Stop ID {stop_id}:")
-            for item in graph[stop_id]:
-                if isinstance(item, tuple):
-                    neighbor_stop_id, distance = item
-                    print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
-                else:
-                    trip_id = item
-                    print(f"\t\tTrip ID: {trip_id}")
+            for stop in graph[stop_id]:
+                print(f"  Neighbor: {stop},\t\tDistance: {graph[stop_id][stop]['distance']},\t\tTrip ID: {graph[stop_id][stop]['trip_id']}")

@@ -1,10 +1,15 @@
 import csv
+import sys
 import math
 import pickle
 from heapq import heappop, heappush
 from pathlib import Path
 
+cwd = Path.cwd()
+sys.path.append(str(cwd / "helpers"))
+
 from download_gtfs import download_gtfs
+from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
 
 graph = {}
 all_stops = []
@@ -77,12 +82,15 @@ def add_agency_to_graph(agency):
 
     for trip_id in trips:
         last_stop = None
+        last_departure_time = None
         for stop in trips[trip_id]:
             stop_id = stop["stop_id"]
+            stop_arrival_time = stop["arrival_time"]
+            stop_departure_time = stop["departure_time"]
             if last_stop is not None and last_stop != stop_id:
-                #if :
-                    add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id)
+                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=(delta_time_in_minutes(last_departure_time, stop_arrival_time)[0], last_departure_time, stop_arrival_time))  # Use the time difference in minutes as the distance
             last_stop = stop_id
+            last_departure_time = stop_departure_time
 
 def add_multiple_agencies_to_graph(*agencies):
     GRAPH_NAME = f"{'_&_'.join(agencies)}.pkl"
@@ -94,9 +102,9 @@ def add_multiple_agencies_to_graph(*agencies):
         for agency in agencies:
             add_agency_to_graph(agency)
 
-    # Save the graph to a pickle file
-    with open(Path("transit") / GRAPH_NAME, "wb") as f:
-        pickle.dump(graph, f)
+        # Save the graph to a pickle file
+        with open(Path("transit") / GRAPH_NAME, "wb") as f:
+            pickle.dump(graph, f)
 
 if __name__ == "__main__":
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")

@@ -1,7 +1,16 @@
 import csv
+import sys
 import math
+import pickle
 from heapq import heappop, heappush
 from pathlib import Path
+
+cwd = Path.cwd()
+sys.path.append(str(cwd / "helpers"))
+
+from download_gtfs import download_gtfs
+from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
+from print_color import bold
 
 graph = {}
 all_stops = []
@@ -22,14 +31,17 @@ def find_dist(coord1, coord2):
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     if stop_id not in graph:
-        graph[stop_id] = []
-    elif (neighbor_stop_id, distance) in graph[stop_id]:
+        graph[stop_id] = {}
+    elif neighbor_stop_id in graph[stop_id]:
         return  # Avoid adding duplicate neighbors
-    graph[stop_id].append((neighbor_stop_id, distance))
-    graph[stop_id].append(trip_id)  # Add the trip_id to the list of neighbors
+    graph[stop_id][neighbor_stop_id] = {"distance": distance}
+    graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
 
 def add_agency_to_graph(agency):
-    # Assumes that the GTFS data is already downloaded and unzipped in the "transit/GTFS" directory.
+    if not Path("transit") / "GTFS_Files" / agency:
+        print(f"GTFS data for {agency} not found. Downloading...")
+        download_gtfs(agency)
+
     with open(Path("transit") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
         stops = list(reader)
@@ -71,37 +83,35 @@ def add_agency_to_graph(agency):
 
     for trip_id in trips:
         last_stop = None
+        last_departure_time = None
         for stop in trips[trip_id]:
             stop_id = stop["stop_id"]
+            stop_arrival_time = stop["arrival_time"]
+            stop_departure_time = stop["departure_time"]
             if last_stop is not None and last_stop != stop_id:
-                #if :
-                    add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id)
+                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=(delta_time_in_minutes(last_departure_time, stop_arrival_time)[0], last_departure_time, stop_arrival_time))  # Use the time difference in minutes as the distance
             last_stop = stop_id
-
-    # for stop_id in graph:
-    #     print(f"Stop ID {stop_id}:")
-    #     for item in graph[stop_id]:
-    #         if isinstance(item, tuple):
-    #             neighbor_stop_id, distance = item
-    #             print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
-    #         else:
-    #             trip_id = item
-    #             print(f"\t\tTrip ID: {trip_id}")
+            last_departure_time = stop_departure_time
 
 def add_multiple_agencies_to_graph(*agencies):
-    for agency in agencies:
-        add_agency_to_graph(agency)
+    GRAPH_NAME = f"{'_&_'.join(agencies)}.pkl"
+    if Path(Path("transit") / GRAPH_NAME).exists():
+        with open(Path("transit") / GRAPH_NAME, "rb") as f:
+            global graph
+            graph = pickle.load(f)
+    else:
+        for agency in agencies:
+            add_agency_to_graph(agency)
+
+        # Save the graph to a pickle file
+        with open(Path("transit") / GRAPH_NAME, "wb") as f:
+            pickle.dump(graph, f)
 
 if __name__ == "__main__":
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
 
     for stop_id in graph:
-        if len(graph[stop_id]) > 10:  # More than 3 neighbors (including trip IDs)
-            print(f"Stop ID {stop_id}:")
-            for item in graph[stop_id]:
-                if isinstance(item, tuple):
-                    neighbor_stop_id, distance = item
-                    print(f"\tNeighbor Stop ID: {neighbor_stop_id}, Distance: {distance}")
-                else:
-                    trip_id = item
-                    print(f"\t\tTrip ID: {trip_id}")
+        if len(graph[stop_id]) > 5:
+            print(bold(f"\nStop ID {stop_id}:"))
+            for stop in graph[stop_id]:
+                print(f"  Neighbor: {stop},\t\tDistance: {graph[stop_id][stop]['distance']},\t\tTrip ID: {graph[stop_id][stop]['trip_id']}")

@@ -37,9 +37,9 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     graph[stop_id][neighbor_stop_id] = {"distance": distance}
     graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
 
-def add_agency_to_graph(agency):
-    if not Path("transit") / "GTFS_Files" / agency:
-        print(f"GTFS data for {agency} not found. Downloading...")
+def add_agency_to_graph(agency, force_download=False):
+    if not Path("transit") / "GTFS_Files" / agency or force_download:
+        print(f"Downloading GTFS data for {agency}...")
         download_gtfs(agency)
 
     with open(Path("transit") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
@@ -89,26 +89,35 @@ def add_agency_to_graph(agency):
             stop_arrival_time = stop["arrival_time"]
             stop_departure_time = stop["departure_time"]
             if last_stop is not None and last_stop != stop_id:
-                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=(delta_time_in_minutes(last_departure_time, stop_arrival_time)[0], last_departure_time, stop_arrival_time))  # Use the time difference in minutes as the distance
+                dt = delta_time_in_minutes(last_departure_time, stop_arrival_time)
+                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=(dt[0]+dt[1]//6/10, last_departure_time, stop_arrival_time))  # Use the time difference in minutes as the distance
             last_stop = stop_id
             last_departure_time = stop_departure_time
 
-def add_multiple_agencies_to_graph(*agencies):
+def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuild=False):
     GRAPH_NAME = f"{'_&_'.join(agencies)}.pkl"
-    if Path(Path("transit") / GRAPH_NAME).exists():
-        with open(Path("transit") / GRAPH_NAME, "rb") as f:
-            global graph
-            graph = pickle.load(f)
+    if not force_rebuild:
+        if Path(Path("transit") / GRAPH_NAME).exists():
+            with open(Path("transit") / GRAPH_NAME, "rb") as f:
+                global graph
+                graph = pickle.load(f)
+        else:
+            for agency in agencies:
+                add_agency_to_graph(agency, force_download=force_download)
+
+            # Save the graph to a pickle file
+            with open(Path("transit") / GRAPH_NAME, "wb") as f:
+                pickle.dump(graph, f)
     else:
         for agency in agencies:
-            add_agency_to_graph(agency)
+            add_agency_to_graph(agency, force_download=force_download)
 
         # Save the graph to a pickle file
         with open(Path("transit") / GRAPH_NAME, "wb") as f:
             pickle.dump(graph, f)
 
 if __name__ == "__main__":
-    add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
+    add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go", force_download=False, force_rebuild=False)
 
     for stop_id in graph:
         if len(graph[stop_id]) > 5:

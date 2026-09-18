@@ -37,4 +37,20 @@ def get_driving_route(start_address, end_address):
     response = requests.get(url, timeout=10)
 
     if response.status_code != 200:
-        print
+        print(red("Routing server error."))
+        return
+
+    data = response.json()
+
+    if data.get("code") != "Ok" or not data.get("routes"):
+        print(red("No driving route found."))
+        return
+
+    route = data["routes"][0]
+
+    distance_km = route["distance"]
+    distance_min = route["duration"]
+
+    print("Driving:")
+    print(blue(f"Distance: {distance_km:.2f}"))
+    print(green(f"Duration: "))

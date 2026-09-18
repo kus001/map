@@ -1,5 +1,6 @@
 import requests
 from geopy.geocoders import Nominatim
+from websockets import route
 from helpers.print_color import red, green, blue
 
 geolocator = Nominatim(user_agent="map_driving_thirdspace")
@@ -26,7 +27,10 @@ def get_driving_route(start_address, end_address):
         f"https://router.project-osrm.org/route/v1/driving/"
         f"{start_lon},{start_lat};"
         f"{end_lon},{end_lat}"
-        f"?overview=full&geometries=geojson&steps=true"
+        f"?overview=full"
+        f"&geometries=geojson"
+        f"&steps=true"
+        f"&alternatives=true"
     )
 
     response = requests.get(url, timeout=10)
@@ -35,37 +39,55 @@ def get_driving_route(start_address, end_address):
     if data.get("code") != "Ok":
         return None
 
-    route = data["routes"][0]
+    routes = []
 
-    distance_km = route["distance"] / 1000
-    duration_min = route["duration"] / 60
+    print("Number of routes found:", len(data[("routes")]))
 
-    route_coordinates = [
-        [lat, lon]
-        for lon, lat in route["geometry"]["coordinates"]
-    ]
+    for i, route_data in enumerate(data["routes"]):
 
-    steps=[]
+        distance_km = route_data['distance'] / 1000
+        duration_min = route_data['duration'] / 60
 
-    for leg in route["legs"]:
-        for step in leg["steps"]:
-            maneuver = step["maneuver"]
+        route_coordinates = [
+            [lat, lon]
+            for lon, lat in route_data["geometry"]["coordinates"]
+        ]
 
-            step_info = {
-                "type": maneuver["type"],
-                "modifier": maneuver.get("modifier", ""),
-                "road": step.get("name", ""),
-                "distance_m": step["distance"]
-            }
+        steps=[]
 
-            steps.append(step_info)
+        for leg in route_data["legs"]:
+            for step in leg["steps"]:
+                maneuver = step["maneuver"]
+
+                steps.append({
+                    "type": maneuver["type"],
+                    "modifier": maneuver.get("modifier", ""),
+                    "road": step.get("name", ""),
+                    "distance_m": step["distance"]
+                })
+
+        routes.append({
+            "distance_km": distance_km,
+            "duration_min": duration_min,
+            "steps": steps,
+            "route_coordinates": route_coordinates
+        })
+
+        print(
+            f"Route {i + 1}: "
+            f"{distance_km:.2f} km, "
+            f"{duration_min:.2f} min"
+        )
+
+    fastest_route = min(routes, key=lambda r: r["duration_min"])
+    shortest_route = min(routes, key=lambda r: r["distance_km"])
 
     return {
-        "mode" : "driving",
-        "distance_km": distance_km,
-        "duration_min": duration_min,
-        "steps": steps,
-        "route_coordinates": route_coordinates,
+        "mode": "driving",
         "start": [start_lat, start_lon],
-        "end": [end_lat, end_lon]
+        "end": [end_lat, end_lon],
+        "routes": routes
     }
+
+route = get_driving_route("toronto, ontario", "ottawa, ontario")
+

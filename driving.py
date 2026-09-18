@@ -68,7 +68,7 @@ def get_driving_route(start_address, end_address):
     # Temp Map View
 
     map_center = route_coordinates[0]
-    m = folium.Map(location=map_center, zoom_start=13, tiles="CartoDB positron")
+    m = folium.Map(location=map_center, zoom_start=13, tiles="OpenStreetMap")
     folium.PolyLine(route_coordinates, weight=6).add_to(m)
     folium.Marker(route_coordinates[0], popup="Start").add_to(m)
     folium.Marker(route_coordinates[-1], popup="Destination").add_to(m)
@@ -97,6 +97,8 @@ def get_driving_route(start_address, end_address):
 
             steps.append(step_info)
 
+    # Print Directions
+    """
     print("Directions:")
     for step in steps:
         direction = step["type"].replace("_", " ").title()
@@ -112,6 +114,7 @@ def get_driving_route(start_address, end_address):
 
         else:
             print(f"{direction} - {distance:.0f} m")
+    """
 
     return {
         "mode" : "driving",

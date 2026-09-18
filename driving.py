@@ -30,11 +30,18 @@ def get_driving_route(start_address, end_address):
     url = (
         f"https://router.project-osrm.org/route/v1/driving/"
         f"{start_lon},{start_lat};"
-        f"{end_lon},{end_lat};"
+        f"{end_lon},{end_lat}"
         f"?overview=false&steps=true"
     )
 
     response = requests.get(url, timeout=10)
+
+    # Debugging output
+    """
+    print("URL:", url)
+    print("Status:", response.status_code)
+    print("Response:", response.text)
+    """
 
     if response.status_code != 200:
         print(red("Routing server error."))
@@ -48,9 +55,14 @@ def get_driving_route(start_address, end_address):
 
     route = data["routes"][0]
 
-    distance_km = route["distance"]
-    distance_min = route["duration"]
+    distance_km = route["distance"] / 1000
+    duration_min = route["duration"] / 60
 
     print("Driving:")
-    print(blue(f"Distance: {distance_km:.2f}"))
-    print(green(f"Duration: "))
+    print(blue(f"Distance: {distance_km:.2f} km"))
+    print(green(f"Duration: {duration_min:.1f} minutes"))
+
+starting_address = input("Enter starting address: ")
+ending_address = input("Enter ending address:")
+
+get_driving_route(starting_address, ending_address)

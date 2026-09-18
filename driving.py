@@ -31,7 +31,7 @@ def get_driving_route(start_address, end_address):
         f"https://router.project-osrm.org/route/v1/driving/"
         f"{start_lon},{start_lat};"
         f"{end_lon},{end_lat}"
-        f"?overview=false&steps=true"
+        f"?overview=full&geometries=geojson&steps=true"
     )
 
     response = requests.get(url, timeout=10)
@@ -54,6 +54,13 @@ def get_driving_route(start_address, end_address):
         return
 
     route = data["routes"][0]
+
+    geometry = route["geometry"]["coordinates"]
+
+    route_coordinates = []
+
+    for lon, lat in geometry: 
+        route_coordinates.append([lat,lon])
 
     distance_km = route["distance"] / 1000
     duration_min = route["duration"] / 60
@@ -92,6 +99,14 @@ def get_driving_route(start_address, end_address):
 
         else:
             print(f"{direction} - {distance:.0f} m")
+
+    return {
+        "mode" : "driving",
+        "distance_km": distance_km,
+        "duration_min": duration_min,
+        "steps": steps,
+        "route_coordinates": route_coordinates
+    }
 
 starting_address = input("Enter starting address: ")
 ending_address = input("Enter ending address:")

@@ -62,6 +62,37 @@ def get_driving_route(start_address, end_address):
     print(blue(f"Distance: {distance_km:.2f} km"))
     print(green(f"Duration: {duration_min:.1f} minutes"))
 
+    steps=[]
+
+    for leg in route["legs"]:
+        for step in leg["steps"]:
+            maneuver = step["maneuver"]
+
+            step_info = {
+                "type": maneuver["type"],
+                "modifier": maneuver.get("modifier", ""),
+                "road": step.get("name", ""),
+                "distance_m": step["distance"]
+            }
+
+            steps.append(step_info)
+
+    print("Directions:")
+    for step in steps:
+        direction = step["type"].replace("_", " ").title()
+        modifier = step["modifier"]
+        road = step["road"]
+        distance = step["distance_m"]
+
+        if modifier:
+            direction += f" {modifier}"
+
+        if road:
+            print(f"{direction} onto {road} - {distance:.0f} m")
+
+        else:
+            print(f"{direction} - {distance:.0f} m")
+
 starting_address = input("Enter starting address: ")
 ending_address = input("Enter ending address:")
 

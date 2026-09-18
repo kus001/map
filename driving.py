@@ -2,6 +2,9 @@ import requests
 from geopy.geocoders import Nominatim
 from helpers.print_color import red, green, blue
 
+# Temp
+import folium
+
 geolocator = Nominatim(user_agent="map_driving_thirdspace")
 
 def get_coordinates(address):
@@ -61,6 +64,16 @@ def get_driving_route(start_address, end_address):
 
     for lon, lat in geometry: 
         route_coordinates.append([lat,lon])
+
+    # Temp Map View
+
+    map_center = route_coordinates[0]
+    m = folium.Map(location=map_center, zoom_start=13, tiles="CartoDB positron")
+    folium.PolyLine(route_coordinates, weight=6).add_to(m)
+    folium.Marker(route_coordinates[0], popup="Start").add_to(m)
+    folium.Marker(route_coordinates[-1], popup="Destination").add_to(m)
+    m.save("driving_route.html")
+
 
     distance_km = route["distance"] / 1000
     duration_min = route["duration"] / 60

@@ -44,7 +44,7 @@ class WeakDHAdapter(HTTPAdapter):
 
 
 def download_gtfs(agency:str):
-    local_path = Path("transit") / "GTFS_Files" / agency
+    local_path = Path("transit_data") / "GTFS_Files" / agency
     local_path.mkdir(parents=True, exist_ok=True)
 
     session = requests.Session()

@@ -1,4 +1,4 @@
 .vscode/
 *.pyc
 __pycache__/
-transit/GTFS_Files/
+transit_data/GTFS_Files/

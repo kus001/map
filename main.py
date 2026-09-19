@@ -129,3 +129,36 @@ def create_map(result, selected_route):
 
         return file_path
 
+def open_map(file_path):
+
+    directory = str(file_path.parent)
+
+    handler = partial(
+        SimpleHTTPRequestHandler,
+        directory=directory
+    )
+
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        handler
+    )
+
+    port = server.server_port
+
+    thread = threading.Thread(
+        target=server.serve_forever,
+        daemon=True
+    )
+
+    thread.start()
+
+    url = (
+        f"http://127.0.0.1:{port}/"
+        f"{file_path.name}"
+    )
+
+    webbrowser.open(url)
+
+    return server
+
+

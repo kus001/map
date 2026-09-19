@@ -8,7 +8,7 @@ from pathlib import Path
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
 
-from download_gtfs import download_gtfs
+from _transit.download_gtfs import download_gtfs
 from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
 from print_color import bold, green
 from distance import find_dist

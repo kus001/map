@@ -1,93 +1,125 @@
-# walking.py
+# Walking.py
 
 import requests
-from helpers.print_color import red, green, blue, magenta
 from geopy.geocoders import Nominatim
 
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-def walk_format_direction(step):
-    direction = step["maneuver"]["type"].replace("_", " ").title()
-    modifier = step["maneuver"].get("modifier", "")
-    road = step.get("name", "").strip()
-    distance = step["distance"]
+def get_coordinates(address):
+    try:
+        location = geolocator.geocode(address)
 
-    # print(road)
-
-    if not road:
-        road = magenta("Unnamed Road")
-
-    if direction == "New Name":
-        direction = magenta("(Road Name Changes)")
-
-    # make directions
-    result = direction
-    if modifier:
-        result += f" {modifier}"
-    result += f" onto {road} for" 
-
-    # distance
-    # add km convertions 
-
-    result += blue(f" {distance} m")
-
-    # if distance >= 1000:
-    #     result += blue(f" {(distance/1000):.2f} km")
-    # else:
-    #     result += blue(f" {distance} m")
-
-    return result
+        if location is None:
+            return None
+        return location.latitude, location.lognitutde
+    except Exception:
+        return None
 
 def get_walking_route(start_address, end_address):
-    try: 
-        startingAddress = input("Enter starting address: ")
-        startLocation = geolocator.geocode(startingAddress)
-        startLat = startLocation.latitude
-        startLong = startLocation.longitude
+    start = get_coordinates(start_address)
+    end = get_coordinates(end_address)
 
-        endingAddress = input("Enter ending address: ")
-        endLocation = geolocator.geocode(endingAddress)
-        endLat = endLocation.latitude
-        endLong = endLocation.longitude
-
-        # url = f"http://router.project-osrm.org/route/v1/walking/{startLong},{startLat};{endLong},{endLat}?overview=false"
-
-        url = (
-            f"https://host-transit-page.hackclub.app/route/v1/foot/"
-            f"{startLong},{startLat};"
-            f"{endLong},{endLat}"
-            f"?overview=full&steps=true"
-            )
-
-        response = requests.get(url).json()
-
-        # print(f"DEBUG: {len(response['routes'])} routes returned")
-
-        distance = response['routes'][0]['distance']
-        duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE
-        legs = response['routes'][0]['legs'] # direction steps
-
-        # (feedback from madhav) The duration is was off since it is calculating for the driving route. I have updated the API to use my custom server, which should fix it
-
+    if start is None:
         return {
-            "success": True,
-            "distance": distance,
-            "duration": duration,
-            "legs": legs,
-            "route_coords": route_coords,
-            "start": [startLat, startLong],
-            "end": [endLat, endLong]
+            "success": False,
+            "error": "starting address couldn't be found."
+        }
+    if end is None:
+        return {
+            "success": False,
+            "error": "Destination couldn't be found."
         }
 
-        # print()
-        # print("Walking: ")
-        # print()
-        # print(blue(f"Distance: {distance / 1000:.2f} km"))
-        # print(green(f"Duration: {duration / 60:.2f} minutes"))
+    start_lat, start_lon = start
+    end_lat, end_lon = end
 
-        # for leg in legs:
-        #     for step in leg["steps"]:
-        #         print(f"{format_direction(step)}")
+    url = (
+        "https://host-transit-page.hackclub.app/route/v1/foot/"
+        f"{start_lon},{start_lat};"
+        f"{end_lon},{end_lat}"
+    )
 
-    except:
-        return {"success":False, "error":"error getting route"}
+    params = {
+        "overview": "full",
+        "geometries": "geojson",
+        "steps": "true"
+    }
+
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            timeout=10
+        )
+
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestExceptions as error:
+        return {
+            "success": False,
+            "error": f"Walking routing server error: {error}"
+        }
+
+    if data.get("code") != "Ok":
+        return {
+            "success": False,
+            "error": data.get("message", "No walking route could be found.")
+        }
+
+    if not data.get("routes"):
+        return {
+            "success": False,
+            "error": "No walking route could be found."
+        }
+
+    route_data = data["routes"][0]
+
+    distance_km = route_data["distance"] / 1000
+    duration_min = route_data["duration"] / 60
+
+    route_coordinates = [
+        [lat, lon]
+        for lon, lat in route_data["geometry"]["coordinates"]
+    ]
+
+    steps=[]
+
+    for leg in route_data["legs"]:
+        for step in leg["steps"]:
+            maneuver = step["maneuver"]
+
+            steps.append({
+                "type":maneuver["type"],
+                "modifier": maneuver.get("modifier",""),
+                "road": step.get("name", ""),
+                "distance_m": step["distance"]
+            })
+
+    route = {
+        "route_number": 1,
+        "distance_km": distance_km,
+        "duration_min": duration_min,
+        "steps": steps,
+        "route_coordinates": route_coordinates
+    }
+
+    return {
+        "success": True,
+
+        "mode": "walking",
+
+        "start": {
+            "address": start_address,
+            "coordinates": [start_lat, start_lon]
+        },
+
+        "end": {
+            "address": end,
+            "coordinates": [end_lat, end_lon]
+        },
+
+        "routes": [route],
+
+        "fastest_route_number": 1,
+        "shortest_route_number": 1
+    }

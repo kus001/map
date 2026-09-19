@@ -36,7 +36,7 @@ def get_walking_route(start_address, end_address):
     url = (
         "https://host-transit-page.hackclub.app/route/v1/foot/"
         f"{start_lon},{start_lat};"
-        f"{end_lon},"{end_lat}"
+        f"{end_lon},{end_lat}"
     )
 
     params = {
@@ -54,7 +54,7 @@ def get_walking_route(start_address, end_address):
 
         response.raise_for_status()
         data = response.json()
-    except requests.RequestExceptionas error:
+    except requests.RequestExceptions as error:
         return {
             "success": False,
             "error": f"Walking routing server error: {error}"
@@ -89,7 +89,7 @@ def get_walking_route(start_address, end_address):
             maneuver = step["maneuver"]
 
             steps.append({
-                "type:maneuver["type"],
+                "type":maneuver["type"],
                 "modifier": maneuver.get("modifier",""),
                 "road": step.get("name", ""),
                 "distance_m": step["distance"]

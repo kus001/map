@@ -43,7 +43,7 @@ def get_driving_route(start_address, end_address, alternatives=3):
 
     )
 
-    parms = {
+    params = {
         "overview": "full",
         "geometries": "geojson",
         "steps": "true",
@@ -53,7 +53,7 @@ def get_driving_route(start_address, end_address, alternatives=3):
     try:
         response = requests.get(
             url,
-            parms=parms,
+            params=params,
             timeout=10
         )
 
@@ -164,7 +164,7 @@ def print_route_options(result):
         return
 
     print(f"Found {len(result['routes'])} route(s):)")
-    for route in result["routes]:"]:
+    for route in result['routes']:
         labels = get_route_labels(result, route)
         label_text = ""
 
@@ -204,3 +204,66 @@ def choose_route_cli(result):
         except ValueError:
             print("Please enter a number.")
 
+def format_direction(step):
+
+    direction_type = (
+        step["type"]
+        .replace("_", " ")
+        .title()
+    )
+
+    modifier = step["modifier"]
+    road = step["road"]
+    distance = step["distance_m"]
+
+    text = direction_type
+
+    if modifier:
+        text += f" {modifier}"
+
+    if road:
+        text += f" onto {road}"
+
+    if distance >= 1000:
+        text += f" for {distance / 1000:.2f} km"
+    else:
+        text += f" for {distance:.0f} m"
+
+    return text
+
+def print_directions(route):
+
+    print(f"Route {route['route_number']} Directions:")
+
+    for step in route["steps"]:
+        print(format_direction(step))
+if __name__ == "__main__":
+    start = input("Starting address: ")
+    end = input("Destination: ")
+
+    result = get_driving_route(start, end)
+
+    if not result["success"]:
+        print(result["error"])
+
+    else:
+        print_route_options(result)
+
+        selected_route = choose_route_cli(result)
+
+        print(
+            f"Selected Route "
+            f"{selected_route['route_number']}"
+        )
+
+        print(
+            f"Distance: "
+            f"{selected_route['distance_km']:.2f} km, "
+        )
+
+        print(
+            f"Duration: "
+            f"{selected_route['duration_min']:.2f} min"
+        )
+
+        print_directions(selected_route )

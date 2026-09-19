@@ -63,10 +63,10 @@ def transit_a_star(graph, start_id, goal_id, transfer_penalty=5):
 
     return None, float('inf')
 
-route, total_time = transit_a_star(graph, "grt_busses:2088", "grt_busses:1126")
+route, total_time = transit_a_star(graph, "grt_busses:2088", "go:GL")
 
 for item in route:
     print(item)
 
 print(f"\nOptimal Transit Line: {' --> '.join([f'{stop_id} @ ({coords[0]}, {coords[1]})' for stop_id, coords, _ in route])}")
-print(f"\nEstimated Commute Time: {total_time} minutes")
+print(f"\nEstimated Commute Time: {total_time:.2f} minutes")

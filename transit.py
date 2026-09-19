@@ -10,7 +10,7 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, transfer_penalty=3):
+def transit_a_star(graph, start_id, goal_id, transfer_penalty=5):
     # Queue stores: (f_score, current_node, current_route_id, current_edge_data)
     priority_queue = []
     heappush(priority_queue, (0, start_id, None, None))

@@ -1,31 +1,64 @@
 # Main.py
 
+import folium
+import webbrowser
+import threading
+
+from pathlib import Path
+from functools import partial
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+
 from driving import (
     get_driving_route,
-    print_route_options,
-    choose_route_cli,
-    print_directions
+    select_route,
+    get_route_labels
 )
 
-start = input("Where are you starting from? ")
-destination = input("Where are you going to? ")
+def format_duration(minutes):
+    minutes = round(minutes)
 
-result = get_driving_route(
-    start,
-    destination
-)
+    if minutes < 60:
+        return f"{minutes} min"
 
-if not result["success"]:
-    print(result["error"])
-    exit()
+    hours = minutes // 60
+    remaining = minutes % 60
 
-print_route_options(result)
+    return f"{hours} hr {remaining} min"
 
-selected_route = choose_route_cli(result)
+def choose_route(result):
+    routes = result["routes"]
 
-print("Selected route: ")
+    print("\nAvaliable routes: \n")
 
-print(f"{selected_route['distance_km']:.2f} km")
-print(f"{selected_route['duration_min']:.2f} minutes")
+    for route in routes:
+        labels = get_route_labels(result, route)
 
-print_directions(selected_route)
+        label_text = ""
+
+        if labels:
+            label_text = " [" + ", ".join(labels) +"]"
+
+        print(
+            f"{route['route_number']}. "
+            f"{route['distance_km']:.2f} km | "
+            f"{format_duration(route['duration_min'])}"
+            f"{label_text}"
+        )
+
+    while True:
+        try:
+            choice = int(
+                input(
+                    f"\nChoose route (1-{len(routes)}): "
+                )
+            )
+
+            selected = select_route(result, choice)
+
+            if selected is not None:
+                return selected
+
+            print("Invalid route number.")
+
+        except ValueError: 
+            print("Enter a number.")

@@ -1,11 +1,17 @@
 import os
 import ssl
+import sys
 import urllib3
 import requests
 import zipfile
 from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
+
+cwd = Path.cwd()
+sys.path.append(str(cwd / "helpers"))
+
+from print_color import red, blue, bold, green
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -54,7 +60,7 @@ def download_gtfs(agency:str):
         with open(local_path / "data.zip", "wb") as file:
             file.write(response.content)
     else:
-        print(f"Failed to download GTFS data for {agency}, from {url}. Status code: {response.status_code}")
+        print(red(f"Failed to download GTFS data for {agency}, from {url}. Status code: {response.status_code}"))
         return -1
 
     with zipfile.ZipFile(local_path / "data.zip", 'r') as zip_ref:

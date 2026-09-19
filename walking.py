@@ -4,13 +4,20 @@ import requests
 from helpers.print_color import red, green, blue, magenta
 from geopy.geocoders import Nominatim
 
+print("new run")
+
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
 def format_direction(step):
     direction = step["maneuver"]["type"].replace("_", " ").title()
     modifier = step["maneuver"].get("modifier", "")
-    road = step.get("name", "unnamed road").replace("New Name", red("Unnamed Road")) # fix these, .replace() doesnt work
+    road = step.get("name", "").strip()
     distance = step["distance"]
+
+    # print(road)
+
+    if not road:
+        road = "Unnamed Road"
 
     # make directions
     result = direction
@@ -62,6 +69,8 @@ while True:
         for leg in legs:
             for step in leg["steps"]:
                 print(f"{format_direction(step)}")
+
+        break
 
     except AttributeError:
         print(red("Enter valid address!"))

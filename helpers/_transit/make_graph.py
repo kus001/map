@@ -70,8 +70,8 @@ def add_agency_to_graph(agency, force_download=False):
                     stop_coords = (float(stop["stop_lat"]), float(stop["stop_lon"]))
                     distance = find_dist(stop_coords, stop_coords2)
                     if distance < 100:
-                        add_neighbor(agency + ":" + stop["stop_id"], agency2 + ":" + stop2["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
-                        add_neighbor(agency2 + ":" + stop2["stop_id"], agency + ":" + stop["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
+                        add_neighbor(agency + ":" + stop["stop_id"], agency2 + ":" + stop2["stop_id"], None, distance/60)  # Convert distance to minutes assuming average walking speed of 1 m/s
+                        add_neighbor(agency2 + ":" + stop2["stop_id"], agency + ":" + stop["stop_id"], None, distance/60)  # Convert distance to minutes assuming average walking speed of 1 m/s
 
     with open(Path("transit_data") / "GTFS_Files" / agency / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)

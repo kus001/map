@@ -161,4 +161,40 @@ def open_map(file_path):
 
     return server
 
+def main():
+    start = input("Starting location: ").strip()
+    destination = input("Destination: ").strip()
 
+    if not start:
+        print("Starting location cannot be empty.")
+        return
+
+    if not destination:
+        print("Destination cannot be empty.")
+        return
+
+    result = get_driving_route(
+        start, 
+        destination
+    )
+
+    if not result["success"]:
+        print("\nRoute couldn't be calculated.")
+        print(result["error"])
+        return
+
+    selected_route = choose_route(result)
+
+    map_file = create_map(
+        result,
+        selected_route
+    )
+
+    server = open_map(map_file)
+
+    input()
+
+    server.shutdown()
+
+if __name__ == "__main__":
+    main()

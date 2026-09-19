@@ -1,135 +1,236 @@
 <!DOCTYPE html>
-
 <html>
-    <head>
-        <title>Map</title>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-        <style>
-            #map {
-                width: 100%;
-                height: 600px;
+<head>
+    <title>Map</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        #map {
+            width: 100%;
+            height: 600px;
+            margin-top: 15px;
+        }
+
+        #route-options {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+
+        .route-card {
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            min-width: 180px;
+        }
+
+        .route-card.selected {
+            border: 2px solid #2563eb;
+        }
+
+        .route-time {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .route-info {
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .route-label {
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Driving Router</h1>
+
+    <input id="start" placeholder="Starting location">
+    <input id="destination" placeholder="Destination">
+    <button id="search-button">Find routes</button>
+
+    <div id="route-options"></div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const map = L.map("map").setView([43.4643, -80.5204], 12);
+
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+
+        let routeLayers = [];
+        let startMarker = null;
+        let endMarker = null;
+        let currentData = null;
+        let selectedRouteNumber = 1;
+
+        const searchButton = document.getElementById("search-button");
+        const routeOptions = document.getElementById("route-options");
+
+        function formatDuration(minutes) {
+            const rounded = Math.round(minutes);
+
+            if (rounded < 60) {
+                return rounded + " min";
             }
-        </style>
-    </head>
-    <body>
-        <h1>Driving Router</h1>
-        <input id="start" placeholder="Starting location">
-        <input id="destination" placeholder="Destination">
-        <button id="search-button">Find routes</button>
-        <div id="map"></div>
 
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script>
-            const map = L.map("map").setView([43.4643, -80.5204], 12);
-            
-            L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "&copy; OpenStreetMap contriubutors"}).addTo(map);
-            
-            let routeLayers = [];
-            let startMarker = null;
-            let endMarker = null;
-            let currentData = null;
-            let selectedRouteNumber = 1;
+            const hours = Math.floor(rounded / 60);
+            const mins = rounded % 60;
 
+            return hours + " hr " + mins + " min";
+        }
 
-            const searchButton = document.getElementById("search-button");
-            
-            searchButton.addEventListener("click", async function() {
-                const start = document.getElementById("start").value;
-                const destination = document.getElementById("destination").value;
-                const response = await fetch("/api/routes", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type":
-                        "application/json"
-                    },
+        function renderRouteCards() {
+            routeOptions.innerHTML = "";
 
-                    body: JSON.stringify({
-                        start: start,
-                        destination: destination
-                    })
-                });
-                const data = await response.json();
+            currentData.routes.forEach(function(route) {
+                const card = document.createElement("div");
 
-                if (!data.success) {
-                    alert(data.error);
-                    return;
+                card.className = "route-card";
+
+                if (route.route_number === selectedRouteNumber) {
+                    card.classList.add("selected");
                 }
-                
-                routeLayers.forEach(function(layer) {
-                    map.removeLayer(layer);
+
+                let labels = [];
+
+                if (route.route_number === currentData.fastest_route_number) {
+                    labels.push("FASTEST");
+                }
+
+                if (route.route_number === currentData.shortest_route_number) {
+                    labels.push("SHORTEST");
+                }
+
+                card.innerHTML = `
+                    <div class="route-time">
+                        ${formatDuration(route.duration_min)}
+                    </div>
+
+                    <div class="route-info">
+                        Route ${route.route_number} • ${route.distance_km.toFixed(2)} km
+                    </div>
+
+                    <div class="route-label">
+                        ${labels.join(" • ")}
+                    </div>
+                `;
+
+                card.addEventListener("click", function() {
+                    selectRoute(route.route_number);
                 });
 
-                routeLayers = [];
+                routeOptions.appendChild(card);
+            });
+        }
 
-                if (startMarker !== null) {
-                    map.removeLayer(startMarker);
-                }
+        function selectRoute(routeNumber) {
+            selectedRouteNumber = routeNumber;
 
-                if (endMarker !== null) {
-                    map.removeLayer(endMarker);
-                }
+            drawRoutes();
+            renderRouteCards();
+        }
 
-                currentData = data;
-                selectedRouteNumber = data.fastest_route_number;
-                const selectedRoute = drawRoutes();
-
-                startMarker = L.marker(
-                    data.start.coordinates
-                ).addTo(map);
-
-                startMarker.bindPopup(
-                    "Start: " + data.start.address
-                );
-
-                endMarker = L.marker(
-                    data.end.coordinates
-                ).addTo(map);
-
-                endMarker.bindPopup(
-                    "Destination: " + data.end.address
-                );
-
-                map.fitBounds(selectedRoute.route_coordinates);
+        function drawRoutes() {
+            routeLayers.forEach(function(layer) {
+                map.removeLayer(layer);
             });
 
-            function drawRoutes() {
-                routeLayers.forEach(function(layer) {
-                    map.removeLayer(layer);
-                });
-                routeLayers = [];
+            routeLayers = [];
 
-                currentData.routes.forEach(
-                    function(route) {
-                        if (route.route_number !== selectedRouteNumber) {
-                            const line = L.polyline(route.route_coordinates, {
-                                color: "#777777",
-                                weight: 4,
-                                opacity: 0.4
-                            }).addTo(map);
-                            line.on("click", function() {
-                                selectedRouteNumber = route.route_number;
-                                drawRoutes();
-                            });
-                            routeLayers.push(line);
-                        }
-                    }
-                );
+            currentData.routes.forEach(function(route) {
+                if (route.route_number !== selectedRouteNumber) {
+                    const line = L.polyline(route.route_coordinates, {
+                        color: "#777",
+                        weight: 4,
+                        opacity: 0.4
+                    }).addTo(map);
 
-                const selectedRoute = currentData.routes.find(function(route) {
-                    return (
-                        route.route_number === selectedRouteNumber
-                    );
-                });
+                    line.on("click", function() {
+                        selectRoute(route.route_number);
+                    });
 
-                const selectedLine = L.polyline(selectedRoute.route_coordinates, {
-                    color: "#2563eb",
-                    weight: 7,
-                    opacity: 0.9
-                }).addTo(map);
-                routeLayers.push(selectedLine);
+                    routeLayers.push(line);
+                }
+            });
 
-                return selectedRoute;
-            }            
-        </script>
-    </body>
+            const selectedRoute = currentData.routes.find(function(route) {
+                return route.route_number === selectedRouteNumber;
+            });
+
+            const selectedLine = L.polyline(selectedRoute.route_coordinates, {
+                color: "#2563eb",
+                weight: 7,
+                opacity: 0.9
+            }).addTo(map);
+
+            routeLayers.push(selectedLine);
+
+            return selectedRoute;
+        }
+
+        searchButton.addEventListener("click", async function() {
+            const start = document.getElementById("start").value;
+            const destination = document.getElementById("destination").value;
+
+            const response = await fetch("/api/routes", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    start: start,
+                    destination: destination
+                })
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                alert(data.error);
+                return;
+            }
+
+            if (startMarker !== null) {
+                map.removeLayer(startMarker);
+            }
+
+            if (endMarker !== null) {
+                map.removeLayer(endMarker);
+            }
+
+            currentData = data;
+            selectedRouteNumber = data.fastest_route_number;
+
+            const selectedRoute = drawRoutes();
+
+            renderRouteCards();
+
+            startMarker = L.marker(data.start.coordinates).addTo(map);
+            startMarker.bindPopup("Start: " + data.start.address);
+
+            endMarker = L.marker(data.end.coordinates).addTo(map);
+            endMarker.bindPopup("Destination: " + data.end.address);
+
+            map.fitBounds(selectedRoute.route_coordinates);
+        });
+    </script>
+</body>
 </html>

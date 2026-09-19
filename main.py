@@ -1,5 +1,7 @@
 # Main.py
 
+# DEPRECIATED
+
 import folium
 import webbrowser
 import threading

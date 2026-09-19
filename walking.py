@@ -6,7 +6,7 @@ from geopy.geocoders import Nominatim
 
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-def format_direction(step):
+def walk_format_direction(step):
     direction = step["maneuver"]["type"].replace("_", " ").title()
     modifier = step["maneuver"].get("modifier", "")
     road = step.get("name", "").strip()
@@ -61,8 +61,7 @@ def get_walking_route(start_address, end_address):
 
         response = requests.get(url).json()
 
-        print(f"DEBUG: {len(response['routes'])} routes returned")  # ← ADD THIS
-
+        # print(f"DEBUG: {len(response['routes'])} routes returned")
 
         distance = response['routes'][0]['distance']
         duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE

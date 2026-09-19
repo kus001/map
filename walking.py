@@ -6,7 +6,7 @@ from geopy.geocoders import Nominatim
 
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-def format_direction(step):
+def walk_format_direction(step):
     direction = step["maneuver"]["type"].replace("_", " ").title()
     modifier = step["maneuver"].get("modifier", "")
     road = step.get("name", "").strip()
@@ -38,7 +38,7 @@ def format_direction(step):
 
     return result
 
-while True: 
+def get_walking_route(start_address, end_address):
     try: 
         startingAddress = input("Enter starting address: ")
         startLocation = geolocator.geocode(startingAddress)
@@ -57,12 +57,11 @@ while True:
             f"{startLong},{startLat};"
             f"{endLong},{endLat}"
             f"?overview=full&steps=true"
-        )
+            )
 
         response = requests.get(url).json()
 
-        print(f"DEBUG: {len(response['routes'])} routes returned")  # ← ADD THIS
-
+        # print(f"DEBUG: {len(response['routes'])} routes returned")
 
         distance = response['routes'][0]['distance']
         duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE
@@ -70,17 +69,25 @@ while True:
 
         # (feedback from madhav) The duration is was off since it is calculating for the driving route. I have updated the API to use my custom server, which should fix it
 
-        print()
-        print("Walking: ")
-        print()
-        print(blue(f"Distance: {distance / 1000:.2f} km"))
-        print(green(f"Duration: {duration / 60:.2f} minutes"))
+        return {
+            "success": True,
+            "distance": distance,
+            "duration": duration,
+            "legs": legs,
+            "route_coords": route_coords,
+            "start": [startLat, startLong],
+            "end": [endLat, endLong]
+        }
 
-        for leg in legs:
-            for step in leg["steps"]:
-                print(f"{format_direction(step)}")
+        # print()
+        # print("Walking: ")
+        # print()
+        # print(blue(f"Distance: {distance / 1000:.2f} km"))
+        # print(green(f"Duration: {duration / 60:.2f} minutes"))
 
-        break
+        # for leg in legs:
+        #     for step in leg["steps"]:
+        #         print(f"{format_direction(step)}")
 
-    except AttributeError:
-        print(red("Enter valid address!"))
+    except:
+        return {"success":False, "error":"error getting route"}

@@ -15,8 +15,7 @@ endLat = endLocation.latitude
 endLong = endLocation.longitude
 
 url = (
-    f"https://host-transit-page.hackclub.app/route/v1/bike/"
-    f"{startLong},{startLat};"
+    f"http://router.project-osrm.org/route/v1/bike/" # find better url
     f"{endLong},{endLat}"
     f"?overview=false"
     )

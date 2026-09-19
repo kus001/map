@@ -27,14 +27,11 @@ def walk_format_direction(step):
     result += f" onto {road} for" 
 
     # distance
-    # add km convertions 
-
     result += blue(f" {distance} m")
-
-    # if distance >= 1000:
-    #     result += blue(f" {(distance/1000):.2f} km")
-    # else:
-    #     result += blue(f" {distance} m")
+    if distance >= 1000:
+        result += blue(f" {(distance/1000):.2f} km")
+    else:
+        result += blue(f" {distance} m")
 
     return result
 

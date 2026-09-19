@@ -1,398 +1,52 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Map</title>
+    <head>
+        <title>Map</title>
+        <meta name="viewport" content=""width=device-width, initial-scale="1.0">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+        <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    </head>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-
-        #map {
-            width: 100%;
-            height: 600px;
-            margin-top: 15px;
-        }
-
-        #mode-options {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-
-        .mode-button {
-            padding: 8px 16px;
-            border: 1px solid #ccc;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-
-        .mode-button.selected {
-            background: #2563eb;
-            color: white;
-            border-color: #2563eb;
-        }
-
-        #route-options {
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-
-        .route-card {
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            background: white;
-            cursor: pointer;
-            min-width: 180px;
-        }
-
-        .route-card.selected {
-            border: 2px solid #2563eb;
-        }
-
-        .route-time {
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .route-info {
-            font-size: 14px;
-            margin-top: 4px;
-        }
-
-        .route-label {
-            font-size: 12px;
-            font-weight: bold;
-            margin-top: 6px;
-        }
-
-        #directions {
-            margin: 10px 0;
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-        }
-        .direction-step {
-            padding: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-        .direction-distance {
-            font-size: 12x;
-            color: #777;
-            margin-top: 3px;
-        }
-    </style>
-</head>
-
-<body>
-    <h1>Map</h1>
-    <div id="mode-options">
-        <button class="mode-button selected" data-mode="driving">
-            Drive
-        </button>
-        <button class="mode-button" data-mode="walking">
-            Walk
-        </button>
-    </div>
-
-    <input id="start" placeholder="Starting location">
-    <input id="destination" placeholder="Destination">
-    <button id="search-button">Find routes</button>
-
-    <div id="route-options"></div>
-    <h2>Directions</h2>
-    <div id="directions"></div>
-
-    <div id="map"></div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <script>
-        const map = L.map("map").setView([43.4643, -80.5204], 12);
-
-        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            maxZoom: 19,
-            attribution: "&copy; OpenStreetMap contributors"
-        }).addTo(map);
-
-        let routeLayers = [];
-        let startMarker = null;
-        let endMarker = null;
-        let currentData = null;
-        let selectedRouteNumber = 1;
-        let selectedMode = "driving";
-
-        const searchButton = document.getElementById("search-button");
-        const routeOptions = document.getElementById("route-options");
-        const directions = document.getElementById("directions");
-        const modeButtons = document.querySelectorAll(".mode-button");
-
-        modeButtons.forEach(function(button) {
-            button.addEventListener("click", function() {
-                selectedMode = button.dataset.mode;
-
-                modeButtons.forEach(function(otherButton) {
-                    otherButton.classList.remove("selected");
-                });
-                button.classList.add("selected");
-                const start = document.getElementById("start").value.trim();
-                const destination = document.getElementById("destination").value.trim();
-                if (start && destination) {
-                    searchButton.click();
-                }
-            });
-        });
-
-        function formatDuration(minutes) {
-            const rounded = Math.round(minutes);
-
-            if (rounded < 60) {
-                return rounded + " min";
-            }
-
-            const hours = Math.floor(rounded / 60);
-            const mins = rounded % 60;
-
-            return hours + " hr " + mins + " min";
-        }
-
-        function formatDistance(meters) {
-            if (meters >= 1000) {
-                return (meters / 1000).toFixed(1) + " km";
-            }
-
-            return Math.round(meters) + " m";
-        }
-
-        function formatDirection(step) {
-            const type = step.type;
-            const modifier = step.modifier;
-            const road = step.road;
-
-            let text = "";
-
-            if (type === "depart") {
-                text = "Start";
-
-                if (modifier) {
-                    text += " heading " + modifier;
-                }
-            }
-
-            else if (type === "arrive") {
-                text = "Arrive at your destination";
-            }
-
-            else if (type === "turn") {
-                text = "Turn";
-
-                if (modifier) {
-                    text += " " + modifier;
-                }
-            }
-
-            else if (type === "continue") {
-                text = "Continue";
-
-                if (modifier) {
-                    text += " " + modifier;
-                }
-            }
-
-            else if (type === "end of road") {
-                text = "At the end of the road";
-
-                if (modifier) {
-                    text += ", turn " + modifier;
-                }
-            }
-
-            else {
-                text = type.replaceAll("_", " ").replace(/\b\w/g, function(letter) {
-                    return letter.toUpperCase();
-                });
-
-                if (modifier) {
-                    text += " " + modifier;
-                }
-            }
-
-            if (road && type !== "arrive") {
-                text += " onto " + road;
-            }
-
-            return text;
-        }
-
-        function renderDirections(route) {
-            directions.innerHTML = "";
-
-            route.steps.forEach(function(step) {
-                const item = document.createElement("div");
-                item.className = "direction-step";
-                item.innerHTML = `
-                    <div>
-                        ${formatDirection(step)}
+    <body>
+        <div class="app">
+            <div class="sidebar">
+                <div class="top-section">
+                    <div class="logo">
+                        <span>Map</span> Router
                     </div>
-                    <div class="direction-distance">
-                        ${formatDistance(step.distance_m)}
+                    <div class="search-box">
+                        <div class="input-row">
+                            <div class="input-dot"></div>
+                            <input id="start" placeholder="Starting location">
+                        </div>
+                        <div class="input-row">
+                            <div class="input-dot destination"></div>
+                            <input id="destination" placeholder="Destination">
+                        </div>
+                        <button id="search-button">Find routes</button>
                     </div>
-                `;
-
-                directions.appendChild(item);
-            });
-        }
-
-        function renderRouteCards() {
-            routeOptions.innerHTML = "";
-
-            currentData.routes.forEach(function(route) {
-                const card = document.createElement("div");
-
-                card.className = "route-card";
-
-                if (route.route_number === selectedRouteNumber) {
-                    card.classList.add("selected");
-                }
-
-                let labels = [];
-
-                if (route.route_number === currentData.fastest_route_number) {
-                    labels.push("FASTEST");
-                }
-
-                if (route.route_number === currentData.shortest_route_number) {
-                    labels.push("SHORTEST");
-                }
-
-                const routeName = selectedMode === "walking" ? "Walking route" : "Route " + route.route_number;
-
-                card.innerHTML = `
-                    <div class="route-time">
-                        ${formatDuration(route.duration_min)}
+                    <div id="mode-options">
+                        <button class="mode-button selected" data-mode="driving">Drive</button>
+                        <button class="mode-button" data-mode="walking">Walk</button>
                     </div>
-
-                    <div class="route-info">
-                        ${routeName} • ${route.distance_km.toFixed(2)} km
+                </div>
+                <div class="results">
+                    <div id="status">
+                        Enter a starting point and destination
                     </div>
-
-                    <div class="route-label">
-                        ${labels.join(" • ")}
+                    <div id="route-options"></div>
+                    <div id="directions-section">
+                        <div class="directions-title">
+                            Directions
+                        </div>
+                        <div id="directions"></div>
                     </div>
-                `;
+                </div>
+            </div>
+            <div id="map"></div>
+        </div>
 
-                card.addEventListener("click", function() {
-                    selectRoute(route.route_number);
-                });
-
-                routeOptions.appendChild(card);
-            });
-        }
-
-        function selectRoute(routeNumber) {
-            selectedRouteNumber = routeNumber;
-
-            const selectedRoute = drawRoutes();
-
-            renderRouteCards();
-            renderDirections(selectedRoute);
-        }
-
-        function drawRoutes() {
-            routeLayers.forEach(function(layer) {
-                map.removeLayer(layer);
-            });
-
-            routeLayers = [];
-
-            currentData.routes.forEach(function(route) {
-                if (route.route_number !== selectedRouteNumber) {
-                    const line = L.polyline(route.route_coordinates, {
-                        color: "#777",
-                        weight: 4,
-                        opacity: 0.4
-                    }).addTo(map);
-
-                    line.on("click", function() {
-                        selectRoute(route.route_number);
-                    });
-
-                    routeLayers.push(line);
-                }
-            });
-
-            const selectedRoute = currentData.routes.find(function(route) {
-                return route.route_number === selectedRouteNumber;
-            });
-
-            const selectedLine = L.polyline(selectedRoute.route_coordinates, {
-                color: "#2563eb",
-                weight: 7,
-                opacity: 0.9,
-
-                dashArray: selectedMode === "walking" ? "1 10" : null,
-                lineCap: "round"
-            }).addTo(map);
-
-            routeLayers.push(selectedLine);
-
-            return selectedRoute;
-        }
-
-        searchButton.addEventListener("click", async function() {
-            const start = document.getElementById("start").value;
-            const destination = document.getElementById("destination").value;
-
-            const response = await fetch("/api/routes", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    start: start,
-                    destination: destination,
-                    mode: selectedMode
-                })
-            });
-
-            const data = await response.json();
-
-            if (!data.success) {
-                alert(data.error);
-                return;
-            }
-
-            if (startMarker !== null) {
-                map.removeLayer(startMarker);
-            }
-
-            if (endMarker !== null) {
-                map.removeLayer(endMarker);
-            }
-
-            currentData = data;
-            selectedRouteNumber = data.fastest_route_number;
-
-            const selectedRoute = drawRoutes();
-
-            renderRouteCards();
-            renderDirections(selectedRoute);
-
-            startMarker = L.marker(data.start.coordinates).addTo(map);
-            startMarker.bindPopup("Start: " + data.start.address);
-
-            endMarker = L.marker(data.end.coordinates).addTo(map);
-            endMarker.bindPopup("Destination: " + data.end.address);
-
-            map.fitBounds(selectedRoute.route_coordinates);
-        });
-    </script>
-</body>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script src="{{ url_for('static', filename='app.js) }}></script>
+    </body>
 </html>

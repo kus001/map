@@ -1,7 +1,6 @@
 import csv
 import os
 import sys
-import math
 import pickle
 from heapq import heappop, heappush
 from pathlib import Path
@@ -12,23 +11,11 @@ sys.path.append(str(cwd / "helpers"))
 from download_gtfs import download_gtfs
 from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
 from print_color import bold, green
+from distance import find_dist
 
 graph = {}
+node_positions = {}
 all_stops = []
-
-def find_dist(coord1, coord2):
-    lat1, lon1 = coord1
-    lat2, lon2 = coord2
-
-    rad_lat = math.radians(lat1)
-
-    deg_to_km = 111.32  # Approximate conversion factor from degrees to kilometers
-    dlat = (lat2 - lat1) * deg_to_km
-    dlon = (lon2 - lon1) * deg_to_km * math.cos(rad_lat)
-
-    distance = math.sqrt(dlat**2 + dlon**2) * 1000  # Convert to meters
-
-    return distance
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
     if stop_id not in graph:
@@ -37,6 +24,10 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
         return  # Avoid adding duplicate neighbors
     graph[stop_id][neighbor_stop_id] = {"distance": distance}
     graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
+
+def add_stop_position(stop_id, lat, lon):
+    if stop_id not in node_positions:
+        node_positions[stop_id] = (lat, lon)
 
 def add_agency_to_graph(agency, force_download=False):
     if not (Path("transit") / "GTFS_Files" / agency).exists() or force_download:
@@ -50,6 +41,7 @@ def add_agency_to_graph(agency, force_download=False):
         all_stops.extend(stops)  # Add the stops to the global list of all stops
 
     for stop in stops:
+        add_stop_position(agency + ":" + stop["stop_id"], float(stop["stop_lat"]), float(stop["stop_lon"]))
         for stop2 in all_stops:
             if stop["stop_id"] != stop2["stop_id"]:
                 stop_coords2 = (float(stop2["stop_lat"]), float(stop2["stop_lon"]))
@@ -104,23 +96,31 @@ def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuil
 
     if Path(Path("transit") / GRAPH_NAME).exists():
         with open(Path("transit") / GRAPH_NAME, "rb") as f:
-            global graph
-            graph = pickle.load(f)
+            global graph, node_positions
+            graph = pickle.load(f).graph
+            node_positions = pickle.load(f).node_positions
     else:
         for agency in agencies:
             add_agency_to_graph(agency, force_download=force_download)
 
         # Save the graph to a pickle file
         with open(Path("transit") / GRAPH_NAME, "wb") as f:
-            pickle.dump(graph, f)
+            pickle.dump(Graph(graph, node_positions), f)
 
-        # Save the graph to a pickle file
-        with open(Path("transit") / GRAPH_NAME, "wb") as f:
-            pickle.dump(graph, f)
+class Graph:
+    def __init__(self, graph, node_positions):
+        self.graph = graph
+        self.node_positions = node_positions
+
+    def get_neighbors(self, stop_id):
+        return self.graph.get(stop_id, {})
+
+    def get_position(self, stop_id):
+        return self.node_positions.get(stop_id, (None, None))
 
 def make_graph():
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
-    return graph
+    return Graph(graph, node_positions)
 
 if __name__ == "__main__":
     make_graph()

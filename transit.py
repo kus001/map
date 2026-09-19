@@ -37,10 +37,13 @@ def transit_a_star(graph, start_id, goal_id):
 
         for neighbor_id, travel_time in graph.get(current_id, {}).items():
             tentative_g = graph_costs[current_id] + travel_time["distance"]
+            if info:
+                if graph[current_id][neighbor_id].get("route", {"route":None})["route"] != info.get("route", {"route":None})["route"]:
+                    tentative_g += 3
             if tentative_g < graph_costs[neighbor_id]:
                 graph_costs[neighbor_id] = tentative_g
                 priority = tentative_g + dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id]))
-                heappush(priority_queue, (priority, neighbor_id, graph[current_id]))
+                heappush(priority_queue, (priority, neighbor_id, graph[current_id][neighbor_id]))
                 came_from[neighbor_id] = current_id
 
     return None, float('inf')

@@ -24,7 +24,7 @@
             
             L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "&copy; OpenStreetMap contriubutors"}).addTo(map);
             
-            let routeLayer = null;
+            let routeLayers = [];
             let startMarker = null;
             let endMarker = null;
 
@@ -52,12 +52,11 @@
                     alert(data.error);
                     return;
                 }
+                routeLayers.forEach(function(layer) {
+                    map.removeLayer(layer);
+                });
 
-                const route = data.routes[0];
-
-                if (routeLayer !== null) {
-                    map.removeLayer(routeLayer);
-                }
+                routeLayers = [];
 
                 if (startMarker !== null) {
                     map.removeLayer(startMarker);
@@ -67,13 +66,15 @@
                     map.removeLayer(endMarker);
                 }
 
-                routeLayer = L.polyline(
-                    route.route_coordinates, {
-                        color: "#2563eb",
-                        weight: 6,
-                        opacity: 0.9
-                    }
-                ).addTo(map);
+                data.routes.forEach(function(route) {
+                    const isSelected = route.route_number === 1;
+                    const line = L.polyline(route.route_coordinates, {
+                        color: isSelected ? "#2563eb" : "#777777",
+                        weight: isSelected ? 7 : 4,
+                        opacity: isSelected ? 0.9 : 0.4
+                    }).addTo(map);
+                    routeLayers.push(line);
+                });
 
                 startMarker = L.marker(
                     data.start.coordinates
@@ -91,7 +92,7 @@
                     "Destination: " + data.end.address
                 );
 
-                map.fitBounds(routeLayer.getBounds());
+                map.fitBounds(routeLayers[0].getBounds());
             });
             
         </script>

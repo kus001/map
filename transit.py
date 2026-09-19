@@ -1,54 +1,69 @@
 from heapq import heappop, heappush
 from helpers._transit.make_graph import make_graph
-from helpers.distance import dist_time, find_dist
-from helpers.print_color import red, blue, bold, green
+from helpers.distance import dist_time
+from helpers.print_color import bold, green
+
+data = make_graph()
+graph = data.graph
+stops = data.node_positions
 
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-print(bold(green("\n\n-------------------- Starting Transit Router --------------------")))
-
-data = make_graph()
-
-graph = data.graph
-stops = data.node_positions
-
-def transit_a_star(graph, start_id, goal_id):
+def transit_a_star(graph, start_id, goal_id, transfer_penalty=3):
+    # Queue stores: (f_score, current_node, current_route_id, current_edge_data)
     priority_queue = []
-    heappush(priority_queue, (0, start_id, None))
+    heappush(priority_queue, (0, start_id, None, None))
 
-    graph_costs = {stop_id: float('inf') for stop_id in stops}
-    graph_costs[start_id] = 0
-
-    came_from = {stop_id: None for stop_id in stops}
+    # Track lowest g_score per state: (node_id, route_id)
+    graph_costs = {(start_id, None): 0}
+    
+    # Path reconstructor: (node, route) -> (prev_node, prev_route, edge_data)
+    came_from = {}
 
     while priority_queue:
-        current_f, current_id, info = heappop(priority_queue)
+        current_f, current_id, current_route, info = heappop(priority_queue)
 
         if current_id == goal_id:
             path = []
-            next_id = None
-            while current_id is not None:
-                path.append((current_id, stops[current_id], graph[current_id].get(next_id, None)))
-
-                next_id = current_id
-                current_id = came_from[current_id]
-            return path[::-1], graph_costs[goal_id]
+            curr_state = (current_id, current_route)
+            
+            while curr_state in came_from:
+                prev_node, prev_route, edge_info = came_from[curr_state]
+                path.append((curr_state[0], stops[curr_state[0]], edge_info))
+                curr_state = (prev_node, prev_route)
+            
+            path.append((start_id, stops[start_id], None))
+            return path[::-1], graph_costs[(current_id, current_route)]
 
         for neighbor_id, travel_time in graph.get(current_id, {}).items():
-            tentative_g = graph_costs[current_id] + travel_time["distance"]
-            if info:
-                if graph[current_id][neighbor_id].get("route", {"route":None})["route"] != info.get("route", {"route":None})["route"]:
-                    tentative_g += 3
-            if tentative_g < graph_costs[neighbor_id]:
-                graph_costs[neighbor_id] = tentative_g
-                priority = tentative_g + dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id]))
-                heappush(priority_queue, (priority, neighbor_id, graph[current_id][neighbor_id]))
-                came_from[neighbor_id] = current_id
+            # Extract route_id safely from nested dictionary structure
+            route_dict = travel_time.get("route")
+            next_route = route_dict.get("route") if isinstance(route_dict, dict) else None
+
+            # Base cost for edge
+            cost = travel_time.get("distance", 0)
+
+            # Apply penalty if changing from one transit route to another
+            if current_route is not None and next_route is not None and current_route != next_route:
+                cost += transfer_penalty
+
+            tentative_g = graph_costs.get((current_id, current_route), float('inf')) + cost
+            neighbor_state = (neighbor_id, next_route)
+
+            if tentative_g < graph_costs.get(neighbor_state, float('inf')):
+                graph_costs[neighbor_state] = tentative_g
+                
+                # Heuristic estimation
+                h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
+                priority = tentative_g + h
+                
+                heappush(priority_queue, (priority, neighbor_id, next_route, travel_time))
+                came_from[neighbor_state] = (current_id, current_route, travel_time)
 
     return None, float('inf')
 
-route, total_time = transit_a_star(graph, "grt_busses:2088", "grt_busses:2512")
+route, total_time = transit_a_star(graph, "grt_busses:2088", "grt_busses:1126")
 
 for item in route:
     print(item)

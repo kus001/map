@@ -62,3 +62,70 @@ def choose_route(result):
 
         except ValueError: 
             print("Enter a number.")
+
+def create_map(result, selected_route):
+    start = result["start"]["coordinates"]
+    end = result["end"]["coordinates"]
+
+    route_map = folium.Map(
+        location=start,
+        zoom_start=13,
+        tiles="OpenStreetMap"
+    )
+
+    selected_number = selected_route["route_number"]
+
+    for route in result["routes"]:
+
+        is_selected = (
+            route["route_number"] == selected_number
+        )
+
+        if is_selected:
+            weight = 7
+            opacity = 1
+        else: 
+            weight = 4
+            opacity = 0.35
+
+        label = (
+            f"Route {route['route_number']} | "
+            f"{route['distance_km']:.2f} km | "
+            f"{format_duration(route['duration_min'])}"
+        )
+
+        folium.PolyLine(
+            route["route_coordinates"],
+            weight=weight,
+            opacity=opacity,
+            tooltip=label
+        ).add_to(route_map)
+
+        folium.Marker(
+            start,
+            tooltip="Start",
+            popup=result["start"]["address"],
+            icon=folium.Icon(
+                icon="play"
+            )
+        ).add_to(route_map)
+
+        folium.Marker(
+            end,
+            tooltip="Destination",
+            popup=result["end"]["address"],
+            icon=folium.Icon(
+                icon="flag"
+            )
+        ).add_to(route_map)
+
+        route_map.fit_bounds(
+            selected_route["route_coordinates"]
+        )
+
+        file_path = Path("driving_map.html").resolve()
+
+        route_map.save(file_path)
+
+        return file_path
+

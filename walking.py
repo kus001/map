@@ -4,8 +4,6 @@ import requests
 from helpers.print_color import red, green, blue, magenta
 from geopy.geocoders import Nominatim
 
-print("new run")
-
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
 def format_direction(step):
@@ -17,7 +15,10 @@ def format_direction(step):
     # print(road)
 
     if not road:
-        road = "Unnamed Road"
+        road = magenta("Unnamed Road")
+
+    if direction == "New Name":
+        direction = magenta("(Road Name Changes)")
 
     # make directions
     result = direction
@@ -27,7 +28,13 @@ def format_direction(step):
 
     # distance
     # add km convertions 
+
     result += blue(f" {distance} m")
+
+    # if distance >= 1000:
+    #     result += blue(f" {(distance/1000):.2f} km")
+    # else:
+    #     result += blue(f" {distance} m")
 
     return result
 
@@ -53,6 +60,9 @@ while True:
         )
 
         response = requests.get(url).json()
+
+        print(f"DEBUG: {len(response['routes'])} routes returned")  # ← ADD THIS
+
 
         distance = response['routes'][0]['distance']
         duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE

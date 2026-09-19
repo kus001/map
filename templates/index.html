@@ -17,6 +17,26 @@
             margin-top: 15px;
         }
 
+        #mode-options {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .mode-button {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .mode-button.selected {
+            background: #2563eb;
+            color: white;
+            border-color: #2563eb;
+        }
+
         #route-options {
             display: flex;
             gap: 10px;
@@ -72,7 +92,15 @@
 </head>
 
 <body>
-    <h1>Driving Router</h1>
+    <h1>Map</h1>
+    <div id="mode-options">
+        <button class="mode-button selected" data-mode="driving">
+            Drive
+        </button>
+        <button class="mode-button" data-mode="walking">
+            Walk
+        </button>
+    </div>
 
     <input id="start" placeholder="Starting location">
     <input id="destination" placeholder="Destination">
@@ -99,10 +127,28 @@
         let endMarker = null;
         let currentData = null;
         let selectedRouteNumber = 1;
+        let selectedMode = "driving";
 
         const searchButton = document.getElementById("search-button");
         const routeOptions = document.getElementById("route-options");
         const directions = document.getElementById("directions");
+        const modeButtons = document.querySelectorAll(".mode-button");
+
+        modeButtons.forEach(function(button) {
+            button.addEventListener("click", function() {
+                selectedMode = button.dataset.mode;
+
+                modeButtons.forEach(function(otherButton) {
+                    otherButton.classList.remove("selected");
+                });
+                button.classList.add("selected");
+                const start = document.getElementById("start").value.trim();
+                const destination = document.getElementById("destination").value.trim();
+                if (start && destination) {
+                    searchButton.click();
+                }
+            });
+        });
 
         function formatDuration(minutes) {
             const rounded = Math.round(minutes);
@@ -226,13 +272,15 @@
                     labels.push("SHORTEST");
                 }
 
+                const routeName = selectedMode === "walking" ? "Walking route" : "Route " + route.route_number;
+
                 card.innerHTML = `
                     <div class="route-time">
                         ${formatDuration(route.duration_min)}
                     </div>
 
                     <div class="route-info">
-                        Route ${route.route_number} • ${route.distance_km.toFixed(2)} km
+                        ${routeName} • ${route.distance_km.toFixed(2)} km
                     </div>
 
                     <div class="route-label">
@@ -306,7 +354,8 @@
                 },
                 body: JSON.stringify({
                     start: start,
-                    destination: destination
+                    destination: destination,
+                    mode: selectedMode
                 })
             });
 
@@ -331,6 +380,7 @@
             const selectedRoute = drawRoutes();
 
             renderRouteCards();
+            renderDirections(selectedRoute);
 
             startMarker = L.marker(data.start.coordinates).addTo(map);
             startMarker.bindPopup("Start: " + data.start.address);

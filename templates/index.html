@@ -52,6 +52,22 @@
             font-weight: bold;
             margin-top: 6px;
         }
+
+        #directions {
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+        .direction-step {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .direction-distance {
+            font-size: 12x;
+            color: #777;
+            margin-top: 3px;
+        }
     </style>
 </head>
 
@@ -63,6 +79,9 @@
     <button id="search-button">Find routes</button>
 
     <div id="route-options"></div>
+    <h2>Directions</h2>
+    <div id="directions"></div>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -83,6 +102,7 @@
 
         const searchButton = document.getElementById("search-button");
         const routeOptions = document.getElementById("route-options");
+        const directions = document.getElementById("directions");
 
         function formatDuration(minutes) {
             const rounded = Math.round(minutes);
@@ -95,6 +115,93 @@
             const mins = rounded % 60;
 
             return hours + " hr " + mins + " min";
+        }
+
+        function formatDistance(meters) {
+            if (meters >= 1000) {
+                return (meters / 1000).toFixed(1) + " km";
+            }
+
+            return Math.round(meters) + " m";
+        }
+
+        function formatDirection(step) {
+            const type = step.type;
+            const modifier = step.modifier;
+            const road = step.road;
+
+            let text = "";
+
+            if (type === "depart") {
+                text = "Start";
+
+                if (modifier) {
+                    text += " heading " + modifier;
+                }
+            }
+
+            else if (type === "arrive") {
+                text = "Arrive at your destination";
+            }
+
+            else if (type === "turn") {
+                text = "Turn";
+
+                if (modifier) {
+                    text += " " + modifier;
+                }
+            }
+
+            else if (type === "continue") {
+                text = "Continue";
+
+                if (modifier) {
+                    text += " " + modifier;
+                }
+            }
+
+            else if (type === "end of road") {
+                text = "At the end of the road";
+
+                if (modifier) {
+                    text += ", turn " + modifier;
+                }
+            }
+
+            else {
+                text = type.replaceAll("_", " ").replace(/\b\w/g, function(letter) {
+                    return letter.toUpperCase();
+                });
+
+                if (modifier) {
+                    text += " " + modifier;
+                }
+            }
+
+            if (road && type !== "arrive") {
+                text += " onto " + road;
+            }
+
+            return text;
+        }
+
+        function renderDirections(route) {
+            directions.innerHTML = "";
+
+            route.steps.forEach(function(step) {
+                const item = document.createElement("div");
+                item.className = "direction-step";
+                item.innerHTML = `
+                    <div>
+                        ${formatDirection(step)}
+                    </div>
+                    <div class="direction-distance">
+                        ${formatDistance(step.distance_m)}
+                    </div>
+                `;
+
+                directions.appendChild(item);
+            });
         }
 
         function renderRouteCards() {
@@ -144,8 +251,10 @@
         function selectRoute(routeNumber) {
             selectedRouteNumber = routeNumber;
 
-            drawRoutes();
+            const selectedRoute = drawRoutes();
+
             renderRouteCards();
+            renderDirections(selectedRoute);
         }
 
         function drawRoutes() {

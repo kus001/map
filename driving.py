@@ -73,14 +73,29 @@ def get_driving_route(start_address, end_address):
             "route_coordinates": route_coordinates
         })
 
-        print(
-            f"Route {i + 1}: "
-            f"{distance_km:.2f} km, "
-            f"{duration_min:.2f} min"
-        )
-
     fastest_route = min(routes, key=lambda r: r["duration_min"])
     shortest_route = min(routes, key=lambda r: r["distance_km"])
+
+    print("\nAvaliable routes:")
+
+    for i, route in enumerate(routes):
+        labels = []
+
+        if route is fastest_route:
+            labels.append("FASTEST")
+
+        if route is shortest_route:
+            labels.append("SHORTEST")
+
+        label_text = ""
+
+        if labels: label_text = " [" + ", ".join(labels) + "]"
+
+        print(
+            f"Route {i + 1}{label_text}: "
+            f"{route['distance_km']:.2f} km, "
+            f"{route['duration_min']:.2f} min"
+        )
 
     return {
         "mode": "driving",

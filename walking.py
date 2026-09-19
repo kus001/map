@@ -1,8 +1,27 @@
+# walking.py
+
 import requests
 from helpers.print_color import red, green, blue, magenta
 from geopy.geocoders import Nominatim
 
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
+
+def format_direction(step):
+    directionType = step["maneuver"]["type"].replace("_", " ").title()
+    modifier = step["maneuver"].get("modifier", "")
+    road = step.get("name", "unnamed road")
+    distance = step["distance"]
+
+    # make directions
+    result = direction
+    if modifier:
+        result += f" {modifier}"
+    result += f" onto {road} for " 
+
+    # distance
+    result += f" {distance}"
+
+    return result
 
 while True: 
     try: 

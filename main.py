@@ -101,33 +101,33 @@ def create_map(result, selected_route):
             tooltip=label
         ).add_to(route_map)
 
-        folium.Marker(
-            start,
-            tooltip="Start",
-            popup=result["start"]["address"],
-            icon=folium.Icon(
-                icon="play"
-            )
-        ).add_to(route_map)
-
-        folium.Marker(
-            end,
-            tooltip="Destination",
-            popup=result["end"]["address"],
-            icon=folium.Icon(
-                icon="flag"
-            )
-        ).add_to(route_map)
-
-        route_map.fit_bounds(
-            selected_route["route_coordinates"]
+    folium.Marker(
+        start,
+        tooltip="Start",
+        popup=result["start"]["address"],
+        icon=folium.Icon(
+            icon="play"
         )
+    ).add_to(route_map)
 
-        file_path = Path("driving_map.html").resolve()
+    folium.Marker(
+        end,
+        tooltip="Destination",
+        popup=result["end"]["address"],
+        icon=folium.Icon(
+            icon="flag"
+        )
+    ).add_to(route_map)
 
-        route_map.save(file_path)
+    route_map.fit_bounds(
+        selected_route["route_coordinates"]
+    )
 
-        return file_path
+    file_path = Path("driving_map.html").resolve()
+
+    route_map.save(file_path)
+
+    return file_path
 
 def open_map(file_path):
 

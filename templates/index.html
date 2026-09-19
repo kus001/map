@@ -27,6 +27,8 @@
             let routeLayers = [];
             let startMarker = null;
             let endMarker = null;
+            let currentData = null;
+            let selectedRouteNumber = 1;
 
 
             const searchButton = document.getElementById("search-button");
@@ -52,6 +54,7 @@
                     alert(data.error);
                     return;
                 }
+                
                 routeLayers.forEach(function(layer) {
                     map.removeLayer(layer);
                 });
@@ -66,15 +69,9 @@
                     map.removeLayer(endMarker);
                 }
 
-                data.routes.forEach(function(route) {
-                    const isSelected = route.route_number === 1;
-                    const line = L.polyline(route.route_coordinates, {
-                        color: isSelected ? "#2563eb" : "#777777",
-                        weight: isSelected ? 7 : 4,
-                        opacity: isSelected ? 0.9 : 0.4
-                    }).addTo(map);
-                    routeLayers.push(line);
-                });
+                currentData = data;
+                selectedRouteNumber = data.fastest_route_number;
+                const selectedRoute = drawRoutes();
 
                 startMarker = L.marker(
                     data.start.coordinates
@@ -92,9 +89,47 @@
                     "Destination: " + data.end.address
                 );
 
-                map.fitBounds(routeLayers[0].getBounds());
+                map.fitBounds(selectedRoute.route_coordinates);
             });
-            
+
+            function drawRoutes() {
+                routeLayers.forEach(function(layer) {
+                    map.removeLayer(layer);
+                });
+                routeLayers = [];
+
+                currentData.routes.forEach(
+                    function(route) {
+                        if (route.route_number !== selectedRouteNumber) {
+                            const line = L.polyline(route.route_coordinates, {
+                                color: "#777777",
+                                weight: 4,
+                                opacity: 0.4
+                            }).addTo(map);
+                            line.on("click", function() {
+                                selectedRouteNumber = route.route_number;
+                                drawRoutes();
+                            });
+                            routeLayers.push(line);
+                        }
+                    }
+                );
+
+                const selectedRoute = currentData.routes.find(function(route) {
+                    return (
+                        route.route_number === selectedRouteNumber
+                    );
+                });
+
+                const selectedLine = L.polyline(selectedRoute.route_coordinates, {
+                    color: "#2563eb",
+                    weight: 7,
+                    opacity: 0.9
+                }).addTo(map);
+                routeLayers.push(selectedLine);
+
+                return selectedRoute;
+            }            
         </script>
     </body>
 </html>

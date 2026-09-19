@@ -35,6 +35,9 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
     graph[stop_id][neighbor_stop_id]["departure_time"] = departure_time
     graph[stop_id][neighbor_stop_id]["arrival_time"] = arrival_time
 
+    if trip_id is not None:
+        graph[stop_id][neighbor_stop_id]["route"] = trip_to_route[trip_id]
+
 def add_stop_position(stop_id, lat, lon, name=None):
     if stop_id not in node_positions:
         node_positions[stop_id] = (lat, lon, name)
@@ -45,7 +48,13 @@ def add_agency_to_graph(agency, force_download=False):
         if download_gtfs(agency) == 0:
             print(green(f"Downloaded GTFS data for {agency.upper()}."))
 
-    with open(Path)
+    with open(Path("transit_data") / "GTFS_Files" / agency / "trips.txt", encoding="utf-8-sig", mode="r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            trip_to_route[row["trip_id"]] = {
+                "headsign": row["trip_headsign"],
+                "route"   : row["route_id"]
+            }
 
     with open(Path("transit_data") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)

@@ -14,3 +14,8 @@ def find_dist(coord1, coord2):
     distance = math.sqrt(dlat**2 + dlon**2) * 1000  # Convert to meters
 
     return distance
+
+def dist_time(coord1, coord2, speed=35):
+    distance = find_dist(coord1, coord2)
+    time = distance / speed  # Time in seconds
+    return time

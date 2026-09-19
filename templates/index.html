@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <title>Map</title>
+    </head>
+    <body>
+        <h1>Driving Router</h1>
+        <input id="start" placeholder="Starting location">
+        <input id="destination" placeholder="Destination">
+        <button id="search-button">Find routes</button>
+
+        <script>
+            const searchButton = document.getElementById("search-button");
+            
+            searchButton.addEventListener("click", async function() {
+                const start = document.getElementById("start").value;
+                const destination = document.getElementById("destination").value;
+                const response = await fetch("/api/routes", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                        "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        start: start,
+                        destination: destination
+                    })
+                });
+                const data = await response.json();
+                console.log(data);
+            });
+            
+        </script>
+    </body>
+</html>

@@ -335,7 +335,10 @@
             const selectedLine = L.polyline(selectedRoute.route_coordinates, {
                 color: "#2563eb",
                 weight: 7,
-                opacity: 0.9
+                opacity: 0.9,
+
+                dashArray: selectedMode === "walking" ? "1 10" : null,
+                lineCap: "round"
             }).addTo(map);
 
             routeLayers.push(selectedLine);

@@ -1,39 +1,94 @@
+# walking.py
+
 import requests
 from helpers.print_color import red, green, blue, magenta
 from geopy.geocoders import Nominatim
 
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-startingAddress = input("Enter starting address: ")
-startLocation = geolocator.geocode(startingAddress)
-startLat = startLocation.latitude
-startLong = startLocation.longitude
+def format_direction(step):
+    direction = step["maneuver"]["type"].replace("_", " ").title()
+    modifier = step["maneuver"].get("modifier", "")
+    road = step.get("name", "").strip()
+    distance = step["distance"]
 
-endingAddress = input("Enter ending address: ")
-endLocation = geolocator.geocode(endingAddress)
-endLat = endLocation.latitude
-endLong = endLocation.longitude
+    # print(road)
 
-# url = f"http://router.project-osrm.org/route/v1/walking/{startLong},{startLat};{endLong},{endLat}?overview=false"
+    if not road:
+        road = magenta("Unnamed Road")
 
-url = (
-    f"https://host-transit-page.hackclub.app/route/v1/foot/"
-    f"{startLong},{startLat};"
-    f"{endLong},{endLat}"
-    f"?overview=false"
-)
+    if direction == "New Name":
+        direction = magenta("(Road Name Changes)")
 
-response = requests.get(url).json()
+    # make directions
+    result = direction
+    if modifier:
+        result += f" {modifier}"
+    result += f" onto {road} for" 
 
-distance = response['routes'][0]['distance']
-duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE
+    # distance
+    # add km convertions 
 
-# (feedback from madhav) The duration is was off since it is calculating for the driving route. I have updated the API to use my custom server, which should fix it
+    result += blue(f" {distance} m")
 
-print()
-print("Walking: ")
-print()
-print(blue(f"Distance: {distance / 1000:.2f} km"))
-print(green(f"Duration: {duration / 60:.2f} minutes"))
+    # if distance >= 1000:
+    #     result += blue(f" {(distance/1000):.2f} km")
+    # else:
+    #     result += blue(f" {distance} m")
 
-# add input detection ASAP
+    return result
+
+def get_walking_route(start_address, end_address):
+    try: 
+        startingAddress = input("Enter starting address: ")
+        startLocation = geolocator.geocode(startingAddress)
+        startLat = startLocation.latitude
+        startLong = startLocation.longitude
+
+        endingAddress = input("Enter ending address: ")
+        endLocation = geolocator.geocode(endingAddress)
+        endLat = endLocation.latitude
+        endLong = endLocation.longitude
+
+        # url = f"http://router.project-osrm.org/route/v1/walking/{startLong},{startLat};{endLong},{endLat}?overview=false"
+
+        url = (
+            f"https://host-transit-page.hackclub.app/route/v1/foot/"
+            f"{startLong},{startLat};"
+            f"{endLong},{endLat}"
+            f"?overview=full&steps=true"
+            )
+
+        response = requests.get(url).json()
+
+        print(f"DEBUG: {len(response['routes'])} routes returned")  # ← ADD THIS
+
+
+        distance = response['routes'][0]['distance']
+        duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE
+        legs = response['routes'][0]['legs'] # direction steps
+
+        # (feedback from madhav) The duration is was off since it is calculating for the driving route. I have updated the API to use my custom server, which should fix it
+
+        return {
+            "success": True,
+            "distance": distance,
+            "duration": duration,
+            "legs": legs,
+            "route_coords": route_coords,
+            "start": [startLat, startLong],
+            "end": [endLat, endLong]
+        }
+
+        # print()
+        # print("Walking: ")
+        # print()
+        # print(blue(f"Distance: {distance / 1000:.2f} km"))
+        # print(green(f"Duration: {duration / 60:.2f} minutes"))
+
+        # for leg in legs:
+        #     for step in leg["steps"]:
+        #         print(f"{format_direction(step)}")
+
+    except:
+        return {"success":False, "error":"error getting route"}

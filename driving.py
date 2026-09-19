@@ -1,3 +1,5 @@
+# driving.py
+
 import requests
 from geopy.geocoders import Nominatim
 
@@ -143,7 +145,7 @@ def select_route(result, route_number):
             return route
     return None
 
-def get_route_labels(reuslt, route):
+def get_route_labels(result, route):
     labels = []
 
     if (
@@ -237,6 +239,9 @@ def print_directions(route):
 
     for step in route["steps"]:
         print(format_direction(step))
+
+# Internal use only
+
 if __name__ == "__main__":
     start = input("Starting address: ")
     end = input("Destination: ")

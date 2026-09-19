@@ -66,10 +66,22 @@ def get_driving_route(start_address, end_address, alternatives=3):
     except requests.RequestException as error:
         return {
             "success": False,
+            "error": f"Routing server error: {error}"
+        }
+
+    if data.get("code") != "Ok":
+        return {
+            "success": False,
             "error": data.get(
                 "message",
                 "No driving route could be found."
             )
+        }
+
+    if not data.get("routes"):
+        return {
+            "success": False,
+            "error": "No driving routes were found."
         }
 
     routes = []
@@ -165,7 +177,7 @@ def print_route_options(result):
         print(result["error"])
         return
 
-    print(f"Found {len(result['routes'])} route(s):)")
+    print(f"Found {len(result['routes'])} route(s):")
     for route in result['routes']:
         labels = get_route_labels(result, route)
         label_text = ""

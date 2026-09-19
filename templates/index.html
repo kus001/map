@@ -25,6 +25,9 @@
             L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "&copy; OpenStreetMap contriubutors"}).addTo(map);
             
             let routeLayer = null;
+            let startMarker = null;
+            let endMarker = null;
+
 
             const searchButton = document.getElementById("search-button");
             
@@ -56,6 +59,14 @@
                     map.removeLayer(routeLayer);
                 }
 
+                if (startMarker !== null) {
+                    map.removeLayer(startMarker);
+                }
+
+                if (endMarker !== null) {
+                    map.removeLayer(endMarker);
+                }
+
                 routeLayer = L.polyline(
                     route.route_coordinates, {
                         color: "#2563eb",
@@ -63,6 +74,23 @@
                         opacity: 0.9
                     }
                 ).addTo(map);
+
+                startMarker = L.marker(
+                    data.start.coordinates
+                ).addTo(map);
+
+                startMarker.bindPopup(
+                    "Start: " + data.start.address
+                );
+
+                endMarker = L.marker(
+                    data.end.coordinates
+                ).addTo(map);
+
+                endMarker.bindPopup(
+                    "Destination: " + data.end.address
+                );
+
                 map.fitBounds(routeLayer.getBounds());
             });
             

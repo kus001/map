@@ -14,11 +14,21 @@ endLocation = geolocator.geocode(endingAddress)
 endLat = endLocation.latitude
 endLong = endLocation.longitude
 
-url = f"http://router.project-osrm.org/route/v1/walking/{startLong},{startLat};{endLong},{endLat}?overview=false"
+# url = f"http://router.project-osrm.org/route/v1/walking/{startLong},{startLat};{endLong},{endLat}?overview=false"
+
+url = (
+    f"https://host-transit-page.hackclub.app/route/v1/foot/"
+    f"{startLong},{startLat};"
+    f"{endLong},{endLat}"
+    f"?overview=false"
+)
+
 response = requests.get(url).json()
 
 distance = response['routes'][0]['distance']
-duration = response['routes'][0]['duration'] # fix duration, the timing is wayyyy off
+duration = response['routes'][0]['duration'] # DURATION CALCULATION FIXED VIA SERVER CHANGE
+
+# (feedback from madhav) The duration is was off since it is calculating for the driving route. I have updated the API to use my custom server, which should fix it
 
 print()
 print("Walking: ")

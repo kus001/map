@@ -1,5 +1,5 @@
 import csv
-import os
+import shutil
 import sys
 import pickle
 from heapq import heappop, heappush
@@ -15,43 +15,46 @@ from distance import find_dist
 
 graph = {}
 node_positions = {}
-all_stops = []
+all_stops = {}
 
-def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1):
+def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=None, arrival_time=None):
     if stop_id not in graph:
         graph[stop_id] = {}
     elif neighbor_stop_id in graph[stop_id]:
         return  # Avoid adding duplicate neighbors
     graph[stop_id][neighbor_stop_id] = {"distance": distance}
     graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
+    graph[stop_id][neighbor_stop_id]["departure_time"] = departure_time
+    graph[stop_id][neighbor_stop_id]["arrival_time"] = arrival_time
 
 def add_stop_position(stop_id, lat, lon):
     if stop_id not in node_positions:
         node_positions[stop_id] = (lat, lon)
 
 def add_agency_to_graph(agency, force_download=False):
-    if not (Path("transit") / "GTFS_Files" / agency).exists() or force_download:
-        print(f"Downloading GTFS data for {bold(agency.upper())}...")
+    if not (Path("transit_data") / "GTFS_Files" / agency).exists() or force_download:
+        print(f"\nDownloading GTFS data for {bold(agency.upper())}...")
         if download_gtfs(agency) == 0:
             print(green(f"Downloaded GTFS data for {agency.upper()}."))
 
-    with open(Path("transit") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
+    with open(Path("transit_data") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
         stops = list(reader)
-        all_stops.extend(stops)  # Add the stops to the global list of all stops
+        all_stops[agency] = stops  # Add the stops to the global dictionary of all stops
 
     for stop in stops:
         add_stop_position(agency + ":" + stop["stop_id"], float(stop["stop_lat"]), float(stop["stop_lon"]))
-        for stop2 in all_stops:
-            if stop["stop_id"] != stop2["stop_id"]:
-                stop_coords2 = (float(stop2["stop_lat"]), float(stop2["stop_lon"]))
-                stop_coords = (float(stop["stop_lat"]), float(stop["stop_lon"]))
-                distance = find_dist(stop_coords, stop_coords2)
-                if distance < 100:
-                    add_neighbor(agency + ":" + stop["stop_id"], agency + ":" + stop2["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
-                    add_neighbor(agency + ":" + stop2["stop_id"], agency + ":" + stop["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
+        for agency2 in all_stops:
+            for stop2 in all_stops[agency2]:
+                if stop["stop_id"] != stop2["stop_id"]:
+                    stop_coords2 = (float(stop2["stop_lat"]), float(stop2["stop_lon"]))
+                    stop_coords = (float(stop["stop_lat"]), float(stop["stop_lon"]))
+                    distance = find_dist(stop_coords, stop_coords2)
+                    if distance < 100:
+                        add_neighbor(agency + ":" + stop["stop_id"], agency2 + ":" + stop2["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
+                        add_neighbor(agency2 + ":" + stop2["stop_id"], agency + ":" + stop["stop_id"], None, distance//6/10)  # Convert distance to minutes assuming average walking speed of 1 m/s
 
-    with open(Path("transit") / "GTFS_Files" / agency / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
+    with open(Path("transit_data") / "GTFS_Files" / agency / "stop_times.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
         trips = {}
 
@@ -84,27 +87,28 @@ def add_agency_to_graph(agency, force_download=False):
             stop_departure_time = stop["departure_time"]
             if last_stop is not None and last_stop != stop_id:
                 dt = delta_time_in_minutes(last_departure_time, stop_arrival_time)
-                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=(dt[0]+dt[1]//6/10, last_departure_time, stop_arrival_time))  # Use the time difference in minutes as the distance
+                add_neighbor(agency + ":" + last_stop, agency + ":" + stop_id, trip_id, distance=dt[0]+dt[1]//6/10, departure_time=last_departure_time, arrival_time=stop_arrival_time)  # Use the time difference in minutes as the distance
             last_stop = stop_id
             last_departure_time = stop_departure_time
 
-def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuild=False):
+def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuild=True):
     GRAPH_NAME = f"{'_&_'.join(agencies)}.pkl"
 
     if force_rebuild:
-        os.remove(Path("transit")) if Path("transit").exists() else None
+        shutil.rmtree(Path("transit_data")) if Path("transit_data").exists() else None
 
-    if Path(Path("transit") / GRAPH_NAME).exists():
-        with open(Path("transit") / GRAPH_NAME, "rb") as f:
+    if Path(Path("transit_data") / GRAPH_NAME).exists():
+        with open(Path("transit_data") / GRAPH_NAME, "rb") as f:
             global graph, node_positions
-            graph = pickle.load(f).graph
-            node_positions = pickle.load(f).node_positions
+            load = pickle.load(f)
+            graph = load.graph
+            node_positions = load.node_positions
     else:
         for agency in agencies:
             add_agency_to_graph(agency, force_download=force_download)
 
         # Save the graph to a pickle file
-        with open(Path("transit") / GRAPH_NAME, "wb") as f:
+        with open(Path("transit_data") / GRAPH_NAME, "wb") as f:
             pickle.dump(Graph(graph, node_positions), f)
 
 class Graph:

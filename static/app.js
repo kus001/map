@@ -312,8 +312,10 @@ async function searchRoutes() {
 
         if (selectedMode === "walking") {
             statusText.textContent = "walking route";
-        }
-
+        } 
+        else if (selectedMode === "cycling") { // added by KUS
+            statusText.textContent = "cycling route";
+        } 
         else {
             statusText.textContent = data.routes.length + " driving route" + (data.routes.length === 1 ? "" : "s");
         }

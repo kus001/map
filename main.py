@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from driving import get_driving_route
 from walking import get_walking_route
+from cycling import get_cycling_route
 
 app = Flask(__name__)
 
@@ -23,6 +24,8 @@ def routes():
 
     if mode == "walking":
         result = get_walking_route(start, destination)
+    elif mode == "cycling":
+        result = get_cycling_route(start, destination)
     else:
         result = get_driving_route(start, destination)
 

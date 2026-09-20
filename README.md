@@ -10,6 +10,10 @@ To run the project, as of now, you should run main.py. This will host the transi
 
 ![Map Router interface with a calm, functional appearance. The left panel shows the title Map Router, fields labeled Starting location and Destination, a Find routes button, Drive and Walk options, and the message Enter a starting point and destination. The right side displays an OpenStreetMap view of Waterloo, Kitchener, and surrounding rural areas, with zoom controls and labels including University of Waterloo, Waterloo, Kitchener, St. Jacobs, and regional roads.](assets/image.png)
 
+### Cycling
+
+Cycling is still under development, and will be added soon.
+
 ### Transit
 
 Transit routing is still under development, but it can be used by running `transit.py`. You set the starting stop and ending stop in the function `transit_a_star(graph, startstop, endstop)`. Only supported agencies are GRT and GO. (Both are south Ontario transit agencies.)

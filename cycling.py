@@ -34,8 +34,11 @@ def get_cycling_route(start_address, end_address):
             "error": "destination couldn't be found"
         }
 
-    start_lat, start_lon = start
-    end_lat, end_lon = end
+    startLat, startLon = start
+    endLat, endLon = end
+
+    distance_km = (properties['summary']['distance'][0])/1000
+    duration_min = (properties['summary']['duration'][0])/60
 
     # api stuff
     headers = {
@@ -98,16 +101,16 @@ def get_cycling_route(start_address, end_address):
     return {
         "success": True,
 
-        "mode": "walking",
+        "mode": "cycling",
 
         "start": {
             "address": start_address,
-            "coordinates": [start_lat, start_lon]
+            "coordinates": [startLat, startLon]
         },
 
         "end": {
             "address": end,
-            "coordinates": [end_lat, end_lon]
+            "coordinates": [endLat, endLon]
         },
 
         "routes": [route],

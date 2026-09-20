@@ -1,19 +1,13 @@
 # Walking.py
 
 import requests
-from geopy.geocoders import Nominatim
 
-geolocator = Nominatim(user_agent="map_walking_thirdspace")
+from geocoding import get_coordinates
 
-def get_coordinates(address):
-    try:
-        location = geolocator.geocode(address)
-
-        if location is None:
-            return None
-        return location.latitude, location.longitude
-    except Exception as error:
-        return None
+WALKING_ROUTER_URL = (
+    "https://host-transit-page.hackclub.app/"
+    "route/v1/foot"
+)
 
 def get_walking_route(start_address, end_address):
     start = get_coordinates(start_address)
@@ -24,6 +18,7 @@ def get_walking_route(start_address, end_address):
             "success": False,
             "error": "starting address couldn't be found."
         }
+    
     if end is None:
         return {
             "success": False,
@@ -34,7 +29,7 @@ def get_walking_route(start_address, end_address):
     end_lat, end_lon = end
 
     url = (
-        "https://host-transit-page.hackclub.app/route/v1/foot/"
+        f"{WALKING_ROUTER_URL}/"
         f"{start_lon},{start_lat};"
         f"{end_lon},{end_lat}"
     )
@@ -49,18 +44,28 @@ def get_walking_route(start_address, end_address):
         response = requests.get(
             url,
             params=params,
-            timeout=10
+            timeout=15
         )
 
         response.raise_for_status()
+
         data = response.json()
+
     except requests.RequestExceptions as error:
         return {
             "success": False,
             "error": f"Walking routing server error: {error}"
         }
 
-    if data.get("code") != "Ok":
+    except ValueError:
+        return {
+            "success": False,
+            "error": "Walking routing server returned invalid data."
+        }
+
+    code = data.get("code")
+
+    if code is not None and code != "Ok":
         return {
             "success": False,
             "error": data.get("message", "No walking route could be found.")
@@ -77,22 +82,26 @@ def get_walking_route(start_address, end_address):
     distance_km = route_data["distance"] / 1000
     duration_min = route_data["duration"] / 60
 
+    geometry = route_data["geometry"]["coordinates"]
+
     route_coordinates = [
         [lat, lon]
-        for lon, lat in route_data["geometry"]["coordinates"]
+        for lon, lat in geometry
     ]
 
     steps=[]
 
-    for leg in route_data["legs"]:
-        for step in leg["steps"]:
-            maneuver = step["maneuver"]
+    for leg in route_data.get("legs", []):
+        for step in leg.get("steps", []):
+            maneuver = step.get("maneuver", {})
 
             steps.append({
-                "type":maneuver["type"],
+                "instruction": "",
+                "type":maneuver.get("type", ""),
                 "modifier": maneuver.get("modifier",""),
                 "road": step.get("name", ""),
-                "distance_m": step["distance"]
+                "name": step.get("name", ""),
+                "distance_m": step.get("distance", 0)
             })
 
     route = {
@@ -121,5 +130,6 @@ def get_walking_route(start_address, end_address):
         "routes": [route],
 
         "fastest_route_number": 1,
+        
         "shortest_route_number": 1
     }

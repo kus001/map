@@ -42,8 +42,8 @@ print(call.status_code, call.reason)
 print(call.text)
 
 response = call.json()
-distance = response['routes'][0]['summary']['distance']
-duration = response['routes'][0]['summary']['duration']
+distance = response['features'][0]['properties']['summary']['distance']
+duration = response['features'][0]['properties']['summary']['duration']
 
 print()
 print("Cycling: ")

@@ -78,6 +78,11 @@ function formatDirection(step) {
     const modifier = step.modifier;
     const road = step.road;
 
+    // convert openroutservice into OSRM format
+    if (step.instruction && !type) {
+        return step.instruction
+    }
+
     let text = "";
 
     if (type === "depart") {

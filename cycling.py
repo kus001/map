@@ -9,56 +9,109 @@ load_dotenv()
 API_KEY = os.getenv("cycling_API")
 geolocator = Nominatim(user_agent="map_cycling_thirdspace")
 
-# api stuff
-headers = {
-    'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
-}
+def get_coordinates(address):
+    try: 
+        location = geolocator.geocode(address)
 
-startingAddress = input("Enter starting address: ")
-startLocation = geolocator.geocode(startingAddress)
-startLat = startLocation.latitude
-startLong = startLocation.longitude
+        if location is None:
+            return None
+        return location.latitude, location.longitude
+    except Exception as error:
+        return None
 
-endingAddress = input("Enter ending address: ")
-endLocation = geolocator.geocode(endingAddress)
-endLat = endLocation.latitude
-endLong = endLocation.longitude
+def get_cycling_route(start_address, end_address):
+    start = get_coordinates(start_address)
+    end = get_coordinates(end_address)
 
-# url = (
-#     f"http://router.project-osrm.org/route/v1/bike/" # find better url
-#     f"{endLong},{endLat}"
-#     f"?overview=false"
-#     )
+    if start is None:
+        return {
+            "success": False,
+            "error": "starting address couldn't be found"
+        }
+    if end is None:
+        return {
+            "success": False,
+            "error": "destination couldn't be found"
+        }
 
-# response = requests.get(url).json()
+    start_lat, start_lon = start
+    end_lat, end_lon = end
 
-# distance = response["routes"][0]["distance"]
-# duration = response["routes"][0]["duration"]
+    # api stuff
+    headers = {
+        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
+    }
 
-url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
-call = requests.get(url, headers=headers)
+    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
+    call = requests.get(url, headers=headers)
 
-# print(call.status_code, call.reason)
-# print(call.text)
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as error:
+        return {
+            "success": False,
+            "error": f"cycling routing server error: {error}"
+        }
 
-response = call.json()
-distance = response['features'][0]['properties']['summary']['distance']
-duration = response['features'][0]['properties']['summary']['duration']
-stops = response['features'][0]['properties']['segments'][0]['steps']
+    if data.get("code") != "Ok":
+        return {
+            "success": False,
+            "error": data.get("message", "No cycling route could be found.")
+        }
 
-print()
-print("Cycling: ")
-print()
-print(blue(f"Distance: {distance/1000:.2f} km"))
-print(green(f"Duration: {duration / 60:.2f} minutes"))
+    if not data.get("routes"):
+        return {
+            "success": False,
+            "error": "No cycling route could be found."
+        }
 
-for stop in stops:
-    direction = stop['instruction']
-    name = stop['name']
-    distanceStop = stop['distance']
+    route_data = data['features'][0]
+    properties = route_data['properties']
 
-    # add km conversions later
-    if distanceStop >= 1000:
-        print(f"{direction} on {name} for {(distanceStop/1000):.1f} km")
-    else: 
-        print(f"{direction} on {name} for {distanceStop} m")
+    route_coordinates = [
+        [lat, lon]
+        for lon, lat in route_data['geometry']["coordinates"]
+    ]
+
+    steps = []
+
+    # gonna be different than the regular api
+    for segment in properties["segments"]:
+        for step in segment["steps"]:
+
+            steps.append({
+                "instruction": step.get("instruction", ""),
+                "name": step.get("name", ""),
+                "distance_m": step["distance"]
+            })
+
+    route = {
+        "route_number": 1,
+        "distance_km": distance_km,
+        "duration_min": duration_min,
+        "steps": steps,
+        "route_coordinates": route_coordinates
+    }
+
+    return {
+        "success": True,
+
+        "mode": "walking",
+
+        "start": {
+            "address": start_address,
+            "coordinates": [start_lat, start_lon]
+        },
+
+        "end": {
+            "address": end,
+            "coordinates": [end_lat, end_lon]
+        },
+
+        "routes": [route],
+
+        "fastest_route_number": 1,
+        "shortest_route_number": 1
+    }

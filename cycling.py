@@ -1,8 +1,18 @@
 import requests
+import os
+from dotenv import load_dotenv
 from helpers.print_color import red, green, blue
 from geopy.geocoders import Nominatim
 
+load_dotenv()
+
+API_KEY = os.getenv("cycling_API")
 geolocator = Nominatim(user_agent="map_cycling_thirdspace")
+
+# api stuff
+headers = {
+    'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
+}
 
 startingAddress = input("Enter starting address: ")
 startLocation = geolocator.geocode(startingAddress)
@@ -14,16 +24,26 @@ endLocation = geolocator.geocode(endingAddress)
 endLat = endLocation.latitude
 endLong = endLocation.longitude
 
-url = (
-    f"http://router.project-osrm.org/route/v1/bike/" # find better url
-    f"{endLong},{endLat}"
-    f"?overview=false"
-    )
+# url = (
+#     f"http://router.project-osrm.org/route/v1/bike/" # find better url
+#     f"{endLong},{endLat}"
+#     f"?overview=false"
+#     )
 
-response = requests.get(url).json()
+# response = requests.get(url).json()
 
-distance = response["routes"][0]["distance"]
-duration = response["routes"][0]["duration"]
+# distance = response["routes"][0]["distance"]
+# duration = response["routes"][0]["duration"]
+
+url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
+call = requests.get(url, headers=headers)
+
+print(call.status_code, call.reason)
+print(call.text)
+
+response = call.json()
+distance = response['routes'][0]['summary']['distance']
+duration = response['routes'][0]['summary']['duration']
 
 print()
 print("Cycling: ")

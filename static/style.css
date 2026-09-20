@@ -15,7 +15,7 @@ body {
 .app {
     height: 100vh;
     display: grid;
-    grid-template-columns 380px 1fr;
+    grid-template-columns: 380px 1fr;
 }
 
 .sidebar {
@@ -36,6 +36,10 @@ body {
     font-size: 24px;
     font-weight:bold;
     margin-bottom: 16px;
+}
+
+.logo span {
+    color: #2563eb;
 }
 
 .search-box {
@@ -94,7 +98,7 @@ body {
     background: #1d4ed8;
 }
 
-#search-buttonLdisabled {
+#search-button:disabled {
     opacity: 0.55;
     cursor: default;
 }
@@ -186,8 +190,8 @@ body {
 .route-label {
     padding: 4px 6px;
     border-radius: 10px;
-    background: #e8f0f3;
-    color: #1968d2;
+    background: #e8f0fe;
+    color: #1967d2;
     font-size: 10px;
     font-weight: bold;
 }
@@ -203,11 +207,7 @@ body {
 }
 
 #directions {
-    display: grid;
-    grid-template-columns: 32px 1fr auto;
-    gap: 10px;
-    padding: 13px 4px;
-    border-bottom: 1px solid #eee;
+    border-top: 1px solid #eee;
 }
 
 .direction-step {

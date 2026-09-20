@@ -1,0 +1,257 @@
+/* Styles.css */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    font-family: Arial, sans-serif;
+    color: #202124;
+}
+
+.app {
+    height: 100vh;
+    display: grid;
+    grid-template-columns 380px 1fr;
+}
+
+.sidebar {
+    background: white;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.top-section {
+    padding: 18px;
+    border-bottom: 1px solid #eee;
+}
+
+.logo {
+    font-size: 24px;
+    font-weight:bold;
+    margin-bottom: 16px;
+}
+
+.search-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-row {
+    display:flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #dadce0;
+    border-radius:10px;
+    padding: 0 12px;
+    background: white;
+}
+
+.input-row:focus-within {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.input-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #2563eb;
+    flex-shrink: 0;
+}
+
+.input-dot.destination {
+    border-radius: 2px;
+    background: #202124;
+}
+
+.input-row input {
+    width: 100%;
+    border: none;
+    outline: none;
+    padding: 12px 0;
+    font-size:15px;
+}
+
+#search-button {
+    border: none;
+    border-radius: 10px;
+    padding: 11px;
+    background: #2563eb;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+#search-button:hover {
+    background: #1d4ed8;
+}
+
+#search-buttonLdisabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+#mode-options {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.mode-button {
+    flex: 1;
+    padding: 9px;
+    border: 1px solid #dadce0;
+    border-radius: 20px;
+    background: white;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.mode-button:hover {
+    background: #f5f7fa;
+}
+
+.mode-button.selected {
+    color: #2563eb;
+    background: #eef4ff;
+    border-color: #2563eb;
+}
+
+.results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+}
+
+#status {
+    color: #5f6368;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+#route-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.route-card {
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 13px 14px;
+    cursor: pointer;
+    background: white;
+    transition: 0.15s;
+}
+
+.route-card:hover {
+    background: #f8f9fa;
+}
+
+.route-card.selected {
+    border: 2px solid #2563eb;
+    background: #f7faff;
+}
+
+.route-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.route-time {
+    font-size: 21px;
+    font-weight: bold;
+}
+
+.route-info {
+    color: #5f6368;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.route-labels {
+    display: flex;
+    gap: 5px;
+}
+
+.route-label {
+    padding: 4px 6px;
+    border-radius: 10px;
+    background: #e8f0f3;
+    color: #1968d2;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+#directions-section {
+    display: none;
+}
+
+.directions-title {
+    margin: 20px 2px 8px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#directions {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    padding: 13px 4px;
+    border-bottom: 1px solid #eee;
+}
+
+.direction-step {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    padding: 13px 4px;
+    border-bottom: 1px solid #eee;
+}
+
+.direction-icon {
+    text-align: center;
+    font-size: 19px;
+}
+
+.direction-text {
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.direction-distance {
+    color: #777;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+#map {
+    width: 100%;
+    height: 100vh;
+}
+
+@media (max-width: 750px) {
+    .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 55vh;
+    }
+
+    .sidebar {
+        max-height: 45vh;
+        border-right: none;
+        border-bottom: 1px solid #ddd;
+    }
+
+    #map {
+        height: 55vh;
+    }
+}

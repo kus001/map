@@ -11,8 +11,8 @@ def get_coordinates(address):
 
         if location is None:
             return None
-        return location.latitude, location.lognitutde
-    except Exception:
+        return location.latitude, location.longitude
+    except Exception as error:
         return None
 
 def get_walking_route(start_address, end_address):

@@ -72,7 +72,7 @@ function directionIcon(step) {
     
     return "↑"
 
-    // (from kush) cycling uses a different format than OSRM, so we will have to add another if-statement that checks for step.instruction()
+    // (from kush) cycling uses a different format than OSRM, so we will have to add another if-statement that checks for step.instruction() 
 }
 
 function formatDirection(step) {

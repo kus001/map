@@ -8,7 +8,7 @@ Feedback welcome, please send to [host-transit-page@user.hackclub.app](mailto:ho
 
 To run the project, as of now, you should run main.py. This will host the transit webpage locally, and then you should open [http://127.0.0.1:5000](http://127.0.0.1:5000). However, as of now, that will only open the driving/walking router, as transit is not yet finished.
 
-![Map Router interface with a calm, functional appearance. The left panel shows the title Map Router, fields labeled Starting location and Destination, a Find routes button, Drive and Walk options, and the message Enter a starting point and destination. The right side displays an OpenStreetMap view of Waterloo, Kitchener, and surrounding rural areas, with zoom controls and labels including University of Waterloo, Waterloo, Kitchener, St. Jacobs, and regional roads.](assets/image.png)
+![Map Router interface with a calm, functional appearance. The left panel shows the title Map Router, fields labeled Starting location and Destination, a Find routes button, Drive and Walk options, and the message Enter a starting point and destination. The right side displays an OpenStreetMap view of Waterloo, Kitchener, and surrounding rural areas, with zoom controls and labels including University of Waterloo, Waterloo, Kitchener, St. Jacobs, and regional roads.](assets/image2.png)
 
 ### Cycling
 

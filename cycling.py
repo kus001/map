@@ -46,7 +46,7 @@ def get_cycling_route(start_address, end_address):
     call = requests.get(url, headers=headers)
 
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         
@@ -56,13 +56,13 @@ def get_cycling_route(start_address, end_address):
             "error": f"cycling routing server error: {error}"
         }
 
-    if data.get("code") != "Ok":
-        return {
-            "success": False,
-            "error": data.get("message", "No cycling route could be found.")
-        }
+    # if data.get("code") != "Ok":
+    #     return {
+    #         "success": False,
+    #         "error": data.get("message", "No cycling route could be found.")
+    #     }
 
-    if not data.get("routes"):
+    if not data.get("features"):
         return {
             "success": False,
             "error": "No cycling route could be found."
@@ -70,8 +70,8 @@ def get_cycling_route(start_address, end_address):
 
     route_data = data['features'][0]
     properties = route_data['properties']
-    distance_km = (response['features'][0]['properties']['summary']['distance'])/1000
-    duration_min = (response['features'][0]['properties']['summary']['didtance'])/60
+    distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
+    duration_min = (data['features'][0]['properties']['summary']['distance'])/60
 
     route_coordinates = [
         [lat, lon]
@@ -119,5 +119,4 @@ def get_cycling_route(start_address, end_address):
         "shortest_route_number": 1
     }
 
-result = get_cycling_route("175 david bergey dr", "315 max becker dr")
-print(result)
+# print(result)

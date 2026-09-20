@@ -44,9 +44,18 @@ print(call.text)
 response = call.json()
 distance = response['features'][0]['properties']['summary']['distance']
 duration = response['features'][0]['properties']['summary']['duration']
+stops = response['features'][0]['properties']['segments'][0]['steps']
 
 print()
 print("Cycling: ")
 print()
 print(blue(f"Distance: {distance/1000:.2f} km"))
 print(green(f"Duration: {duration / 60:.2f} minutes"))
+
+for stop in stops:
+    direction = stop['instruction']
+    name = stop['name']
+    distanceStop = stop['distance']
+
+    # add km conversions later
+    print(f"{direction} on {name} for {distanceStop} m")

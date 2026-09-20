@@ -37,21 +37,19 @@ def get_cycling_route(start_address, end_address):
     startLat, startLon = start
     endLat, endLon = end
 
-    distance_km = (properties['summary']['distance'][0])/1000
-    duration_min = (properties['summary']['duration'][0])/60
-
     # api stuff
     headers = {
         'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
     }
 
-    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
+    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLon},{startLat}&end={endLon},{endLat}'
     call = requests.get(url, headers=headers)
 
     try:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
     except requests.RequestException as error:
         return {
             "success": False,
@@ -72,6 +70,8 @@ def get_cycling_route(start_address, end_address):
 
     route_data = data['features'][0]
     properties = route_data['properties']
+    distance_km = (response['features'][0]['properties']['summary']['distance'])/1000
+    duration_min = (response['features'][0]['properties']['summary']['didtance'])/60
 
     route_coordinates = [
         [lat, lon]
@@ -109,7 +109,7 @@ def get_cycling_route(start_address, end_address):
         },
 
         "end": {
-            "address": end,
+            "address": end_address,
             "coordinates": [endLat, endLon]
         },
 
@@ -118,3 +118,6 @@ def get_cycling_route(start_address, end_address):
         "fastest_route_number": 1,
         "shortest_route_number": 1
     }
+
+result = get_cycling_route("175 david bergey dr", "315 max becker dr")
+print(result)

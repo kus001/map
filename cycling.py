@@ -34,34 +34,35 @@ def get_cycling_route(start_address, end_address):
             "error": "destination couldn't be found"
         }
 
-    start_lat, start_lon = start
-    end_lat, end_lon = end
+    startLat, startLon = start
+    endLat, endLon = end
 
     # api stuff
     headers = {
         'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
     }
 
-    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
+    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLon},{startLat}&end={endLon},{endLat}'
     call = requests.get(url, headers=headers)
 
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
     except requests.RequestException as error:
         return {
             "success": False,
             "error": f"cycling routing server error: {error}"
         }
 
-    if data.get("code") != "Ok":
-        return {
-            "success": False,
-            "error": data.get("message", "No cycling route could be found.")
-        }
+    # if data.get("code") != "Ok":
+    #     return {
+    #         "success": False,
+    #         "error": data.get("message", "No cycling route could be found.")
+    #     }
 
-    if not data.get("routes"):
+    if not data.get("features"):
         return {
             "success": False,
             "error": "No cycling route could be found."
@@ -69,6 +70,8 @@ def get_cycling_route(start_address, end_address):
 
     route_data = data['features'][0]
     properties = route_data['properties']
+    distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
+    duration_min = (data['features'][0]['properties']['summary']['distance'])/60
 
     route_coordinates = [
         [lat, lon]
@@ -98,16 +101,16 @@ def get_cycling_route(start_address, end_address):
     return {
         "success": True,
 
-        "mode": "walking",
+        "mode": "cycling",
 
         "start": {
             "address": start_address,
-            "coordinates": [start_lat, start_lon]
+            "coordinates": [startLat, startLon]
         },
 
         "end": {
-            "address": end,
-            "coordinates": [end_lat, end_lon]
+            "address": end_address,
+            "coordinates": [endLat, endLon]
         },
 
         "routes": [route],
@@ -115,3 +118,5 @@ def get_cycling_route(start_address, end_address):
         "fastest_route_number": 1,
         "shortest_route_number": 1
     }
+
+# print(result)

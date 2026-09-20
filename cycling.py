@@ -38,8 +38,8 @@ endLong = endLocation.longitude
 url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLong},{startLat}&end={endLong},{endLat}'
 call = requests.get(url, headers=headers)
 
-print(call.status_code, call.reason)
-print(call.text)
+# print(call.status_code, call.reason)
+# print(call.text)
 
 response = call.json()
 distance = response['features'][0]['properties']['summary']['distance']
@@ -58,4 +58,7 @@ for stop in stops:
     distanceStop = stop['distance']
 
     # add km conversions later
-    print(f"{direction} on {name} for {distanceStop} m")
+    if distanceStop >= 1000:
+        print(f"{direction} on {name} for {(distanceStop/1000):.1f} km")
+    else: 
+        print(f"{direction} on {name} for {distanceStop} m")

@@ -1,66 +1,81 @@
-import requests
+# Cycling.py
+
 import os
+import requests
 from dotenv import load_dotenv
-from helpers.print_color import red, green, blue
-from geopy.geocoders import Nominatim
+
+from geocoding import get_coordinates
 
 load_dotenv()
 
-API_KEY = os.getenv("cycling_API")
-geolocator = Nominatim(user_agent="map_cycling_thirdspace")
+API_KEY = os.getenv(
+    "cycling_API"
+)
 
-def get_coordinates(address):
-    try: 
-        location = geolocator.geocode(address)
-
-        if location is None:
-            return None
-        return location.latitude, location.longitude
-    except Exception as error:
-        return None
+CYCLING_URL = (
+    "https://api.openrouteservice.org/"
+    "v2/directions/cycling-regular"
+)
 
 def get_cycling_route(start_address, end_address):
+    if not API_KEY:
+        return {
+            "success": False,
+            "error": "Cycling API Key is missing"
+        }
+
     start = get_coordinates(start_address)
+
     end = get_coordinates(end_address)
 
     if start is None:
         return {
             "success": False,
-            "error": "starting address couldn't be found"
+            "error": "Starting address couldn't be found."
         }
+
     if end is None:
         return {
             "success": False,
-            "error": "destination couldn't be found"
+            "error": "Destination couldn't be found."
         }
 
-    startLat, startLon = start
-    endLat, endLon = end
+    start_lat, start_lon = start
+    end_lat, end_lon = end
 
-    # api stuff
     headers = {
-        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
+        "Authorization": API_KEY,
+        "Accept": "application/json, application/geo+json"
     }
 
-    url = f'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular?api_key={API_KEY}&start={startLon},{startLat}&end={endLon},{endLat}'
-    call = requests.get(url, headers=headers)
+    params = {
+        "start": f"{start_lon},{start_lat}",
+        "end": f"{end_lon},{end_lat}"
+    }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(
+            CYCLING_URL,
+            headers=headers,
+            params=params,
+            timeout=15
+        )
+
         response.raise_for_status()
+
         data = response.json()
-        
-    except requests.RequestException as error:
+
+    except requests.RequestExceptions as error:
         return {
             "success": False,
-            "error": f"cycling routing server error: {error}"
+            "error": f"Cycling routing server error: {error}"
         }
 
-    # if data.get("code") != "Ok":
-    #     return {
-    #         "success": False,
-    #         "error": data.get("message", "No cycling route could be found.")
-    #     }
+    except ValueError:
+        return {
+            "success": False,
+            "error": "Cycling routing server returned invalid data."
+        }
 
     if not data.get("features"):
         return {
@@ -68,35 +83,58 @@ def get_cycling_route(start_address, end_address):
             "error": "No cycling route could be found."
         }
 
-    route_data = data['features'][0]
-    properties = route_data['properties']
-    distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
-    duration_min = (data['features'][0]['properties']['summary']['duration'])/60
+    route_data = data["features"][0]
+
+    properties = route_data.get("properties", {})
+    summary = properties.get("summary", {})
+    distance_km = route_data["distance"] / 1000
+    duration_min = route_data["duration"] / 60
+
+    geometry = route_data["geometry"]["coordinates"]
 
     route_coordinates = [
         [lat, lon]
-        for lon, lat in route_data['geometry']["coordinates"]
+        for lon, lat in geometry
     ]
 
-    steps = []
+    steps=[]
 
-    # gonna be different than the regular api
-    for segment in properties["segments"]:
-        for step in segment["steps"]:
+    total_ascent = 0
+    total_descent = 0
 
+    for segment in properties.get("segments", []):
+        total_ascent += segment.get("ascent", 0)
+        total_descent += segment.get("descent", 0)
+
+        for step in segment.get("steps", []):
             steps.append({
-                "instruction": step.get("instruction", ""),
+                "instruction": "",
+                "type": "cycling",
+                "modifier": "",
+                "road": step.get("name", ""),
                 "name": step.get("name", ""),
-                "distance_m": step["distance"]
+                "distance_m": step.get("distance", 0)
             })
+
+    if duration_min > 0:
+        average_speed = (distance_km / (duration_min / 60))
+    else:
+        average_speed = 0
 
     route = {
         "route_number": 1,
         "distance_km": distance_km,
         "duration_min": duration_min,
+        "average_speed": average_speed,
         "steps": steps,
         "route_coordinates": route_coordinates
     }
+
+    if total_ascent:
+        route["ascent_m"] = (total_ascent)
+
+    if total_descent:
+        route["descent_m"] = (total_descent)
 
     return {
         "success": True,
@@ -105,18 +143,17 @@ def get_cycling_route(start_address, end_address):
 
         "start": {
             "address": start_address,
-            "coordinates": [startLat, startLon]
+            "coordinates": [start_lat, start_lon]
         },
 
         "end": {
-            "address": end_address,
-            "coordinates": [endLat, endLon]
+            "address": end,
+            "coordinates": [end_lat, end_lon]
         },
 
         "routes": [route],
 
         "fastest_route_number": 1,
+        
         "shortest_route_number": 1
     }
-
-# print(result)

@@ -127,8 +127,8 @@ def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuil
             add_agency_to_graph(agency, force_download=force_download)
 
         # Save the graph to a pickle file
-        '''with open(Path("transit_data") / GRAPH_NAME, "wb") as f:
-            pickle.dump(Graph(graph, node_positions), f)'''
+        with open(Path("transit_data") / GRAPH_NAME, "wb") as f:
+            pickle.dump(Graph(graph, node_positions), f)
 
 class Graph:
     def __init__(self, graph, node_positions):

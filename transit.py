@@ -1,9 +1,15 @@
 from heapq import heappop, heappush
 from helpers._transit.make_graph import make_graph
 from helpers.distance import dist_time
-from helpers.print_color import bold, green
+from helpers.print_color import bold, green, red
+
+print("building graph...")
 
 data = make_graph()
+
+print(green("successfully built graph\n"))
+print("routing...")
+
 graph = data.graph
 stops = data.node_positions
 
@@ -67,6 +73,42 @@ route, total_time = transit_a_star(graph, "grt_busses:2088", "go:GL")
 
 for item in route:
     print(item)
+
+i = 1
+for stop, coords, info in route:
+    stop_agency, stop_id = stop.split(":")
+
+    stop_name = coords[2]
+    stop_agency = stop_agency.split("_")
+
+
+    if i != len(route):
+        dnext = route[i]
+        ns   = dnext[0]
+        nc = dnext[1]
+        ni   = dnext[2]
+
+        ns_agency, ns_id = ns.split(":")
+        ns_agency = ns_agency.split("_")
+        ns_name = nc[2]
+
+
+        if ni:
+            if "route" in ni:
+                print(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
+                      f"ride route {ni["route"]['route']} towards {ni["route"]['headsign']} to {ns_name} "
+                      f"(run by {ns_agency[0]}, stop id {ns_id}) "
+                      f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
+                )
+            else:
+                print(green(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), walk {ni["distance"]:.1f} minutes to "))
+        else:
+            print(red(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
+                      f"ride to {ns_name} (run by {ns_agency[0]}, stop id {ns_id}) "
+                      f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
+            ))
+
+    i+=1
 
 print(f"\nOptimal Transit Line: {' --> '.join([f'{stop_id} @ ({coords[0]}, {coords[1]})' for stop_id, coords, _ in route])}")
 print(f"\nEstimated Commute Time: {total_time:.2f} minutes")

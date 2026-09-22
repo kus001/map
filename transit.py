@@ -16,7 +16,7 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, transfer_penalty=20):
+def transit_a_star(graph, start_id, goal_id, transfer_penalty=0.1):
     # Queue stores: (f_score, current_node, current_route_id, current_edge_data)
     priority_queue = []
     heappush(priority_queue, (0, start_id, None, None))
@@ -42,30 +42,31 @@ def transit_a_star(graph, start_id, goal_id, transfer_penalty=20):
             path.append((start_id, stops[start_id], None))
             return path[::-1], graph_costs[(current_id, current_route)]
 
-        for neighbor_id, travel_time in graph.get(current_id, {}).items():
-            # Extract route_id safely from nested dictionary structure
-            route_dict = travel_time.get("route")
-            next_route = route_dict.get("route") if isinstance(route_dict, dict) else None
+        for neighbor_id, route_options in graph.get(current_id, {}).items():
+            for route_key, travel_time in route_options.items():
+                # Extract route_id safely from nested dictionary structure
+                route_dict = travel_time.get("route")
+                next_route = route_dict.get("route") if isinstance(route_dict, dict) else None
 
-            # Base cost for edge
-            cost = travel_time.get("distance", 0)
+                # Base cost for edge
+                cost = travel_time.get("distance", 0)
 
-            # Apply penalty if changing from one transit route to another
-            if current_route != next_route and current_route is not None:
-                cost += transfer_penalty
+                # Apply penalty if changing from one transit route to another
+                if current_route != next_route and current_route is not None:
+                    cost += transfer_penalty
 
-            tentative_g = graph_costs.get((current_id, current_route), float('inf')) + cost
-            neighbor_state = (neighbor_id, next_route)
+                tentative_g = graph_costs.get((current_id, current_route), float('inf')) + cost
+                neighbor_state = (neighbor_id, next_route)
 
-            if tentative_g < graph_costs.get(neighbor_state, float('inf')):
-                graph_costs[neighbor_state] = tentative_g
-                
-                # Heuristic estimation
-                h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
-                priority = tentative_g + h
-                
-                heappush(priority_queue, (priority, neighbor_id, next_route, travel_time))
-                came_from[neighbor_state] = (current_id, current_route, travel_time)
+                if tentative_g < graph_costs.get(neighbor_state, float('inf')):
+                    graph_costs[neighbor_state] = tentative_g
+
+                    # Heuristic estimation
+                    h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
+                    priority = tentative_g + h
+
+                    heappush(priority_queue, (priority, neighbor_id, next_route, travel_time))
+                    came_from[neighbor_state] = (current_id, current_route, travel_time)
 
     return None, float('inf')
 

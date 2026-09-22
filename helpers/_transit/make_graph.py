@@ -25,18 +25,25 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
         now = time_to_seconds(datetime.now().strftime("%H:%M:%S"))
         if departure_time <= now + 60:
             return
-    
+
+    # Key edges by route (not just by neighbor stop), so a different route over the
+    # same hop is kept as a separate option instead of overwriting/being overwritten.
+    # Only trips on the SAME route ever compete for the same slot here.
+    route_key = trip_to_route[trip_id]["route"] if trip_id is not None else "__walk__"
+
     if stop_id not in graph:
         graph[stop_id] = {}
-    elif neighbor_stop_id in graph[stop_id]:
-        return  # Avoid adding duplicate neighbors
-    graph[stop_id][neighbor_stop_id] = {"distance": distance}
-    graph[stop_id][neighbor_stop_id]["trip_id"] = trip_id
-    graph[stop_id][neighbor_stop_id]["departure_time"] = departure_time
-    graph[stop_id][neighbor_stop_id]["arrival_time"] = arrival_time
+    if neighbor_stop_id not in graph[stop_id]:
+        graph[stop_id][neighbor_stop_id] = {}
 
+    existing = graph[stop_id][neighbor_stop_id].get(route_key)
+    if existing is not None and existing["distance"] <= distance:
+        return  # Already have an equal-or-faster trip on this same route for this hop
+
+    edge = {"distance": distance, "trip_id": trip_id, "departure_time": departure_time, "arrival_time": arrival_time}
     if trip_id is not None:
-        graph[stop_id][neighbor_stop_id]["route"] = trip_to_route[trip_id]
+        edge["route"] = trip_to_route[trip_id]
+    graph[stop_id][neighbor_stop_id][route_key] = edge
 
 def add_stop_position(stop_id, lat, lon, name=None):
     if stop_id not in node_positions:
@@ -152,4 +159,5 @@ if __name__ == "__main__":
         if len(graph[stop_id]) > 5:
             print(bold(f"\nStop ID {stop_id}:"))
             for stop in graph[stop_id]:
-                print(f"  Neighbor: {stop},\t\tDistance: {graph[stop_id][stop]['distance']},\t\tTrip ID: {graph[stop_id][stop]['trip_id']}")
+                for route_key, edge in graph[stop_id][stop].items():
+                    print(f"  Neighbor: {stop},\t\tRoute: {route_key},\t\tDistance: {edge['distance']},\t\tTrip ID: {edge['trip_id']}")

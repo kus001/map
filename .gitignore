@@ -1,5 +1,28 @@
-.vscode/
-*.pyc
+# Python
 __pycache__/
-transit_data/GTFS_Files/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+
+# Secrets
 .env
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Existing project data
+transit/GTFS_Files/

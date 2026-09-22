@@ -71,12 +71,19 @@ function directionIcon(step) {
     }
     
     return "↑"
+
+    // (from kush) cycling uses a different format than OSRM, so we will have to add another if-statement that checks for step.instruction() 
 }
 
 function formatDirection(step) {
     const type = step.type;
     const modifier = step.modifier;
     const road = step.road;
+
+    // convert openroutservice into OSRM format
+    if (step.instruction && !type) {
+        return step.instruction
+    }
 
     let text = "";
 
@@ -312,8 +319,10 @@ async function searchRoutes() {
 
         if (selectedMode === "walking") {
             statusText.textContent = "walking route";
-        }
-
+        } 
+        else if (selectedMode === "cycling") { // added by KUS
+            statusText.textContent = "cycling route";
+        } 
         else {
             statusText.textContent = data.routes.length + " driving route" + (data.routes.length === 1 ? "" : "s");
         }

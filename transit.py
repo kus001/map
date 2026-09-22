@@ -40,7 +40,7 @@ def transit_a_star(graph, start_id, goal_id, transfer_penalty=20):
                 curr_state = (prev_node, prev_route)
             
             path.append((start_id, stops[start_id], None))
-            return path[::-1], graph_costs[(current_id, current_route)] - transfer_penalty*2
+            return path[::-1], graph_costs[(current_id, current_route)]
 
         for neighbor_id, travel_time in graph.get(current_id, {}).items():
             # Extract route_id safely from nested dictionary structure
@@ -73,6 +73,10 @@ route, total_time = transit_a_star(graph, "grt_busses:2088", "go:GL")
 
 # for item in route:
 #     print(item)
+
+if route is None:
+    print(red("No route found between the given start and destination."))
+    raise SystemExit(1)
 
 i = 1
 total = {
@@ -107,11 +111,8 @@ while True:
                 total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
             elif not total["first stop"][3]:
                 total["first stop"][3] = ni["route"] if "route" in ni else None
-
-            total["time"] += ni["distance"]
-            total["stops"] += 1
-            # i += 1
-            # continue
+            i += 1
+            continue
             
         else:
             fs = total['first stop']
@@ -130,8 +131,8 @@ while True:
             }
 
             total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
-            # i += 1
-            # continue
+            i += 1
+            continue
 
         if ni:
             if "route" in ni:

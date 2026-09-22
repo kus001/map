@@ -12,12 +12,23 @@ API_KEY = os.getenv(
     "cycling_API"
 )
 
-CYCLING_URL = (
-    "https://api.openrouteservice.org/"
-    "v2/directions/cycling-regular"
-)
+CYCLING_URL = None
 
-def get_cycling_route(start_address, end_address):
+def get_cycling_route(start_address, end_address, route_type="regular"):
+
+    # KUSH: added diffferent types of biking, will change the route depending on this
+    # it would be good if someone could add buttons to the website under cycling to 
+    # allow the user to change this setting (PS. WILL BE ADDING THIS TO OTHER MODES)
+
+    if route_type == "road":
+        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-road"
+    elif route_type == 'mountain':
+        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-mountain"
+    elif route_type == "electric":
+        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-electric"
+    else:
+        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-regular"
+
     if not API_KEY:
         return {
             "success": False,

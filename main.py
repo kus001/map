@@ -42,7 +42,7 @@ def routes():
         result = get_walking_route(start, destination)
 
     elif mode == "cycling":
-        result = get_cycling_route(start, destination)
+        result = get_cycling_route(start, destination, route_type="regular") # from KUSH: I WILL fix this tomorrow, did not have enough time today 
 
     else:
         return jsonify({

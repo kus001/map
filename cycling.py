@@ -9,7 +9,7 @@ from geocoding import get_coordinates
 load_dotenv()
 
 API_KEY = os.getenv(
-    "cycling_API"
+    "API"
 )
 
 CYCLING_URL = None

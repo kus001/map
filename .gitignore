@@ -25,4 +25,4 @@ frontend/.env
 Thumbs.db
 
 # Existing project data
-transit/GTFS_Files/
+transit_data/GTFS_Files/

@@ -108,7 +108,7 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         for lon, lat in geometry
     ]
 
-    steps=[]
+    steps = []
 
     total_ascent = 0
     total_descent = 0

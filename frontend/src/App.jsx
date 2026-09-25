@@ -40,7 +40,7 @@ function App() {
       {/* starting address */}
       <div className="w-60 mx-auto mt-5">
         <input
-          className="flex items-center justify-center w-full border p-2 rounded-lg"
+          className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button p-2 rounded-lg"
           placeholder="enter starting point..."
         />
       </div>
@@ -48,7 +48,7 @@ function App() {
       {/* ending address */}
       <div className="w-60 mx-auto mt-5">
         <input
-          className="flex items-center justify-center w-full border p-2 rounded-lg"
+          className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button w-full border p-2 rounded-lg"
           placeholder="enter destination..."
         />
       </div>

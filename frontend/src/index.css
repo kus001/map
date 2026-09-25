@@ -3,6 +3,7 @@
 @import "tailwindcss";
 
 @theme {
+  --color-button-light: #A3A3A3;
   --color-button: #757575;
   --color-button-darker: #686868;
   --color-button-darkest: #565656;

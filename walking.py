@@ -2,24 +2,13 @@
 
 import requests
 import os
+from helpers.coords import get_coordinates
 from dotenv import load_dotenv
 from helpers.print_color import red, green, blue
-from geopy.geocoders import Nominatim
 
 load_dotenv()
 
 API_KEY = os.getenv("API")
-geolocator = Nominatim(user_agent="map_walking_thirdspace")
-
-def get_coordinates(address):
-    try: 
-        location = geolocator.geocode(address)
-
-        if location is None:
-            return None
-        return location.latitude, location.longitude
-    except Exception as error:
-        return None
 
 def get_walking_route(start_address, end_address):
     start = get_coordinates(start_address)

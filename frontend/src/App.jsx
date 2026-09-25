@@ -37,15 +37,17 @@ function App() {
       <h1 className="text-3xl font-bold text-center mt-2.5">
         Map Router
       </h1>
+
       {/* starting address */}
-      <div className="w-60 mx-auto">
+      <div className="w-60 mx-auto mt-5">
         <input
           className="flex items-center justify-center w-full border p-2 rounded-lg"
           placeholder="enter starting address..."
         />
       </div>
+
       {/* buttons */}
-      <div className="w-72 grid grid-cols-4 p-4 gap-0.5">
+      <div className="w-60 grid grid-cols-4 p-4 mx-auto gap-0.5">
         <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>

@@ -42,12 +42,20 @@ function App() {
       <div className="w-60 mx-auto mt-5">
         <input
           className="flex items-center justify-center w-full border p-2 rounded-lg"
-          placeholder="enter starting address..."
+          placeholder="enter starting point..."
+        />
+      </div>
+
+      {/* ending address */}
+      <div className="w-60 mx-auto mt-5">
+        <input
+          className="flex items-center justify-center w-full border p-2 rounded-lg"
+          placeholder="enter destination..."
         />
       </div>
 
       {/* buttons */}
-      <div className="w-60 grid grid-cols-4 mx-auto gap-2">
+      <div className="w-60 grid grid-cols-4 mt-4 mx-auto gap-2">
         <button onClick={walking} className="relative flex items-center justify-center gap-4 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>
@@ -63,6 +71,17 @@ function App() {
         <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <MdDirectionsTransit />
         </button>
+      </div>
+
+      {/* directions */}
+      <div className="w-60 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg">
+        {/* these are js example directions js to see how the routes will look like */}
+        <div className="text-center p-1 border-b">
+          turn left
+        </div>
+        <div className="text-center p-1 border-b">
+          go straight
+        </div>
       </div>
     </div>
   );

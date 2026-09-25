@@ -9,6 +9,7 @@ export default defineConfig({
 
   server: {
     port: 5173,
+    allowedHosts: ["spaces.hackclub.com"], // from Kush: tried to get react website to open locally on HC spaces, but no luck :(
     proxy: {
       "/api": {
         target: "http://127.0.0.1:5000",

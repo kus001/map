@@ -20,24 +20,25 @@ function App() {
   }
 
   return (
+    // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     <div className="w-72 h-screen">
       <h1 className="text-3xl font-bold text-center mt-2.5">
         Map Router
       </h1>
       <div className="w-72 grid grid-cols-1 p-4 gap-1">
-        <button onClick={walking} className="relative mx-2.5 mt-2.5 bg-blue-500 p-2 text-white rounded-full">
+        <button onClick={walking} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
           Walking
         </button>
 
-        <button onClick={cycling} className="relative mx-2.5 mt-2.5 bg-green-500 p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
           Cycling
         </button>
 
-        <button onClick={driving} className="relative mx-2.5 mt-2.5 bg-orange-500 p-2 text-white rounded-2xl">
+        <button onClick={driving} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
           Driving
         </button>
 
-        <button onClick={transit} className="relative mx-2.5 mt-2.5 bg-purple-500 p-2 text-white rounded-md">
+        <button onClick={transit} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
           Transit
         </button>
       </div>

@@ -29,13 +29,22 @@ function App() {
 
   // next goal is to put all this into SearchPanel.jsx
   return (
+
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
-    
     // added a temporary border around all this, just so ik the area im working with 
-    <div className="w-72 h-screen border-button border-2"> 
+    <div className="w-72 h-screen border-button border-2 rounded-r-lg"> 
+      {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
         Map Router
       </h1>
+      {/* starting address */}
+      <div className="w-60 mx-auto">
+        <input
+          className="flex items-center justify-center w-full border p-2 rounded-lg"
+          placeholder="enter starting address..."
+        />
+      </div>
+      {/* buttons */}
       <div className="w-72 grid grid-cols-4 p-4 gap-0.5">
         <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />

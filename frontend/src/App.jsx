@@ -8,7 +8,6 @@ import { MdDirectionsTransit } from "react-icons/md";
 
 function App() {
   const walking = () => {
-    // when pressed, triggers get_walking_route(), shows the routes below the buttons, then updates the map to that route
     console.log("walking pressed")
   }
 

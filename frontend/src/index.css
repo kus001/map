@@ -5,6 +5,7 @@
 @theme {
   --color-button: #757575;
   --color-button-darker: #686868;
+  --color-button-darkest: #565656;
 }
 
 html, body, #root {

@@ -2,6 +2,9 @@ from heapq import heappop, heappush
 from helpers._transit.make_graph import make_graph
 from helpers.distance import dist_time
 from helpers.print_color import bold, green, red
+from helpers.time_management import time_to_seconds
+from datetime import datetime
+import time
 
 print("building graph...")
 
@@ -16,61 +19,92 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, transfer_penalty=0.1):
-    # Queue stores: (f_score, current_node, current_route_id, current_edge_data)
+def transit_a_star(graph, start_id, goal_id, safety_buffer=2, start_time=None):
+    """
+    safety_buffer: minutes of slack you need between arriving at a stop and a trip's
+    departure for that connection to count as catchable at all — this REPLACES the old
+    flat transfer_penalty. It's no longer "always add N minutes when switching routes";
+    instead the actual cost of a transfer is however long you genuinely have to wait for
+    the next trip that respects this buffer, looked up from the real schedule.
+    """
+    if start_time is None:
+        start_time = time_to_seconds(datetime.now().strftime("%H:%M:%S"))  # seconds since midnight
+
+    # Queue stores: (f_score, current_node, current_trip_id, current_edge_data)
     priority_queue = []
     heappush(priority_queue, (0, start_id, None, None))
 
-    # Track lowest g_score per state: (node_id, route_id)
+    # Track lowest g_score (minutes elapsed since start_time) per state: (node_id, trip_id)
+    # trip_id is None when you're not currently riding anything (start, or just walked).
     graph_costs = {(start_id, None): 0}
-    
-    # Path reconstructor: (node, route) -> (prev_node, prev_route, edge_data)
+
+    # Path reconstructor: (node, trip_id) -> (prev_node, prev_trip_id, edge_data)
     came_from = {}
 
     while priority_queue:
-        current_f, current_id, current_route, info = heappop(priority_queue)
+        current_f, current_id, current_trip, info = heappop(priority_queue)
 
         if current_id == goal_id:
             path = []
-            curr_state = (current_id, current_route)
-            
+            curr_state = (current_id, current_trip)
+
             while curr_state in came_from:
-                prev_node, prev_route, edge_info = came_from[curr_state]
+                prev_node, prev_trip, edge_info = came_from[curr_state]
                 path.append((curr_state[0], stops[curr_state[0]], edge_info))
-                curr_state = (prev_node, prev_route)
-            
+                curr_state = (prev_node, prev_trip)
+
             path.append((start_id, stops[start_id], None))
-            return path[::-1], graph_costs[(current_id, current_route)]
+            return path[::-1], graph_costs[(current_id, current_trip)]
+
+        current_g = graph_costs.get((current_id, current_trip), float('inf'))
+        current_arrival_abs = start_time + current_g * 60  # seconds since midnight, "now" for this state
 
         for neighbor_id, route_options in graph.get(current_id, {}).items():
-            for route_key, travel_time in route_options.items():
-                # Extract route_id safely from nested dictionary structure
-                route_dict = travel_time.get("route")
-                next_route = route_dict.get("route") if isinstance(route_dict, dict) else None
+            for route_key, trips in route_options.items():
+                for edge in trips:
+                    trip_id = edge.get("trip_id")
 
-                # Base cost for edge
-                cost = travel_time.get("distance", 0)
+                    if trip_id is not None and trip_id == current_trip:
+                        # Still riding the exact same scheduled vehicle — no wait, just ride the hop
+                        cost = edge.get("distance", 0)
+                    elif trip_id is None:
+                        # Walking edge — always available immediately, no schedule to wait for
+                        cost = edge.get("distance", 0)
+                    else:
+                        # Boarding a different trip than the one you're on (first ride, or a
+                        # transfer, or even a later run of the SAME route number). If you're
+                        # transferring off an active ride, you need at least safety_buffer
+                        # minutes of slack to make the connection; your very first boarding
+                        # doesn't need that buffer since you're already waiting at the stop.
+                        departure_abs = edge.get("departure_time")
+                        if departure_abs is None:
+                            continue
+                        earliest_catchable = current_arrival_abs
+                        if current_trip is not None:
+                            earliest_catchable += safety_buffer * 60
+                        if departure_abs < earliest_catchable:
+                            continue  # this specific run isn't catchable — too tight or already gone
+                        wait_minutes = (departure_abs - current_arrival_abs) / 60.0
+                        cost = wait_minutes + edge.get("distance", 0)
 
-                # Apply penalty if changing from one transit route to another
-                if current_route != next_route and current_route is not None:
-                    cost += transfer_penalty
+                    tentative_g = current_g + cost
+                    neighbor_state = (neighbor_id, trip_id)
 
-                tentative_g = graph_costs.get((current_id, current_route), float('inf')) + cost
-                neighbor_state = (neighbor_id, next_route)
+                    if tentative_g < graph_costs.get(neighbor_state, float('inf')):
+                        graph_costs[neighbor_state] = tentative_g
 
-                if tentative_g < graph_costs.get(neighbor_state, float('inf')):
-                    graph_costs[neighbor_state] = tentative_g
+                        # Heuristic estimation
+                        h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
+                        priority = tentative_g + h
 
-                    # Heuristic estimation
-                    h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
-                    priority = tentative_g + h
-
-                    heappush(priority_queue, (priority, neighbor_id, next_route, travel_time))
-                    came_from[neighbor_state] = (current_id, current_route, travel_time)
+                        heappush(priority_queue, (priority, neighbor_id, trip_id, edge))
+                        came_from[neighbor_state] = (current_id, current_trip, edge)
 
     return None, float('inf')
 
-route, total_time = transit_a_star(graph, "grt_busses:2088", "go:GL")
+st = time.monotonic_ns()
+route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2)
+# print(time.monotonic_ns() - st)
 
 # for item in route:
 #     print(item)
@@ -112,9 +146,8 @@ while True:
                 total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
             elif not total["first stop"][3]:
                 total["first stop"][3] = ni["route"] if "route" in ni else None
-            i += 1
-            continue
-            
+            # i is already advanced once per loop iteration at the bottom (line ~161) —
+            # incrementing it here too skips entries and eventually runs i past len(route)
         else:
             fs = total['first stop']
             if fs[3]:
@@ -132,8 +165,7 @@ while True:
             }
 
             total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
-            i += 1
-            continue
+            # same here — the trailing i += 1 at the bottom of the loop already advances it
 
         if ni:
             if "route" in ni:

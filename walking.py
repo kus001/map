@@ -1,18 +1,25 @@
-# Walking.py
+# walking.py
 
 import requests
 import os
 from dotenv import load_dotenv
+from helpers.print_color import red, green, blue
+from geopy.geocoders import Nominatim
 
-from geocoding import get_coordinates
+load_dotenv()
 
 API_KEY = os.getenv("API")
+geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-# KUSH: NO ONE TOUCH THIS i gotta make the format right
+def get_coordinates(address):
+    try: 
+        location = geolocator.geocode(address)
 
-WALKING_URL = (
-    "https://api.openrouteservice.org/v2/directions/foot-walking"
-)
+        if location is None:
+            return None
+        return location.latitude, location.longitude
+    except Exception as error:
+        return None
 
 def get_walking_route(start_address, end_address):
     start = get_coordinates(start_address)
@@ -21,58 +28,40 @@ def get_walking_route(start_address, end_address):
     if start is None:
         return {
             "success": False,
-            "error": "starting address couldn't be found."
+            "error": "starting address couldn't be found"
         }
-    
     if end is None:
         return {
             "success": False,
-            "error": "Destination couldn't be found."
+            "error": "destination couldn't be found"
         }
 
-    start_lat, start_lon = start
-    end_lat, end_lon = end
+    startLat, startLon = start
+    endLat, endLon = end
 
+    # api stuff
     headers = {
-        "Authorization": API_KEY,
-        "Accept": "application/json, application/geo+json"
+        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
     }
 
-    params = {
-        "start": f"{start_lon},{start_lat}",
-        "end": f"{end_lon},{end_lat}"
-    }
+    url = f'https://api.heigit.org/openrouteservice/v2/directions/foot-walking?api_key={API_KEY}&start={startLon},{startLat}&end={endLon},{endLat}'
+    call = requests.get(url, headers=headers)
 
     try:
-        response = requests.get(
-            WALKING_URL,
-            headers=headers,
-            params=params,
-            timeout=15
-        )
-
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-
         data = response.json()
 
     except requests.RequestException as error:
         return {
             "success": False,
-            "error": f"Walking routing server error: {error}"
+            "error": f"walking routing server error: {error}"
         }
 
-    except ValueError:
-        return {
-            "success": False,
-            "error": "Walking routing server returned invalid data."
-        }
-
-    # code = data.get("code")
-
-    # if code is not None and code != "Ok":
+    # if data.get("code") != "Ok":
     #     return {
     #         "success": False,
-    #         "error": data.get("message", "No walking route could be found.")
+    #         "error": data.get("message", "No cycling route could be found.")
     #     }
 
     if not data.get("features"):
@@ -81,34 +70,27 @@ def get_walking_route(start_address, end_address):
             "error": "No walking route could be found."
         }
 
-    route_data = data["features"][0]
-
-    properties = route_data.get("properties", {})
-    summary = properties.get("route_data", {})
-    distance_km = route_data["distance"] / 1000
-    duration_min = route_data["duration"] / 60
-
-    geometry = route_data["geometry"]["coordinates"]
+    route_data = data['features'][0]
+    properties = route_data['properties']
+    distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
+    duration_min = (data['features'][0]['properties']['summary']['distance'])/60
+    duration_min = (data['features'][0]['properties']['summary']['duration'])/60
 
     route_coordinates = [
         [lat, lon]
-        for lon, lat in geometry
+        for lon, lat in route_data['geometry']["coordinates"]
     ]
 
     steps = []
 
-    # who added total_ascent and total_descent in cycling.py??????
+    # gonna be different than the regular api
+    for segment in properties["segments"]:
+        for step in segment["steps"]:
 
-    for leg in route_data.get("segments", []):
-        for step in leg.get("steps", []):
-            # maneuver = step.get("maneuver", {})
             steps.append({
-                "instruction": "",
-                "type": "walking",
-                "modifier": "",
-                "road": step.get("name", ""),
+                "instruction": step.get("instruction", ""),
                 "name": step.get("name", ""),
-                "distance_m": step.get("distance", 0)
+                "distance_m": step["distance"]
             })
 
     route = {
@@ -126,20 +108,29 @@ def get_walking_route(start_address, end_address):
 
         "start": {
             "address": start_address,
-            "coordinates": [start_lat, start_lon]
+            "coordinates": [startLat, startLon]
         },
 
         "end": {
-            "address": end,
-            "coordinates": [end_lat, end_lon]
+            "address": end_address,
+            "coordinates": [endLat, endLon]
         },
 
         "routes": [route],
 
         "fastest_route_number": 1,
-        
         "shortest_route_number": 1
     }
 
-result = get_walking_route("175 david bergey dr", "300 hazel st")
-print(result)
+startingTest = input("Enter starting location: ")
+endingTest = input("Enter ending location: ")
+
+result = get_walking_route(startingTest, endingTest)
+
+for step in result["routes"][0]["steps"]:
+    direction = step['instruction']
+    name = step['name']
+    distanceStop = step['distance_m']
+
+    # add km conversions later
+    print(f"{direction} on {name} for {distanceStop} m")

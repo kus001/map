@@ -4,6 +4,7 @@
 
 @theme {
   --color-button: #757575;
+  --color-button-darker: #686868;
 }
 
 html, body, #root {

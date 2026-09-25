@@ -37,21 +37,21 @@ function App() {
         Map Router
       </h1>
       <div className="w-72 grid grid-cols-1 p-4 gap-1">
-        <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 hover:shadow-lg mt-2.5 bg-button p-2 text-white rounded-lg">
+        <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking /> Walking
         </button>
 
-        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg bg-button p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoMdBicycle />
           Cycling
         </button>
 
-        <button onClick={driving} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg bg-button p-2 text-white rounded-lg">
+        <button onClick={driving} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoCarOutline />
           Driving
         </button>
 
-        <button onClick={transit} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg bg-button p-2 text-white rounded-lg">
+        <button onClick={transit} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <MdDirectionsTransit />
           Transit
         </button>

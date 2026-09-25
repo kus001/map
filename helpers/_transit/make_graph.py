@@ -28,22 +28,26 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
 
     # Key edges by route (not just by neighbor stop), so a different route over the
     # same hop is kept as a separate option instead of overwriting/being overwritten.
-    # Only trips on the SAME route ever compete for the same slot here.
     route_key = trip_to_route[trip_id]["route"] if trip_id is not None else "__walk__"
 
     if stop_id not in graph:
         graph[stop_id] = {}
     if neighbor_stop_id not in graph[stop_id]:
         graph[stop_id][neighbor_stop_id] = {}
+    if route_key not in graph[stop_id][neighbor_stop_id]:
+        graph[stop_id][neighbor_stop_id][route_key] = []
 
-    existing = graph[stop_id][neighbor_stop_id].get(route_key)
-    if existing is not None and existing["distance"] <= distance:
-        return  # Already have an equal-or-faster trip on this same route for this hop
+    trips = graph[stop_id][neighbor_stop_id][route_key]
+
+    # Every scheduled trip on this route for this hop is kept (not just the fastest one) —
+    # the search needs actual departure times to compute real wait-for-next-bus costs.
+    if any(t["trip_id"] == trip_id for t in trips):
+        return  # already have this exact scheduled trip
 
     edge = {"distance": distance, "trip_id": trip_id, "departure_time": departure_time, "arrival_time": arrival_time}
     if trip_id is not None:
         edge["route"] = trip_to_route[trip_id]
-    graph[stop_id][neighbor_stop_id][route_key] = edge
+    trips.append(edge)
 
 def add_stop_position(stop_id, lat, lon, name=None):
     if stop_id not in node_positions:
@@ -133,6 +137,15 @@ def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuil
         for agency in agencies:
             add_agency_to_graph(agency, force_download=force_download)
 
+        # Sort each hop's scheduled trips by departure time (walk edges sort first,
+        # they have no departure_time and are always available)
+        for stop_id in graph:
+            for neighbor_id in graph[stop_id]:
+                for route_key in graph[stop_id][neighbor_id]:
+                    graph[stop_id][neighbor_id][route_key].sort(
+                        key=lambda t: (t["departure_time"] is None, t["departure_time"] or 0)
+                    )
+
         # Save the graph to a pickle file
         with open(Path("transit_data") / GRAPH_NAME, "wb") as f:
             pickle.dump(Graph(graph, node_positions), f)
@@ -159,5 +172,6 @@ if __name__ == "__main__":
         if len(graph[stop_id]) > 5:
             print(bold(f"\nStop ID {stop_id}:"))
             for stop in graph[stop_id]:
-                for route_key, edge in graph[stop_id][stop].items():
-                    print(f"  Neighbor: {stop},\t\tRoute: {route_key},\t\tDistance: {edge['distance']},\t\tTrip ID: {edge['trip_id']}")
+                for route_key, trips in graph[stop_id][stop].items():
+                    for edge in trips:
+                        print(f"  Neighbor: {stop},\t\tRoute: {route_key},\t\tDistance: {edge['distance']},\t\tTrip ID: {edge['trip_id']},\t\tDeparts: {edge['departure_time']}")

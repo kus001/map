@@ -1,3 +1,5 @@
+// import SearchPanel from "./components/SearchPanel";
+
 function App() {
   const walking = () => {
     // when pressed, triggers get_walking_route(), shows the routes below the buttons, then updates the map to that route

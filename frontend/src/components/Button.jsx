@@ -1,3 +1,1 @@
-<button>
-    
-</button>
+// a future thing, to centralize buttons

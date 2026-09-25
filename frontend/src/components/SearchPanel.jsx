@@ -1,26 +1,29 @@
-import {
-    ArrowUpDown,
-    Bike,
-    Car,
-    Footprints,
-    LoaderCircle,
-    Search
-} from "lucid-react"
+import { IoMdBicycle } from "react-icons/io";
+import { IoCarOutline } from "react-icons/io5";
+import { BsPersonWalking } from "react-icons/bs";
+// import { MdDirectionsTransit } from "react-icons/md"; (not sure if transit is ready yet)
 
 const Modes = [
     {
         id:"driving",
         label: "Drive",
-        icon: Car
+        icon: IoCarOutline
     },
     {
         id: "walking",
         label: "Walk",
-        icon: Footprints
+        icon: BsPersonWalking
     },
     {
-        id: "Cycling",
+        id: "cycling",
         label:"Bike",
-        icon: Bike
+        icon: IoMdBicycle
     }
+    // this is for the future, not sure if transit is ready yet
+
+    // {
+    //     id: "transit",
+    //     label: "Transit",
+    //     icon: MdDirectionsTransit
+    // }
 ];

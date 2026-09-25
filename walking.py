@@ -121,16 +121,3 @@ def get_walking_route(start_address, end_address):
         "fastest_route_number": 1,
         "shortest_route_number": 1
     }
-
-startingTest = input("Enter starting location: ")
-endingTest = input("Enter ending location: ")
-
-result = get_walking_route(startingTest, endingTest)
-
-for step in result["routes"][0]["steps"]:
-    direction = step['instruction']
-    name = step['name']
-    distanceStop = step['distance_m']
-
-    # add km conversions later
-    print(f"{direction} on {name} for {distanceStop} m")

@@ -36,24 +36,21 @@ function App() {
       <h1 className="text-3xl font-bold text-center mt-2.5">
         Map Router
       </h1>
-      <div className="w-72 grid grid-cols-1 p-4 gap-1">
+      <div className="w-72 grid grid-cols-4 p-4 gap-0.5">
         <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
-          <BsPersonWalking /> Walking
+          <BsPersonWalking />
         </button>
 
         <button onClick={cycling} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoMdBicycle />
-          Cycling
         </button>
 
         <button onClick={driving} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoCarOutline />
-          Driving
         </button>
 
         <button onClick={transit} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <MdDirectionsTransit />
-          Transit
         </button>
       </div>
     </div>

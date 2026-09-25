@@ -2,6 +2,7 @@ from heapq import heappop, heappush
 from helpers._transit.make_graph import make_graph
 from helpers.distance import dist_time
 from helpers.print_color import bold, green, red
+import time
 
 print("building graph...")
 
@@ -70,7 +71,9 @@ def transit_a_star(graph, start_id, goal_id, transfer_penalty=0.1):
 
     return None, float('inf')
 
-route, total_time = transit_a_star(graph, "grt_busses:2088", "go:GL")
+st = time.monotonic_ns()
+route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN")
+# print(time.monotonic_ns() - st)
 
 # for item in route:
 #     print(item)
@@ -113,7 +116,7 @@ while True:
             elif not total["first stop"][3]:
                 total["first stop"][3] = ni["route"] if "route" in ni else None
             i += 1
-            continue
+            
             
         else:
             fs = total['first stop']
@@ -133,7 +136,7 @@ while True:
 
             total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
             i += 1
-            continue
+            
 
         if ni:
             if "route" in ni:

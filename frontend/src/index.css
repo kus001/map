@@ -1,6 +1,10 @@
-/* Index.css*/
+/* index.css*/
 
 @import "tailwindcss";
+
+@theme {
+  --color-button: #757575;
+}
 
 html, body, #root {
   width: 100%;

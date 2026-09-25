@@ -1,4 +1,8 @@
 // import SearchPanel from "./components/SearchPanel";
+import { IoMdBicycle } from "react-icons/io";
+import { IoCarOutline } from "react-icons/io5";
+import { BsPersonWalking } from "react-icons/bs";
+import { MdDirectionsTransit } from "react-icons/md";
 
 function App() {
   const walking = () => {
@@ -21,6 +25,7 @@ function App() {
     console.log("transit pressed")
   }
 
+  // next goal is to put all this into SearchPanel.jsx
   return (
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     <div className="w-72 h-screen">
@@ -28,19 +33,22 @@ function App() {
         Map Router
       </h1>
       <div className="w-72 grid grid-cols-1 p-4 gap-1">
-        <button onClick={walking} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
-          Walking
+        <button onClick={walking} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+          <BsPersonWalking /> Walking
         </button>
 
-        <button onClick={cycling} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+          <IoMdBicycle />
           Cycling
         </button>
 
-        <button onClick={driving} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+        <button onClick={driving} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+          <IoCarOutline />
           Driving
         </button>
 
-        <button onClick={transit} className="relative mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+        <button onClick={transit} className="relative flex items-center justify-center gap-4 mx-2.5 mt-2.5 bg-[#757575] p-2 text-white rounded-lg">
+          <MdDirectionsTransit />
           Transit
         </button>
       </div>

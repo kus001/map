@@ -99,6 +99,16 @@ function App() {
         <div className="text-center p-1 border-b">
           - Kush
         </div>
+        <div>
+          {Array.from({ length: 30 }, (_, index) => (
+            <div
+              key={index}
+              className="p-3 border-b border-button-light"
+            >
+              Direction {index + 1}: Continue straight for 200 metres.
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mb-3 flex gap-2 items-center justify-center">

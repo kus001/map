@@ -7,6 +7,7 @@ import { BsPersonWalking } from "react-icons/bs";
 import { MdDirectionsTransit } from "react-icons/md";
 import { GoDot } from "react-icons/go";
 import { PiMapPinFill } from "react-icons/pi";
+import { useState } from "react";
 
 function App() {
   const walking = () => {
@@ -77,7 +78,7 @@ function App() {
       </div>
 
       {/* directions */}
-      <div className="w-64 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg shadow-lg">
+      <div className="w-64 flex-1 min-h-0 mt-6 mb-4 mx-auto overflow-y-auto border-button border-2 rounded-lg shadow-lg">
         {/* these are js example directions js to see how the routes will look like */}
         <div className="text-center p-1 border-b">
           scrollable directions here

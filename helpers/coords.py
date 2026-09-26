@@ -36,5 +36,5 @@ def nearest_stop(all_stops, lat, long):
                 (stop_id, stop)
             ]
 
-    print(closest_stop)
+    # print(closest_stop)
     return closest_stop

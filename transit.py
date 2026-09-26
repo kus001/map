@@ -131,10 +131,10 @@ def print_leg(total, stop_name, id=None):
             f"Ride {total['stops']} stops "
             f"({departure} → {arrival}, "
             f"{total['time']:.1f} minutes) "
-            f'from "{fs[2]}"' +
+            f'from "{fs[2]}" (Stop id: {fs[1]}) '
+            f'to "{stop_name}"' +
             (f" (Stop id: {id})" if id else "") +
-            f' to "{stop_name}" '
-            f"via {fs[0][0]}'s route {fs[3]['route']} "
+            f" via {fs[0][0]}'s route {fs[3]['route']} "
             f"towards {fs[3]['headsign']}"
         ))
 
@@ -143,15 +143,15 @@ def print_leg(total, stop_name, id=None):
         if total["time"] > 0.1:
             legs.append((
                 f"Walk {total['time']:.1f} minutes "
-                f'from "{fs[2]}"' +
-                (f" (Stop id: {id})" if id else "") +
-                f' to "{stop_name}"'
+                f'from "{fs[2]}" (Stop id: {fs[1]}) '
+                f'to "{stop_name}"' +
+                (f" (Stop id: {id})" if id else "")
             ))
         else:
             legs.append((
-                f'Transfer from "{fs[2]}"' +
-                (f" (Stop id:{id})" if id else "") +
-                f' to "{stop_name}"'
+                f'Transfer from "{fs[2]}" (Stop id: {fs[1]}) '
+                f'to "{stop_name}"' +
+                (f" (Stop id: {id})" if id else "")
             ))
     # print(legs[-1])
 
@@ -309,3 +309,4 @@ if __name__ == '__main__':
             print(magenta(leg))
 
     print(f"\nEstimated Commute Time: {total_time:.1f} minutes\n\n")
+    

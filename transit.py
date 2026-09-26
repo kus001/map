@@ -1,4 +1,5 @@
-from helpers.coords import get_coordinates
+from helpers.coords import nearest_stop, get_coordinates
+from secrets import a1, a2
 
 from heapq import heappop, heappush
 from itertools import count
@@ -10,12 +11,12 @@ from helpers.time_management import time_to_seconds, seconds_to_time
 from datetime import datetime
 import time
 
-print("building graph...")
+# print("building graph...")
 
 data = make_graph()
 
-print(green("successfully built graph\n"))
-print("routing...")
+# print(green("successfully built graph\n"))
+# print("routing...")
 
 graph = data.graph
 stops = data.node_positions
@@ -104,28 +105,6 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
 
     return None, float('inf')
 
-st = time.monotonic_ns()
-route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2, start_time=54180)
-# print(time.monotonic_ns() - st)
-
-for item in route:
-    print(item)
-
-if route is None:
-    print(red("No route found between the given start and destination."))
-    raise SystemExit(1)
-
-i = 1
-
-total = {
-    "stops": 1,
-    "time": 0,
-    "departure_time": None,
-    "arrival_time": None,
-    "first stop": None
-}
-
-
 def print_leg(total, stop_name):
     """Print the currently accumulated leg."""
 
@@ -173,73 +152,108 @@ def print_leg(total, stop_name):
                 f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
             ))
 
+def get_transit_route(start_address, end_address):
+    start_coords = get_coordinates(start_address)
+    end_coords   = get_coordinates(end_address)
 
-while i < len(route):
+    start_stop = nearest_stop(stops, *start_coords)
+    end_stop   = nearest_stop(stops, *end_coords)
 
-    stop, coords, info = route[i - 1]
 
-    stop_agency, stop_id = stop.split(":")
-    stop_name = coords[2]
-    stop_agency = stop_agency.split("_")
 
-    dnext = route[i]
-    ns = dnext[0]
-    nc = dnext[1]
-    ni = dnext[2] or {}
+if __name__ == '__main__':
+    get_transit_route(a1, a2)
+    exit(0)
 
-    ns_agency, ns_id = ns.split(":")
-    ns_agency = ns_agency.split("_")
-    ns_name = nc[2]
+    print("\n\n")
+    st = time.monotonic_ns()
+    route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2, start_time=54180)
+    # print(time.monotonic_ns() - st)
 
-    _info = info or {}
+    # for item in route:
+    #     print(item)
 
-    if total["first stop"] is None:
-        # True start of the journey — this edge always belongs to the
-        # leg we're about to open; there's no prior route to compare against.
-        total["first stop"] = [stop_agency, stop_id, stop_name, ni.get("route")]
-        same_leg = True
-    else:
-        same_leg = (
-            stop_agency == ns_agency
-            and ni.get("route") == _info.get("route")
-        ) or (
-            "route" not in ni
-            and "route" not in _info
-        )
+    if route is None:
+        print(red("No route found between the given start and destination."))
+        raise SystemExit(1)
 
-    if same_leg:
-        total["stops"] += 1
-        total["time"] += ni.get("distance", 0)
-
-        if "departure_time" in ni:
-            if total["departure_time"] is None:
-                total["departure_time"] = ni["departure_time"]
-            if ni.get("arrival_time") is not None:
-                total["arrival_time"] = ni["arrival_time"]
-
-        i += 1
-        continue
-
-    print_leg(total, stop_name)
+    i = 1
 
     total = {
-        "stops": 2,
-        "time": ni.get("distance", 0),
-        "departure_time": ni.get("departure_time"),
-        "arrival_time": ni.get("arrival_time"),
-        "first stop": [stop_agency, stop_id, stop_name, ni.get("route")]
+        "stops": 1,
+        "time": 0,
+        "departure_time": None,
+        "arrival_time": None,
+        "first stop": None
     }
-    i += 1
 
 
-# Print the final leg
-if total["first stop"] is not None:
+    while i < len(route):
 
-    # The final destination is the last node in the route
-    final_stop, final_coords, final_info = route[-1]
+        stop, coords, info = route[i - 1]
 
-    final_name = final_coords[2]
+        stop_agency, stop_id = stop.split(":")
+        stop_name = coords[2]
+        stop_agency = stop_agency.split("_")
 
-    print_leg(total, final_name)
+        dnext = route[i]
+        ns = dnext[0]
+        nc = dnext[1]
+        ni = dnext[2] or {}
 
-print(f"\nEstimated Commute Time: {total_time:.1f} minutes")
+        ns_agency, ns_id = ns.split(":")
+        ns_agency = ns_agency.split("_")
+        ns_name = nc[2]
+
+        _info = info or {}
+
+        if total["first stop"] is None:
+            # True start of the journey — this edge always belongs to the
+            # leg we're about to open; there's no prior route to compare against.
+            total["first stop"] = [stop_agency, stop_id, stop_name, ni.get("route")]
+            same_leg = True
+        else:
+            same_leg = (
+                stop_agency == ns_agency
+                and ni.get("route") == _info.get("route")
+            ) or (
+                "route" not in ni
+                and "route" not in _info
+            )
+
+        if same_leg:
+            total["stops"] += 1
+            total["time"] += ni.get("distance", 0)
+
+            if "departure_time" in ni:
+                if total["departure_time"] is None:
+                    total["departure_time"] = ni["departure_time"]
+                if ni.get("arrival_time") is not None:
+                    total["arrival_time"] = ni["arrival_time"]
+
+            i += 1
+            continue
+
+        print_leg(total, stop_name)
+
+        total = {
+            "stops": 2,
+            "time": ni.get("distance", 0),
+            "departure_time": ni.get("departure_time"),
+            "arrival_time": ni.get("arrival_time"),
+            "first stop": [stop_agency, stop_id, stop_name, ni.get("route")]
+        }
+        i += 1
+
+
+    # Print the final leg
+    if total["first stop"] is not None:
+
+        # The final destination is the last node in the route
+        final_stop, final_coords, final_info = route[-1]
+
+        final_name = final_coords[2]
+
+        print_leg(total, final_name)
+
+    print(f"\nEstimated Commute Time: {total_time:.1f} minutes\n\n")

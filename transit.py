@@ -100,7 +100,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
 
     return None, float('inf')
 
-def print_leg(total, stop_name):
+def print_leg(total, stop_name, id=None):
     global legs
     """Print the currently accumulated leg."""
 
@@ -131,7 +131,9 @@ def print_leg(total, stop_name):
             f"Ride {total['stops']} stops "
             f"({departure} → {arrival}, "
             f"{total['time']:.1f} minutes) "
-            f'from "{fs[2]}" to "{stop_name}" '
+            f'from "{fs[2]}"' +
+            (f" (Stop id: {id})" if id else "") +
+            f' to "{stop_name}" '
             f"via {fs[0][0]}'s route {fs[3]['route']} "
             f"towards {fs[3]['headsign']}"
         ))
@@ -141,11 +143,15 @@ def print_leg(total, stop_name):
         if total["time"] > 0.1:
             legs.append((
                 f"Walk {total['time']:.1f} minutes "
-                f'from "{fs[2]}" to "{stop_name}"'
+                f'from "{fs[2]}"' +
+                (f" (Stop id: {id})" if id else "") +
+                f' to "{stop_name}"'
             ))
         else:
             legs.append((
-                f'Transfer from "{fs[2]}" to "{stop_name}"'
+                f'Transfer from "{fs[2]}"' +
+                (f" (Stop id:{id})" if id else "") +
+                f' to "{stop_name}"'
             ))
     # print(legs[-1])
 
@@ -241,7 +247,7 @@ def get_transit_route(start_address, end_address):
             i += 1
             continue
 
-        print_leg(total, stop_name)
+        print_leg(total, stop_name, stop_id)
 
         total = {
             "stops": 2,

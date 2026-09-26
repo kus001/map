@@ -67,19 +67,19 @@ function App() {
 
       {/* buttons */}
       <div className="w-64 grid grid-cols-4 mt-4 mx-auto gap-2">
-        <button onClick={walking} className="relative flex items-center justify-center active:bg-button-darkest gap-4 hover:shadow-md hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
+        <button onClick={walking} className="relative flex items-center justify-center active:bg-green-dark gap-4 hover:shadow-md hover:bg-green mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>
 
-        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
           <IoMdBicycle />
         </button>
 
-        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
           <IoCarOutline />
         </button>
 
-        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
           <MdDirectionsTransit />
         </button>
       </div>
@@ -88,13 +88,16 @@ function App() {
       <div className="w-64 flex-1 min-h-0 mt-6 mb-4 mx-auto overflow-y-auto border-button border-2 rounded-lg shadow-lg">
         {/* these are js example directions js to see how the routes will look like */}
         <div className="text-center p-1 border-b">
-          scrollable directions here
+          made by
         </div>
         <div className="text-center p-1 border-b">
-          turn left
+          Kush
         </div>
         <div className="text-center p-1 border-b">
-          go straight
+          Victor
+        </div>
+        <div className="text-center p-1 border-b">
+          Madhav
         </div>
       </div>
       </div>

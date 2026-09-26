@@ -11,7 +11,8 @@ import { useState } from "react";
 
 function App() {
   const walking = () => {
-    console.log("walking pressed")
+    console.log(start)
+    console.log(end)
   }
 
   const cycling = () => {
@@ -29,6 +30,9 @@ function App() {
     console.log("transit pressed")
   }
 
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+
   // next goal is to put all this into SearchPanel.jsx
   return (
 
@@ -44,6 +48,7 @@ function App() {
       <div className="w-64 mx-auto flex items-center gap-3 mt-5">
         <GoDot />
         <input
+          value={start} onChange={(e) => setStart(e.target.value)}
           className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md p-2 rounded-lg"
           placeholder="enter starting point..."
         />
@@ -53,6 +58,7 @@ function App() {
       <div className="w-64 mx-auto flex items-center gap-3 mt-2">
         <PiMapPinFill color="#ca4646" />
         <input
+          value={end} onChange={(e) => setEnd(e.target.value)}
           className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md w-full border p-2 rounded-lg"
           placeholder="enter destination..."
         />

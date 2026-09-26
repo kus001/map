@@ -50,17 +50,17 @@ function App() {
         <GoDot />
         <input
           value={start} onChange={(e) => setStart(e.target.value)}
-          className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md p-2 rounded-lg"
+          className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-green focus:shadow-md p-2 rounded-lg"
           placeholder="enter starting point..."
         />
       </div>
 
       {/* ending address */}
       <div className="w-64 mx-auto flex items-center gap-3 mt-2">
-        <PiMapPinFill color="#ca4646" />
+        <PiMapPinFill color="#66856B" />
         <input
           value={end} onChange={(e) => setEnd(e.target.value)}
-          className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md w-full border p-2 rounded-lg"
+          className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-green focus:shadow-md w-full border p-2 rounded-lg"
           placeholder="enter destination..."
         />
       </div>

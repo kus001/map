@@ -33,10 +33,10 @@ function App() {
 
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     // added a temporary border around all this, just so ik the area im working with 
-    <div className="w-80 h-screen border-button border-2 rounded-r-lg"> 
+    <div className="w-80 h-screen border-charcoal border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
-        <span className="text-green">Map</span> <span className="text-charcoal">Router</span>
+        <span className="text-green hover:text-charcoal">Map</span> <span className="text-charcoal">Router</span>
       </h1>
 
       {/* starting address */}

@@ -1,10 +1,12 @@
-# Map
+# [Map](https://map-thirdspace.vercel.app/)
 
 Map is a student-made open source routing software. Still under development. 
 
 Feedback welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
 ## Running the project
+
+The project is now hosted on Vercel with Vite, React, and Tailwind CSS. Access it [here](https://map-thirdspace.vercel.app/).
 
 To run the project, as of now, you should run main.py. This will host the transit webpage locally, and then you should open [http://127.0.0.1:5000](http://127.0.0.1:5000). However, as of now, that will only open the driving/walking router, as transit is not yet finished.
 

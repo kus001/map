@@ -11,23 +11,23 @@ import { useState } from "react";
 
 function App() {
   const walking = () => {
-    console.log(start)
-    console.log(end)
+    console.log("Walking start: ", start)
+    console.log("Walking end: ", end)
   }
 
   const cycling = () => {
-    // same as above
-    console.log("cycling pressed")
+    console.log("Cycling start: ", start)
+    console.log("Cycling end: ", end)
   }
 
   const driving = () => {
-    // same as above
-    console.log("driving pressed")
+    console.log("Driving start: ", start)
+    console.log("Driving end: ", end)
   }
 
   const transit = () => {
-    // same as above
-    console.log("transit pressed")
+    console.log("Transit start: ", start)
+    console.log("Transit end: ", end)
   }
 
   const [start, setStart] = useState("");

@@ -5,6 +5,8 @@ import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
 import { BsPersonWalking } from "react-icons/bs";
 import { MdDirectionsTransit } from "react-icons/md";
+import { GoDot } from "react-icons/go";
+import { PiMapPinFill } from "react-icons/pi";
 
 function App() {
   const walking = () => {
@@ -31,14 +33,15 @@ function App() {
 
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     // added a temporary border around all this, just so ik the area im working with 
-    <div className="w-72 h-screen border-button border-2 rounded-r-lg"> 
+    <div className="w-80 h-screen border-button border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
         Map Router
       </h1>
 
       {/* starting address */}
-      <div className="w-60 mx-auto mt-5">
+      <div className="w-64 mx-auto flex items-center gap-3 mt-5">
+        <GoDot />
         <input
           className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md p-2 rounded-lg"
           placeholder="enter starting point..."
@@ -46,7 +49,8 @@ function App() {
       </div>
 
       {/* ending address */}
-      <div className="w-60 mx-auto mt-2">
+      <div className="w-64 mx-auto flex items-center gap-3 mt-2">
+        <PiMapPinFill color="#C75B5B" />
         <input
           className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md w-full border p-2 rounded-lg"
           placeholder="enter destination..."

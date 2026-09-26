@@ -39,7 +39,7 @@ function App() {
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     // added a temporary border around all this, just so ik the area im working with
     <div className="flex h-screen w-screen"> 
-      <div className="w-80 h-screen border-charcoal flex flex-col border-2 rounded-r-lg"> 
+      <div className="w-80 h-screen border-charcoal flex flex-col border-2 rounded-r-lg border-charcoal"> 
       {/* title */}
       <h1 onClick={() => window.open("https://github.com/kus001/map", "_blank")} className="text-3xl font-bold text-center mt-2.5" >
         <span className="text-charcoal hover:text-green">Map Router</span>

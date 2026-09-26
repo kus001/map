@@ -8,26 +8,27 @@ import { MdDirectionsTransit } from "react-icons/md";
 import { GoDot } from "react-icons/go";
 import { PiMapPinFill } from "react-icons/pi";
 import { useState } from "react";
+import MapView from "./components/MapView";
 
 function App() {
   const walking = () => {
-    console.log(start)
-    console.log(end)
+    console.log("Walking start: ", start)
+    console.log("Walking end: ", end)
   }
 
   const cycling = () => {
-    // same as above
-    console.log("cycling pressed")
+    console.log("Cycling start: ", start)
+    console.log("Cycling end: ", end)
   }
 
   const driving = () => {
-    // same as above
-    console.log("driving pressed")
+    console.log("Driving start: ", start)
+    console.log("Driving end: ", end)
   }
 
   const transit = () => {
-    // same as above
-    console.log("transit pressed")
+    console.log("Transit start: ", start)
+    console.log("Transit end: ", end)
   }
 
   const [start, setStart] = useState("");
@@ -35,10 +36,10 @@ function App() {
 
   // next goal is to put all this into SearchPanel.jsx
   return (
-
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
-    // added a temporary border around all this, just so ik the area im working with 
-    <div className="w-80 h-screen border-charcoal border-2 rounded-r-lg"> 
+    // added a temporary border around all this, just so ik the area im working with
+    <div className="flex h-screen w-screen"> 
+      <div className="w-80 h-screen border-charcoal flex flex-col border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
         <span className="text-green hover:text-charcoal">Map</span> <span className="text-charcoal">Router</span>
@@ -95,6 +96,10 @@ function App() {
         <div className="text-center p-1 border-b">
           go straight
         </div>
+      </div>
+      </div>
+      <div className="flex-1 min-w-0 h-full">
+      <MapView />
       </div>
     </div>
   );

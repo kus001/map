@@ -23,19 +23,14 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
     if departure_time:
         departure_time = time_to_seconds(departure_time)
         arrival_time   = time_to_seconds(arrival_time)
-        now = time_to_seconds(datetime.now().strftime("%H:%M:%S"))
-        if departure_time <= now + 60:
-            return
 
-    # Every scheduled trip on this route for this hop is kept (not just the fastest one) —
-    # the search needs actual departure times to compute real wait-for-next-bus costs.
+    # Every scheduled trip on this route for this hop is kept (not just the fastest one)
     hop_key = (stop_id, neighbor_stop_id, trip_id)
     if hop_key in _seen_trip_hops:
         return  # already have this exact scheduled trip
     _seen_trip_hops.add(hop_key)
 
-    # Key edges by route (not just by neighbor stop), so a different route over the
-    # same hop is kept as a separate option instead of overwriting/being overwritten.
+    # Key edges by route (not just by neighbor stop)
     route_key = trip_to_route[trip_id]["route"] if trip_id is not None else "__walk__"
 
     if stop_id not in graph:

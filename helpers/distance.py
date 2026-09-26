@@ -1,7 +1,7 @@
 import math
 
 
-def find_dist(coord1, coord2):
+def find_dist(coord1: tuple[int, int], coord2: tuple[int, int]) -> float:
     lat1, lon1 = coord1
     lat2, lon2 = coord2
 
@@ -15,7 +15,7 @@ def find_dist(coord1, coord2):
 
     return distance
 
-def dist_time(coord1, coord2, speed=35):
+def dist_time(coord1: tuple[int, int], coord2: tuple[int, int], speed=35) -> float:
     distance = find_dist(coord1, coord2)
     time = distance / speed  # Time in seconds
     return time

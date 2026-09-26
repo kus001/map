@@ -1,21 +1,23 @@
-from helpers.coords import get_coordinates
-
+from helpers.coords import nearest_stop, get_coordinates
+from secrets import a1, a2
 from heapq import heappop, heappush
 from itertools import count
 from bisect import bisect_left
 from helpers._transit.make_graph import make_graph
-from helpers.distance import dist_time
+from helpers.distance import dist_time, find_dist
 from helpers.print_color import bold, green, red, blue, magenta
-from helpers.time_management import time_to_seconds
+from helpers.time_management import time_to_seconds, seconds_to_time
 from datetime import datetime
 import time
 
-print("building graph...")
+# print("building graph...")
 
 data = make_graph()
 
-print(green("successfully built graph\n"))
-print("routing...")
+legs = []
+
+# print(green("successfully built graph\n"))
+# print("routing...")
 
 graph = data.graph
 stops = data.node_positions
@@ -23,27 +25,16 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, safety_buffer=2, start_time=None):
-    """
-    safety_buffer: minutes of slack you need between arriving at a stop and a trip's
-    departure for that connection to count as catchable at all — this REPLACES the old
-    flat transfer_penalty. It's no longer "always add N minutes when switching routes";
-    instead the actual cost of a transfer is however long you genuinely have to wait for
-    the next trip that respects this buffer, looked up from the real schedule.
-    """
+def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
     if start_time is None:
         start_time = time_to_seconds(datetime.now().strftime("%H:%M:%S"))  # seconds since midnight
 
     # Queue stores: (f_score, tie_breaker, current_node, current_trip_id, current_edge_data)
-    # The tie_breaker is a unique increasing counter — without it, heapq falls back to
-    # comparing trip_id (which mixes None and strings) or edge dicts when priorities tie,
-    # and neither of those support '<'.
     tie_breaker = count()
     priority_queue = []
     heappush(priority_queue, (0, next(tie_breaker), start_id, None, None))
 
     # Track lowest g_score (minutes elapsed since start_time) per state: (node_id, trip_id)
-    # trip_id is None when you're not currently riding anything (start, or just walked).
     graph_costs = {(start_id, None): 0}
 
     # Path reconstructor: (node, trip_id) -> (prev_node, prev_trip_id, edge_data)
@@ -84,11 +75,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=2, start_time=None):
                         # Still riding the exact same scheduled vehicle — no wait, just ride the hop
                         candidates = [(continuing_edge.get("distance", 0), current_trip, continuing_edge)]
                     else:
-                        # Boarding a NEW trip on this route (first ride, transfer, or a later run
-                        # of the same route number). trips is sorted by departure_time, so the
-                        # earliest catchable one is found in O(log n) instead of trying all of
-                        # them — a later trip on the same route can never beat the earliest one
-                        # that's actually catchable.
+                        # Boarding a NEW trip on this route (first ride, transfer, or a later run of the same route number)
                         earliest_catchable = current_arrival_abs
                         if current_trip is not None:
                             earliest_catchable += safety_buffer * 60
@@ -117,121 +104,214 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=2, start_time=None):
 
     return None, float('inf')
 
-st = time.monotonic_ns()
-route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2, start_time=53600)
-# print(time.monotonic_ns() - st)
+def print_leg(total, stop_name):
+    global legs
+    """Print the currently accumulated leg."""
 
-# for item in route:
-#     print(item)
+    fs = total["first stop"]
 
-if route is None:
-    print(red("No route found between the given start and destination."))
-    raise SystemExit(1)
+    if fs is None:
+        return
 
-i = 1
-total = {
-    "stops": 1,
-    "time": 0
-}
+    # Transit
+    if fs[3]:
+        departure = (
+            seconds_to_time(total["departure_time"])
+            if total["departure_time"] is not None
+            else "?"
+        )
 
-while True:
-    stop, coords, info = route[i-1]
-
-    stop_agency, stop_id = stop.split(":")
-    stop_name = coords[2]
-    stop_agency = stop_agency.split("_")
-
-    if i != len(route):
-        dnext = route[i]
-        ns    = dnext[0]
-        nc    = dnext[1]
-        ni    = dnext[2]
-
-        ns_agency, ns_id = ns.split(":")
-        ns_agency = ns_agency.split("_")
-        ns_name = nc[2]
-
-        _ni   = ni   if ni   else {}
-        _info = info if info else {}
-
-        if (stop_agency == ns_agency and _ni.get("route", None) == _info.get("route", None)) or ("route" not in ni and "route" not in info):
-            total["stops"] += 1
-            total["time"]  += ni["distance"]
-            if not "first stop" in total:
-                total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
-            elif not total["first stop"][3]:
-                total["first stop"][3] = ni["route"] if "route" in ni else None
+        if total["arrival_time"] is not None:
+            arrival = seconds_to_time(total["arrival_time"])
+        elif total["departure_time"] is not None:
+            # Fall back to departure + accumulated travel time
+            arrival = seconds_to_time(
+                total["departure_time"] + total["time"] * 60
+            )
         else:
-            fs = total['first stop']
-            if fs[3]:
-                print(blue(
-                    f"Ride {total["stops"]} stops ({total["time"]:.1f} minutes) from \"{fs[2]}\" to \"{stop_name}\" via {fs[0][0]}'s route {fs[3]["route"]} towards {fs[3]["headsign"]}"
-                ))
-            else:
-                if total["time"] != 0:
-                    print(green(
-                        f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
-                    ))
-                else:
-                    print(magenta(
-                        f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
-                    ))
-                
-            total = {
-                "stops": 1,
-                "time": 0
-            }
+            arrival = "?"
 
-            total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
-            # same here — the trailing i += 1 at the bottom of the loop already advances it
+        legs.append((
+            f"Ride {total['stops']} stops "
+            f"({departure} → {arrival}, "
+            f"{total['time']:.1f} minutes) "
+            f"from \"{fs[2]}\" to \"{stop_name}\" "
+            f"via {fs[0][0]}'s route {fs[3]['route']} "
+            f"towards {fs[3]['headsign']}"
+        ))
 
-        # if ni:
-        #     if "route" in ni:
-        #         print(
-        #             f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
-        #             f"ride route {ni["route"]['route']} towards {ni["route"]['headsign']} "
-        #             f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id}\") "
-        #             f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
-        #         )
-        #     else:
-        #         print(green(
-        #             f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), walk {ni["distance"]:.1f} minutes "
-        #             f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id})\" "
-        #         ))
-        # else:
-        #     print(red(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
-        #               f"ride to {ns_name} (run by {ns_agency[0]}, stop id {ns_id}) "
-        #               f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
-        #     ))
+    # Walking
     else:
-        fs = total['first stop']
-        dnext = route[i-1]
-        ns    = dnext[0]
-        nc    = dnext[1]
-        ni    = dnext[2]
-
-        ns_agency, ns_id = ns.split(":")
-        ns_agency = ns_agency.split("_")
-        ns_name = nc[2]
-
-        _ni   = ni   if ni   else {}
-        _info = info if info else {}
-
-        if fs[3]:
-            print(blue(
-                f"Ride {total["stops"]} stops ({total["time"]:.1f} minutes) from \"{fs[2]}\" to \"{stop_name}\" via {fs[0][0]}'s route {fs[3]["route"]} towards {fs[3]["headsign"]}"
+        if total["time"] > 0.1:
+            legs.append((
+                f"Walk {total['time']:.1f} minutes "
+                f"from \"{fs[2]}\" to \"{stop_name}\""
             ))
         else:
-            if total["time"] != 0:
-                print(green(
-                    f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
-                ))
-            else:
-                print(magenta(
-                    f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
-                ))
-        break
-    i+=1
+            legs.append((
+                f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
+            ))
+    # print(legs[-1])
 
-# print(f"\nOptimal Transit Line: {' --> '.join([f'{stop_id} @ ({coords[0]}, {coords[1]})' for stop_id, coords, _ in route])}")
-print(f"\nEstimated Commute Time: {total_time:.1f} minutes")
+def get_transit_route(start_address, end_address):
+    global total_time
+    start_coords = get_coordinates(start_address)
+    end_coords   = get_coordinates(end_address)
+
+    start_stop = nearest_stop(stops, *start_coords)
+    end_stop   = nearest_stop(stops, *end_coords)
+
+    # sdist = start_stop[0]
+    # edist = end_stop  [0]
+
+    sid = start_stop[1][0]
+    eid = end_stop  [1][0]
+
+    # sstop_info = start_stop[1][1]
+    # estop_info = end_stop  [1][1]
+    
+    transit_route, total_time = transit_a_star(graph, sid, eid)
+
+    if transit_route is None:
+        return {
+            "success": False,
+            "error"  : "No route found"
+        }
+
+    route_coordinates = []
+
+    for stop in transit_route:
+        route_coordinates.append(stop[1][:2])
+
+    print("\n\n")
+
+    if transit_route is None:
+        print(red("No route found between the given start and destination."))
+        raise SystemExit(1)
+
+    i = 1
+
+    total = {
+        "stops": 1,
+        "time": 0,
+        "departure_time": None,
+        "arrival_time": None,
+        "first stop": None
+    }
+
+
+    while i < len(transit_route):
+        stop, coords, info = transit_route[i - 1]
+
+        stop_agency, stop_id = stop.split(":")
+        stop_name = coords[2]
+        stop_agency = stop_agency.split("_")
+
+        dnext = transit_route[i]
+        ns = dnext[0]
+        nc = dnext[1]
+        ni = dnext[2] or {}
+
+        ns_agency, ns_id = ns.split(":")
+        ns_agency = ns_agency.split("_")
+        ns_name = nc[2]
+
+        _info = info or {}
+
+        if total["first stop"] is None:
+            # True start of the journey — this edge always belongs to the
+            # leg we're about to open; there's no prior route to compare against.
+            total["first stop"] = [stop_agency, stop_id, stop_name, ni.get("route")]
+            same_leg = True
+        else:
+            same_leg = (
+                stop_agency == ns_agency
+                and ni.get("route") == _info.get("route")
+            ) or (
+                "route" not in ni
+                and "route" not in _info
+            )
+
+        if same_leg:
+            total["stops"] += 1
+            total["time"] += ni.get("distance", 0)
+
+            if "departure_time" in ni:
+                if total["departure_time"] is None:
+                    total["departure_time"] = ni["departure_time"]
+                if ni.get("arrival_time") is not None:
+                    total["arrival_time"] = ni["arrival_time"]
+
+            i += 1
+            continue
+
+        print_leg(total, stop_name)
+
+        total = {
+            "stops": 2,
+            "time": ni.get("distance", 0),
+            "departure_time": ni.get("departure_time"),
+            "arrival_time": ni.get("arrival_time"),
+            "first stop": [stop_agency, stop_id, stop_name, ni.get("route")]
+        }
+        i += 1
+
+    if total["first stop"] is not None:
+        final_stop, final_coords, final_info = transit_route[-1]
+        final_name = final_coords[2]
+
+        print_leg(total, final_name)
+
+    steps = []
+
+    for leg in legs:
+        temp = leg.split(" ")
+        steps.append({
+            "instruction": temp[0],
+            "type": "transit",
+            "modifier": " ".join(temp[1:]),
+        })
+
+    route = {
+        "route_number": 1,
+        "distance_km": find_dist(start_coords, end_coords)*1.5//1000,
+        "duration_min": total_time,
+        "average_speed": find_dist(start_coords, end_coords)/total_time,
+        "steps": steps,
+        "route_coordinates": route_coordinates
+    }
+
+    return {
+        "success" : True,
+
+        "mode": "transit",
+        
+        "start": {
+            "address": start_address,
+            "coordinates": start_coords
+        },
+
+        "end": {
+            "address": end_address,
+            "coordinates": end_coords
+        },
+
+        "routes": [route],
+
+        "fastest_route_number": 1,
+        
+        "shortest_route_number": 1
+    }
+
+if __name__ == '__main__':
+    froute = get_transit_route(a1, a2)
+
+    for leg in legs:
+        if leg[0] == "W":
+            print(green(leg))
+        elif leg[0] == "R":
+            print(blue(leg))
+        elif leg[0] == "T":
+            print(magenta(leg))
+
+    print(f"\nEstimated Commute Time: {total_time:.1f} minutes\n\n")

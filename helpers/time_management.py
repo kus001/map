@@ -19,4 +19,4 @@ def delta_time_in_minutes(time_str1, time_str2):
     return dt // 60, dt % 60
 
 if __name__ == '__main__':
-    print(time_to_seconds("15:00:00"))
+    print(time_to_seconds("15:03:00"))

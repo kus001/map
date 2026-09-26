@@ -17,6 +17,7 @@ graph = {}
 node_positions = {}
 all_stops = {}
 trip_to_route = {}
+_seen_trip_hops = set()  # (stop_id, neighbor_stop_id, trip_id) already added — O(1) dedup instead of O(n) list scan
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=None, arrival_time=None):
     if departure_time:
@@ -25,6 +26,13 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
         now = time_to_seconds(datetime.now().strftime("%H:%M:%S"))
         if departure_time <= now + 60:
             return
+
+    # Every scheduled trip on this route for this hop is kept (not just the fastest one) —
+    # the search needs actual departure times to compute real wait-for-next-bus costs.
+    hop_key = (stop_id, neighbor_stop_id, trip_id)
+    if hop_key in _seen_trip_hops:
+        return  # already have this exact scheduled trip
+    _seen_trip_hops.add(hop_key)
 
     # Key edges by route (not just by neighbor stop), so a different route over the
     # same hop is kept as a separate option instead of overwriting/being overwritten.
@@ -38,11 +46,6 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
         graph[stop_id][neighbor_stop_id][route_key] = []
 
     trips = graph[stop_id][neighbor_stop_id][route_key]
-
-    # Every scheduled trip on this route for this hop is kept (not just the fastest one) —
-    # the search needs actual departure times to compute real wait-for-next-bus costs.
-    if any(t["trip_id"] == trip_id for t in trips):
-        return  # already have this exact scheduled trip
 
     edge = {"distance": distance, "trip_id": trip_id, "departure_time": departure_time, "arrival_time": arrival_time}
     if trip_id is not None:

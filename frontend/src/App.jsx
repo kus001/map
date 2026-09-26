@@ -41,7 +41,7 @@ function App() {
     <div className="flex h-screen w-screen"> 
       <div className="w-80 h-screen border-charcoal flex flex-col border-2 rounded-r-lg border-charcoal"> 
       {/* title */}
-      <h1 onClick={() => window.open("https://github.com/kus001/map", "_blank")} className="text-3xl font-bold text-center mt-2.5" >
+      <h1 onClick={() => window.open("https://github.com/kus001/map", "_blank")} className="text-3xl font-bold hover:font-extrabold text-center mt-2.5" >
         <span className="text-charcoal hover:text-green">Map Router</span>
       </h1>
 
@@ -109,7 +109,7 @@ function App() {
       </div>
 
       <div className="mb-3 flex gap-2 items-center justify-center">
-        <span>made by</span> <span onClick={() => window.open("https://github.com/kus001", "_blank")} className="hover:text-green">Kush</span> <span onClick={() => window.open("https://github.com/BigBrain244466666", "_blank")} className="hover:text-green">Victor</span> <span onClick={() => window.open("https://github.com/roc-ket-cod-er", "_blank")} className="hover:text-green">Madhav</span>
+        <span>made by</span> <span onClick={() => window.open("https://github.com/kus001", "_blank")} className="hover:text-green hover:font-bold hover:underline">Kush</span> <span onClick={() => window.open("https://github.com/BigBrain244466666", "_blank")} className="hover:text-green hover:font-bold hover:underline">Victor</span> <span onClick={() => window.open("https://github.com/roc-ket-cod-er", "_blank")} className="hover:text-green hover:font-bold hover:underline">Madhav</span>
       </div>
       </div>
       <div className="flex-1 min-w-0 h-full">

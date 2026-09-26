@@ -1,7 +1,6 @@
 import csv
 import shutil
 import sys
-from datetime import datetime
 import pickle
 from pathlib import Path
 

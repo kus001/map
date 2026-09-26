@@ -100,6 +100,10 @@ function App() {
           Madhav
         </div>
       </div>
+
+      <div className="mb-3 flex gap-2 items-center justify-center">
+        <span>made by</span> <span onClick={() => window.open("https://github.com/kus001", "_blank")} className="hover:text-green">Kush</span> <span onClick={() => window.open("https://github.com/BigBrain244466666", "_blank")} className="hover:text-green">Victor</span> <span onClick={() => window.open("https://github.com/roc-ket-cod-er", "_blank")} className="hover:text-green">Madhav</span>
+      </div>
       </div>
       <div className="flex-1 min-w-0 h-full">
       <MapView />

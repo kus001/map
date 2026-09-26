@@ -63,7 +63,6 @@ def get_walking_route(start_address, end_address):
     properties = route_data['properties']
     distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
     duration_min = (data['features'][0]['properties']['summary']['distance'])/60
-    duration_min = (data['features'][0]['properties']['summary']['duration'])/60
 
     route_coordinates = [
         [lat, lon]

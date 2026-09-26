@@ -175,10 +175,7 @@ def get_transit_route(start_address, end_address):
         start_coords = get_coordinates(start_address)
         end_coords   = get_coordinates(end_address)
     except TypeError:
-        return {
-            "success": False,
-            "error"  : "Invalid Address"
-        }
+        return {"success": False, "error": "Invalid Address"}
     
     start_stops = nearest_stops(stops, *start_coords)
     end_stops   = nearest_stops(stops, *end_coords)
@@ -205,19 +202,12 @@ def get_transit_route(start_address, end_address):
             if temp_time < total_time:
                 transit_route, total_time = temp_rt, temp_time
 
-                legs = [(
-                    f"Walk {round(st_time / 60)} minutes from {start_address} to {start_stops[s][1][1][2]} (Stop id: {start_stops[s][1][0]})"
-                )]
+                legs = [(f"Walk {round(st_time/60)} minutes from {start_address} to {start_stops[s][1][1][2]} (Stop id: {start_stops[s][1][0]})")]
                 
-                last_leg = (
-                    f"Walk {round(et_time / 60)} minutes from {end_stops[e][1][1][2]} to {start_address} (Stop id: {end_stops[e][1][0]})"
-                )
+                last_leg = (f"Walk {round(et_time/60)} minutes from {end_stops[e][1][1][2]} to {start_address} (Stop id: {end_stops[e][1][0]})")
 
     if transit_route is None:
-        return {
-            "success": False,
-            "error"  : "No route found"
-        }
+        return {"success": False, "error": "No route found"}
 
     route_coordinates = []
 

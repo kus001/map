@@ -7,6 +7,9 @@
   --color-button: #757575;
   --color-button-darker: #686868;
   --color-button-darkest: #565656;
+
+  --color-text-green: #66856B;
+  --color-text-charcoal: #2F3E46;
 }
 
 html, body, #root {

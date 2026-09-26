@@ -36,7 +36,7 @@ function App() {
     <div className="w-80 h-screen border-button border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
-        Map Router
+        <span className="text-text-green">Map</span> <span className="text-text-charcoal">Router</span>
       </h1>
 
       {/* starting address */}
@@ -50,7 +50,7 @@ function App() {
 
       {/* ending address */}
       <div className="w-64 mx-auto flex items-center gap-3 mt-2">
-        <PiMapPinFill color="#C75B5B" />
+        <PiMapPinFill color="#ca4646" />
         <input
           className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md w-full border p-2 rounded-lg"
           placeholder="enter destination..."
@@ -58,7 +58,7 @@ function App() {
       </div>
 
       {/* buttons */}
-      <div className="w-60 grid grid-cols-4 mt-4 mx-auto gap-2">
+      <div className="w-64 grid grid-cols-4 mt-4 mx-auto gap-2">
         <button onClick={walking} className="relative flex items-center justify-center active:bg-button-darkest gap-4 hover:shadow-md hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>
@@ -77,7 +77,7 @@ function App() {
       </div>
 
       {/* directions */}
-      <div className="w-60 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg shadow-lg">
+      <div className="w-64 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg shadow-lg">
         {/* these are js example directions js to see how the routes will look like */}
         <div className="text-center p-1 border-b">
           scrollable directions here

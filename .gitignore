@@ -26,3 +26,5 @@ Thumbs.db
 
 # Existing project data
 transit_data/GTFS_Files/
+
+m1234secrets.py

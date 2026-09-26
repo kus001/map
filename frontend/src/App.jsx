@@ -36,7 +36,7 @@ function App() {
     <div className="w-80 h-screen border-button border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
-        <span className="text-text-green">Map</span> <span className="text-text-charcoal">Router</span>
+        <span className="text-green">Map</span> <span className="text-charcoal">Router</span>
       </h1>
 
       {/* starting address */}

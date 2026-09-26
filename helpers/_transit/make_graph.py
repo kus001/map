@@ -3,6 +3,7 @@ import shutil
 import sys
 import pickle
 from pathlib import Path
+from datetime import datetime
 
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
@@ -16,7 +17,33 @@ graph = {}
 node_positions = {}
 all_stops = {}
 trip_to_route = {}
+trip_to_service = {}  # trip_id -> service_id, needed to check which days a trip actually runs
+calendar = {}         # service_id -> {"days": [mon..sun bool], "start": date, "end": date}
+calendar_dates = {}   # (service_id, "YYYYMMDD") -> exception_type (1 = added, 2 = removed)
 _seen_trip_hops = set()  # (stop_id, neighbor_stop_id, trip_id) already added — O(1) dedup instead of O(n) list scan
+
+WEEKDAY_FIELDS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+def service_active(service_id, check_date):
+    """Whether a GTFS service_id actually runs on check_date (a datetime.date),
+    per the standard GTFS rule: calendar_dates.txt exceptions override calendar.txt's
+    weekly pattern for that exact date; otherwise the weekly pattern applies."""
+    date_str = check_date.strftime("%Y%m%d")
+
+    exception = calendar_dates.get((service_id, date_str))
+    if exception == 1:
+        return True   # explicitly added for this date, regardless of the weekly pattern
+    if exception == 2:
+        return False  # explicitly removed for this date, regardless of the weekly pattern
+
+    cal = calendar.get(service_id)
+    if cal is None:
+        return False  # no weekly pattern and no explicit addition — doesn't run
+
+    if not (cal["start"] <= check_date <= cal["end"]):
+        return False
+
+    return cal["days"][check_date.weekday()]  # Monday=0 .. Sunday=6, matches WEEKDAY_FIELDS
 
 def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=None, arrival_time=None):
     if departure_time:
@@ -63,6 +90,25 @@ def add_agency_to_graph(agency, force_download=False):
                 "headsign": row["trip_headsign"],
                 "route"   : row["route_id"]
             }
+            trip_to_service[row["trip_id"]] = row["service_id"]
+
+    cal_path = Path("transit_data") / "GTFS_Files" / agency / "calendar.txt"
+    if cal_path.exists():
+        with open(cal_path, encoding="utf-8-sig", mode="r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                calendar[row["service_id"]] = {
+                    "days": [row[d] == "1" for d in WEEKDAY_FIELDS],
+                    "start": datetime.strptime(row["start_date"], "%Y%m%d").date(),
+                    "end": datetime.strptime(row["end_date"], "%Y%m%d").date(),
+                }
+
+    cal_dates_path = Path("transit_data") / "GTFS_Files" / agency / "calendar_dates.txt"
+    if cal_dates_path.exists():
+        with open(cal_dates_path, encoding="utf-8-sig", mode="r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                calendar_dates[(row["service_id"], row["date"])] = int(row["exception_type"])
 
     with open(Path("transit_data") / "GTFS_Files" / agency / "stops.txt", encoding="utf-8-sig", mode="r") as f:
         reader = csv.DictReader(f)
@@ -126,10 +172,14 @@ def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuil
 
     if Path(Path("transit_data") / GRAPH_NAME).exists():
         with open(Path("transit_data") / GRAPH_NAME, "rb") as f:
-            global graph, node_positions
+            global graph, node_positions, trip_to_service, calendar, calendar_dates
             load = pickle.load(f)
             graph = load.graph
             node_positions = load.node_positions
+            # getattr guards against loading a cache built before calendar filtering existed
+            trip_to_service = getattr(load, "trip_to_service", {})
+            calendar = getattr(load, "calendar", {})
+            calendar_dates = getattr(load, "calendar_dates", {})
     else:
         for agency in agencies:
             add_agency_to_graph(agency, force_download=force_download)
@@ -145,12 +195,18 @@ def add_multiple_agencies_to_graph(*agencies, force_download=False, force_rebuil
 
         # Save the graph to a pickle file
         with open(Path("transit_data") / GRAPH_NAME, "wb") as f:
-            pickle.dump(Graph(graph, node_positions), f)
+            pickle.dump(Graph(graph, node_positions, trip_to_service, calendar, calendar_dates), f)
 
 class Graph:
-    def __init__(self, graph, node_positions):
+    def __init__(self, graph, node_positions, trip_to_service=None, calendar=None, calendar_dates=None):
         self.graph = graph
         self.node_positions = node_positions
+        # These default to the current module-level dicts at pickle time; a graph loaded from
+        # an OLD cache built before this feature existed will get empty dicts here instead —
+        # is_trip_active gracefully treats that as "no calendar info, don't filter" rather than crashing.
+        self.trip_to_service = trip_to_service if trip_to_service is not None else {}
+        self.calendar = calendar if calendar is not None else {}
+        self.calendar_dates = calendar_dates if calendar_dates is not None else {}
 
     def get_neighbors(self, stop_id):
         return self.graph.get(stop_id, {})
@@ -158,9 +214,36 @@ class Graph:
     def get_position(self, stop_id):
         return self.node_positions.get(stop_id, (None, None))
 
+    def is_trip_active(self, trip_id, check_date):
+        """Whether trip_id actually runs on check_date. Trips with no known service
+        calendar (e.g. loaded from a pre-calendar-filtering cache) are treated as always
+        active, so this degrades safely rather than silently dropping every trip."""
+        if not self.trip_to_service and not self.calendar and not self.calendar_dates:
+            return True
+
+        service_id = self.trip_to_service.get(trip_id)
+        if service_id is None:
+            return True
+
+        date_str = check_date.strftime("%Y%m%d")
+        exception = self.calendar_dates.get((service_id, date_str))
+        if exception == 1:
+            return True
+        if exception == 2:
+            return False
+
+        cal = self.calendar.get(service_id)
+        if cal is None:
+            return False
+
+        if not (cal["start"] <= check_date <= cal["end"]):
+            return False
+
+        return cal["days"][check_date.weekday()]
+
 def make_graph():
     add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
-    return Graph(graph, node_positions)
+    return Graph(graph, node_positions, trip_to_service, calendar, calendar_dates)
 
 if __name__ == "__main__":
     make_graph()

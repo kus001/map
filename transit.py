@@ -17,9 +17,11 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
+def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, date=None):
     if start_time is None:
         start_time = time_to_seconds(datetime.now().strftime("%H:%M:%S"))  # seconds since midnight
+    if date is None:
+        date = datetime.now().date()
 
     # Queue stores: (f_score, boardings, tie_breaker, current_node, current_trip_id, current_edge_data)
     # boardings sits right after f_score so that when two entries tie on time, heapq pickes the one with less transfers.
@@ -75,11 +77,18 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
 
                         dep_times = [t["departure_time"] for t in trips]
                         idx = bisect_left(dep_times, earliest_catchable)
-                        if idx < len(trips):
-                            edge = trips[idx]
+                        # Walk forward from the earliest catchable time to the first trip that
+                        # ALSO actually runs on the search date
+                        edge = None
+                        for j in range(idx, len(trips)):
+                            candidate = trips[j]
+                            if data.is_trip_active(candidate["trip_id"], date):
+                                edge = candidate
+                                break
+                        if edge is not None:
                             wait_minutes = (edge["departure_time"] - current_arrival_abs) / 60.0
                             candidates = [(wait_minutes + edge.get("distance", 0), edge["trip_id"], edge, current_boardings + 1)]
-                        # else: nothing on this route is catchable today anymore — no candidate
+                        # else: nothing on this route is catchable and running today anymore --> no candidate
 
                 for cost, trip_id, edge, tentative_boardings in candidates:
                     tentative_g = current_g + cost
@@ -131,10 +140,10 @@ def print_leg(total, stop_name, id=None):
             f"Ride {total['stops']} stops "
             f"({departure} → {arrival}, "
             f"{total['time']:.1f} minutes) "
-            f'from "{fs[2]}" (Stop id: {fs[1]}) '
-            f'to "{stop_name}"' +
+            f'from "{fs[2]}"' +
             (f" (Stop id: {id})" if id else "") +
-            f" via {fs[0][0]}'s route {fs[3]['route']} "
+            f' to "{stop_name}" '
+            f"via {fs[0][0]}'s route {fs[3]['route']} "
             f"towards {fs[3]['headsign']}"
         ))
 
@@ -143,15 +152,15 @@ def print_leg(total, stop_name, id=None):
         if total["time"] > 0.1:
             legs.append((
                 f"Walk {total['time']:.1f} minutes "
-                f'from "{fs[2]}" (Stop id: {fs[1]}) '
-                f'to "{stop_name}"' +
-                (f" (Stop id: {id})" if id else "")
+                f'from "{fs[2]}"' +
+                (f" (Stop id: {id})" if id else "") +
+                f' to "{stop_name}"'
             ))
         else:
             legs.append((
-                f'Transfer from "{fs[2]}" (Stop id: {fs[1]}) '
-                f'to "{stop_name}"' +
-                (f" (Stop id: {id})" if id else "")
+                f'Transfer from "{fs[2]}"' +
+                (f" (Stop id:{id})" if id else "") +
+                f' to "{stop_name}"'
             ))
     # print(legs[-1])
 
@@ -309,4 +318,3 @@ if __name__ == '__main__':
             print(magenta(leg))
 
     print(f"\nEstimated Commute Time: {total_time:.1f} minutes\n\n")
-    

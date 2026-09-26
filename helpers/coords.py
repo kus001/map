@@ -10,3 +10,6 @@ def get_coordinates(address):
         return location.latitude, location.longitude
     except Exception as error:
         return None
+
+def nearest_stop(lat, long):
+    pass

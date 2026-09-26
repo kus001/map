@@ -41,8 +41,8 @@ function App() {
     <div className="flex h-screen w-screen"> 
       <div className="w-80 h-screen border-charcoal flex flex-col border-2 rounded-r-lg"> 
       {/* title */}
-      <h1 className="text-3xl font-bold text-center mt-2.5">
-        <span className="text-green hover:text-charcoal">Map</span> <span className="text-charcoal">Router</span>
+      <h1 onClick={() => window.open("https://github.com/kus001/map", "_blank")} className="text-3xl font-bold text-center mt-2.5" >
+        <span className="text-charcoal hover:text-green">Map Router</span>
       </h1>
 
       {/* starting address */}

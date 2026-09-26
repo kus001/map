@@ -5,6 +5,9 @@ import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
 import { BsPersonWalking } from "react-icons/bs";
 import { MdDirectionsTransit } from "react-icons/md";
+import { GoDot } from "react-icons/go";
+import { PiMapPinFill } from "react-icons/pi";
+import { useState } from "react";
 
 function App() {
   const walking = () => {
@@ -31,49 +34,51 @@ function App() {
 
     // the width of the left column is set to fixed for now, i want to get the layout and everything right and THEN make it flexible to different screen sizes
     // added a temporary border around all this, just so ik the area im working with 
-    <div className="w-72 h-screen border-button border-2 rounded-r-lg"> 
+    <div className="w-80 h-screen border-charcoal border-2 rounded-r-lg"> 
       {/* title */}
       <h1 className="text-3xl font-bold text-center mt-2.5">
-        Map Router
+        <span className="text-green hover:text-charcoal">Map</span> <span className="text-charcoal">Router</span>
       </h1>
 
       {/* starting address */}
-      <div className="w-60 mx-auto mt-5">
+      <div className="w-64 mx-auto flex items-center gap-3 mt-5">
+        <GoDot />
         <input
-          className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button p-2 rounded-lg"
+          className="flex items-center justify-center w-full border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md p-2 rounded-lg"
           placeholder="enter starting point..."
         />
       </div>
 
       {/* ending address */}
-      <div className="w-60 mx-auto mt-2">
+      <div className="w-64 mx-auto flex items-center gap-3 mt-2">
+        <PiMapPinFill color="#ca4646" />
         <input
-          className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button w-full border p-2 rounded-lg"
+          className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button focus:shadow-md w-full border p-2 rounded-lg"
           placeholder="enter destination..."
         />
       </div>
 
       {/* buttons */}
-      <div className="w-60 grid grid-cols-4 mt-4 mx-auto gap-2">
-        <button onClick={walking} className="relative flex items-center justify-center active:bg-button-darkest gap-4 hover:shadow-lg hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
+      <div className="w-64 grid grid-cols-4 mt-4 mx-auto gap-2">
+        <button onClick={walking} className="relative flex items-center justify-center active:bg-button-darkest gap-4 hover:shadow-md hover:bg-button-darker mt-2.5 bg-button p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>
 
-        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoMdBicycle />
         </button>
 
-        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <IoCarOutline />
         </button>
 
-        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-lg hover:bg-button-darker bg-button p-2 text-white rounded-lg">
+        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-button-darkest hover:shadow-md hover:bg-button-darker bg-button p-2 text-white rounded-lg">
           <MdDirectionsTransit />
         </button>
       </div>
 
       {/* directions */}
-      <div className="w-60 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg">
+      <div className="w-64 flex-1 min-h-0 mt-6 mb-4 mx-auto overflow-y-auto border-button border-2 rounded-lg shadow-lg">
         {/* these are js example directions js to see how the routes will look like */}
         <div className="text-center p-1 border-b">
           scrollable directions here

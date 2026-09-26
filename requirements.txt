@@ -2,9 +2,3 @@ Flask
 requests
 geopy
 python-dotenv
-bisect
-itertools
-heapq
-datetime
-shutil
-pathlib

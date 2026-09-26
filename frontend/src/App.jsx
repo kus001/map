@@ -88,16 +88,16 @@ function App() {
       <div className="w-64 flex-1 min-h-0 mt-6 mb-4 mx-auto overflow-y-auto border-button border-2 rounded-lg shadow-lg">
         {/* these are js example directions js to see how the routes will look like */}
         <div className="text-center p-1 border-b">
-          made by
+          directions will go here
         </div>
         <div className="text-center p-1 border-b">
-          Kush
+          once they take up all the space in the box,
         </div>
         <div className="text-center p-1 border-b">
-          Victor
+          they should be scrollable with overflow-y-auto
         </div>
         <div className="text-center p-1 border-b">
-          Madhav
+          - Kush
         </div>
       </div>
 

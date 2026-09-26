@@ -28,7 +28,7 @@ def nearest_stop(all_stops, lat, long):
         stop = all_stops[stop_id]
         slat, slong, sname = stop
 
-        dist = find_dist((lat, long))
+        dist = find_dist((slat, slong), (lat, long))
 
         if dist < closest_stop[0]:
             closest_stop = [
@@ -37,3 +37,4 @@ def nearest_stop(all_stops, lat, long):
             ]
 
     print(closest_stop)
+    return closest_stop

@@ -12,7 +12,7 @@ To run the project, as of now, you should run main.py. This will host the transi
 
 Or to run the React/Tailwind version of the software, do `cd frontend` and `npm run dev` in the terminal. 
 
-![Map Router interface with a calm, functional appearance. The left panel shows the title Map Router, fields labeled Starting location and Destination, a Find routes button, Walk, Drive, Bike, and Transit options, and the message Enter a starting point and destination. The right side displays an OpenStreetMap view of Waterloo, Kitchener, and surrounding rural areas, with zoom controls and labels including University of Waterloo, Waterloo, Kitchener, St. Jacobs, and regional roads.](frontend/public/readme pic.png)
+![Map Router screenshot](./frontend/public/readme%20pic.png)
 
 ### Transit
 

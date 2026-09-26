@@ -1,5 +1,4 @@
 from helpers.coords import nearest_stop, get_coordinates
-from secrets import a1, a2
 from heapq import heappop, heappush
 from itertools import count
 from bisect import bisect_left
@@ -8,21 +7,14 @@ from helpers.distance import dist_time, find_dist
 from helpers.print_color import bold, green, red, blue, magenta
 from helpers.time_management import time_to_seconds, seconds_to_time
 from datetime import datetime
-import time
-
-# print("building graph...")
 
 data = make_graph()
-
 legs = []
-
-# print(green("successfully built graph\n"))
-# print("routing...")
 
 graph = data.graph
 stops = data.node_positions
 
-def coordify(stopthingy):
+def make_stop_coordinate(stopthingy):
     return stopthingy[0:2]
 
 def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
@@ -41,7 +33,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
     came_from = {}
 
     while priority_queue:
-        current_f, _, current_id, current_trip, info = heappop(priority_queue)
+        _, _, current_id, current_trip, _ = heappop(priority_queue)
 
         if current_id == goal_id:
             path = []
@@ -96,7 +88,10 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
                         graph_costs[neighbor_state] = tentative_g
 
                         # Heuristic estimation
-                        h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
+                        h = dist_time(
+                            make_stop_coordinate(stops[neighbor_id]),
+                            make_stop_coordinate(stops[goal_id])
+                        ) / 60.0
                         priority = tentative_g + h
 
                         heappush(priority_queue, (priority, next(tie_breaker), neighbor_id, trip_id, edge))
@@ -109,6 +104,7 @@ def print_leg(total, stop_name):
     """Print the currently accumulated leg."""
 
     fs = total["first stop"]
+    print(fs)
 
     if fs is None:
         return
@@ -135,7 +131,7 @@ def print_leg(total, stop_name):
             f"Ride {total['stops']} stops "
             f"({departure} → {arrival}, "
             f"{total['time']:.1f} minutes) "
-            f"from \"{fs[2]}\" to \"{stop_name}\" "
+            f'from "{fs[2]}" to "{stop_name}" '
             f"via {fs[0][0]}'s route {fs[3]['route']} "
             f"towards {fs[3]['headsign']}"
         ))
@@ -145,30 +141,31 @@ def print_leg(total, stop_name):
         if total["time"] > 0.1:
             legs.append((
                 f"Walk {total['time']:.1f} minutes "
-                f"from \"{fs[2]}\" to \"{stop_name}\""
+                f'from "{fs[2]}" to "{stop_name}"'
             ))
         else:
             legs.append((
-                f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
+                f'Transfer from "{fs[2]}" to "{stop_name}"'
             ))
     # print(legs[-1])
 
 def get_transit_route(start_address, end_address):
     global total_time
-    start_coords = get_coordinates(start_address)
-    end_coords   = get_coordinates(end_address)
+
+    try:
+        start_coords = get_coordinates(start_address)
+        end_coords   = get_coordinates(end_address)
+    except TypeError:
+        return {
+            "success": False,
+            "error"  : "Invalid Address"
+        }
 
     start_stop = nearest_stop(stops, *start_coords)
     end_stop   = nearest_stop(stops, *end_coords)
 
-    # sdist = start_stop[0]
-    # edist = end_stop  [0]
-
     sid = start_stop[1][0]
     eid = end_stop  [1][0]
-
-    # sstop_info = start_stop[1][1]
-    # estop_info = end_stop  [1][1]
     
     transit_route, total_time = transit_a_star(graph, sid, eid)
 
@@ -214,7 +211,6 @@ def get_transit_route(start_address, end_address):
 
         ns_agency, ns_id = ns.split(":")
         ns_agency = ns_agency.split("_")
-        ns_name = nc[2]
 
         _info = info or {}
 
@@ -272,38 +268,30 @@ def get_transit_route(start_address, end_address):
             "modifier": " ".join(temp[1:]),
         })
 
+    distm = find_dist(start_coords, end_coords)
+
     route = {
         "route_number": 1,
-        "distance_km": find_dist(start_coords, end_coords)*1.5//1000,
+        "distance_km": distm*1.5//1000,
         "duration_min": total_time,
-        "average_speed": find_dist(start_coords, end_coords)/total_time,
+        "average_speed": distm/total_time,
         "steps": steps,
         "route_coordinates": route_coordinates
     }
 
     return {
         "success" : True,
-
         "mode": "transit",
-        
-        "start": {
-            "address": start_address,
-            "coordinates": start_coords
-        },
-
-        "end": {
-            "address": end_address,
-            "coordinates": end_coords
-        },
-
+        "start": {"address": start_address, "coordinates": start_coords},
+        "end": {"address": end_address, "coordinates": end_coords},
         "routes": [route],
-
         "fastest_route_number": 1,
-        
         "shortest_route_number": 1
     }
 
 if __name__ == '__main__':
+    a1 = input(bold("Start Address: "))
+    a2 = input(bold("End Address: "))
     froute = get_transit_route(a1, a2)
 
     for leg in legs:

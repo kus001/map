@@ -5,7 +5,7 @@ from itertools import count
 from bisect import bisect_left
 from helpers._transit.make_graph import make_graph
 from helpers.distance import dist_time
-from helpers.print_color import bold, green, red
+from helpers.print_color import bold, green, red, blue, magenta
 from helpers.time_management import time_to_seconds
 from datetime import datetime
 import time
@@ -118,7 +118,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=2, start_time=None):
     return None, float('inf')
 
 st = time.monotonic_ns()
-route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2)
+route, total_time = transit_a_star(graph, "grt_busses:2088", "go:UN", safety_buffer=2, start_time=53600)
 # print(time.monotonic_ns() - st)
 
 # for item in route:
@@ -161,18 +161,21 @@ while True:
                 total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
             elif not total["first stop"][3]:
                 total["first stop"][3] = ni["route"] if "route" in ni else None
-            # i is already advanced once per loop iteration at the bottom (line ~161) —
-            # incrementing it here too skips entries and eventually runs i past len(route)
         else:
             fs = total['first stop']
             if fs[3]:
-                print(red(
+                print(blue(
                     f"Ride {total["stops"]} stops ({total["time"]:.1f} minutes) from \"{fs[2]}\" to \"{stop_name}\" via {fs[0][0]}'s route {fs[3]["route"]} towards {fs[3]["headsign"]}"
                 ))
             else:
-                print(red(
-                    f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
-                ))
+                if total["time"] != 0:
+                    print(green(
+                        f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
+                    ))
+                else:
+                    print(magenta(
+                        f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
+                    ))
                 
             total = {
                 "stops": 1,
@@ -182,25 +185,26 @@ while True:
             total["first stop"] = [stop_agency, stop_id, stop_name, ni["route"] if "route" in ni else None]
             # same here — the trailing i += 1 at the bottom of the loop already advances it
 
-        if ni:
-            if "route" in ni:
-                print(
-                    f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
-                    f"ride route {ni["route"]['route']} towards {ni["route"]['headsign']} "
-                    f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id}\") "
-                    f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
-                )
-            else:
-                print(green(
-                    f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), walk {ni["distance"]:.1f} minutes "
-                    f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id})\" "
-                ))
-        else:
-            print(red(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
-                      f"ride to {ns_name} (run by {ns_agency[0]}, stop id {ns_id}) "
-                      f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
-            ))
+        # if ni:
+        #     if "route" in ni:
+        #         print(
+        #             f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
+        #             f"ride route {ni["route"]['route']} towards {ni["route"]['headsign']} "
+        #             f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id}\") "
+        #             f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
+        #         )
+        #     else:
+        #         print(green(
+        #             f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), walk {ni["distance"]:.1f} minutes "
+        #             f"to {ns_name} (run by {ns_agency[0]}, stop id \"{ns_id})\" "
+        #         ))
+        # else:
+        #     print(red(f"Step {i}: From {stop_name} (run by {stop_agency[0]}, stop id \"{stop_id}\"), "
+        #               f"ride to {ns_name} (run by {ns_agency[0]}, stop id {ns_id}) "
+        #               f"in {ni["distance"]} mins. trip id: {ni["trip_id"]}" if ni else ""
+        #     ))
     else:
+        fs = total['first stop']
         dnext = route[i-1]
         ns    = dnext[0]
         nc    = dnext[1]
@@ -214,13 +218,18 @@ while True:
         _info = info if info else {}
 
         if fs[3]:
-            print(red(
+            print(blue(
                 f"Ride {total["stops"]} stops ({total["time"]:.1f} minutes) from \"{fs[2]}\" to \"{stop_name}\" via {fs[0][0]}'s route {fs[3]["route"]} towards {fs[3]["headsign"]}"
             ))
         else:
-            print(red(
-                f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
-            ))
+            if total["time"] != 0:
+                print(green(
+                    f"Walk {total["time"]:.1f} minutes from \"{fs[2]}\" to \"{stop_name}\""
+                ))
+            else:
+                print(magenta(
+                    f"Transfer from \"{fs[2]}\" to \"{stop_name}\""
+                ))
         break
     i+=1
 

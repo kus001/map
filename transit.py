@@ -1,4 +1,4 @@
-from helpers.coords import nearest_stop, get_coordinates
+from helpers.coords import nearest_stops, get_coordinates
 from heapq import heappop, heappush
 from itertools import count
 from bisect import bisect_left
@@ -17,7 +17,7 @@ stops = data.node_positions
 def coordify(stopthingy):
     return stopthingy[0:2]
 
-def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, date=None):
+def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, date=None, cuttoff=float('inf')):
     if start_time is None:
         start_time = time_to_seconds(datetime.now().strftime("%H:%M:%S"))  # seconds since midnight
     if date is None:
@@ -51,6 +51,10 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, d
             return path[::-1], graph_costs[(current_id, current_trip)][0]
 
         current_g, current_boardings = graph_costs.get((current_id, current_trip), (float('inf'), float('inf')))
+
+        if current_g > cuttoff:
+            return None, float("inf")
+
         current_arrival_abs = start_time + current_g * 60  # seconds since midnight, "now" for this state
 
         for neighbor_id, route_options in graph.get(current_id, {}).items():
@@ -165,7 +169,7 @@ def print_leg(total, stop_name, id=None):
     # print(legs[-1])
 
 def get_transit_route(start_address, end_address):
-    global total_time
+    global total_time, legs
 
     try:
         start_coords = get_coordinates(start_address)
@@ -176,13 +180,35 @@ def get_transit_route(start_address, end_address):
             "error"  : "Invalid Address"
         }
     
-    start_stop = nearest_stop(stops, *start_coords)
-    end_stop   = nearest_stop(stops, *end_coords)
+    start_stops = nearest_stops(stops, *start_coords)
+    end_stops   = nearest_stops(stops, *end_coords)
 
-    sid = start_stop[1][0]
-    eid = end_stop  [1][0]
-    
-    transit_route, total_time = transit_a_star(graph, sid, eid)
+    total_time = float("inf")
+
+    for s in range(len(start_stops)):
+        for e in range(len(end_stops)):
+            sid = start_stops[s][1][0]
+            eid = end_stops  [e][1][0]
+
+            temp_time  = start_stops[s][0] / 60
+            temp_time +=   end_stops[e][0] / 60
+
+            stime = time_to_seconds(datetime.now().strftime("%H:%M:%S")) + start_stops[s][0]
+
+            temp_rt, route_time = transit_a_star(graph, sid, eid, start_time=stime, cuttoff=total_time-temp_time)
+
+            temp_time += route_time
+
+            if temp_time < total_time:
+                transit_route, total_time = temp_rt, temp_time
+
+                legs = [(
+                    f"Walk {round(start_stops[s][0] / 60)} minutes from {start_address} to {start_stops[s][1][1][2]} (Stop id: {start_stops[s][1][0]})"
+                )]
+                
+                last_leg = (
+                    f"Walk {round(end_stops[e][0] / 60)} minutes from {end_stops[e][1][1][2]} to {start_address} (Stop id: {end_stops[e][1][0]})"
+                )
 
     if transit_route is None:
         return {
@@ -221,17 +247,14 @@ def get_transit_route(start_address, end_address):
 
         dnext = transit_route[i]
         ns = dnext[0]
-        nc = dnext[1]
         ni = dnext[2] or {}
 
-        ns_agency, ns_id = ns.split(":")
+        ns_agency, _ = ns.split(":")
         ns_agency = ns_agency.split("_")
 
         _info = info or {}
 
         if total["first stop"] is None:
-            # True start of the journey — this edge always belongs to the
-            # leg we're about to open; there's no prior route to compare against.
             total["first stop"] = [stop_agency, stop_id, stop_name, ni.get("route")]
             same_leg = True
         else:
@@ -272,6 +295,7 @@ def get_transit_route(start_address, end_address):
         final_name = final_coords[2]
 
         print_leg(total, final_name)
+        legs.append(last_leg)
 
     steps = []
 

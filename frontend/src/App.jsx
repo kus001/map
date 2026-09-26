@@ -67,19 +67,19 @@ function App() {
 
       {/* buttons */}
       <div className="w-64 grid grid-cols-4 mt-4 mx-auto gap-2">
-        <button onClick={walking} className="relative flex items-center justify-center active:bg-green-dark gap-4 hover:shadow-md hover:bg-green mt-2.5 bg-button p-2 text-white rounded-lg">
+        <button onClick={walking} className="relative flex items-center justify-center active:bg-green-dark gap-4 hover:shadow-md hover:bg-green mt-2.5 bg-charcoal p-2 text-white rounded-lg">
           <BsPersonWalking />
         </button>
 
-        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
+        <button onClick={cycling} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-charcoal p-2 text-white rounded-lg">
           <IoMdBicycle />
         </button>
 
-        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
+        <button onClick={driving} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-charcoal p-2 text-white rounded-lg">
           <IoCarOutline />
         </button>
 
-        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-button p-2 text-white rounded-lg">
+        <button onClick={transit} className="relative flex items-center justify-center gap-4 mt-2.5 active:bg-green-dark hover:shadow-md hover:bg-green bg-charcoal p-2 text-white rounded-lg">
           <MdDirectionsTransit />
         </button>
       </div>

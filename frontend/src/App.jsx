@@ -46,7 +46,7 @@ function App() {
       </div>
 
       {/* ending address */}
-      <div className="w-60 mx-auto mt-5">
+      <div className="w-60 mx-auto mt-2">
         <input
           className="flex items-center justify-center border-2 border-button-light focus:outline-none focus:border-button w-full border p-2 rounded-lg"
           placeholder="enter destination..."
@@ -75,6 +75,9 @@ function App() {
       {/* directions */}
       <div className="w-60 grid-cols-1 mt-6 mx-auto overflow-y-auto h-95 border-button border-2 rounded-lg">
         {/* these are js example directions js to see how the routes will look like */}
+        <div className="text-center p-1 border-b">
+          scrollable directions here
+        </div>
         <div className="text-center p-1 border-b">
           turn left
         </div>

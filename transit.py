@@ -14,7 +14,7 @@ legs = []
 graph = data.graph
 stops = data.node_positions
 
-def make_stop_coordinate(stopthingy):
+def coordify(stopthingy):
     return stopthingy[0:2]
 
 def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
@@ -69,7 +69,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
                     else:
                         # Boarding a NEW trip on this route (first ride, transfer, or a later run of the same route number)
                         earliest_catchable = current_arrival_abs
-                        if current_trip is not None:
+                        if not (current_id == start_id and current_g == 0):
                             earliest_catchable += safety_buffer * 60
 
                         dep_times = [t["departure_time"] for t in trips]
@@ -88,10 +88,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None):
                         graph_costs[neighbor_state] = tentative_g
 
                         # Heuristic estimation
-                        h = dist_time(
-                            make_stop_coordinate(stops[neighbor_id]),
-                            make_stop_coordinate(stops[goal_id])
-                        ) / 60.0
+                        h = dist_time(coordify(stops[neighbor_id]), coordify(stops[goal_id])) / 60.0
                         priority = tentative_g + h
 
                         heappush(priority_queue, (priority, next(tie_breaker), neighbor_id, trip_id, edge))
@@ -104,7 +101,6 @@ def print_leg(total, stop_name):
     """Print the currently accumulated leg."""
 
     fs = total["first stop"]
-    print(fs)
 
     if fs is None:
         return
@@ -160,7 +156,7 @@ def get_transit_route(start_address, end_address):
             "success": False,
             "error"  : "Invalid Address"
         }
-
+    
     start_stop = nearest_stop(stops, *start_coords)
     end_stop   = nearest_stop(stops, *end_coords)
 

@@ -20,11 +20,11 @@ Cycling is still under development, and will be added soon.
 
 Transit routing is still under development, but it can be used by running `transit.py`. You set the starting stop and ending stop in the function `transit_a_star(graph, startstop, endstop)`. Only supported agencies are GRT and GO. (Both are south Ontario transit agencies.)
 
-Please note, that although it can be run, `transit.py` will find the fastest route assuming that all routes are always running 24/7 with 3 min headways. Of course, that's not the fact. It is unable to find the best route for right now, but it still constructs the graph and is able to search through it.
+`transit.py` has now been updated to have a full user-interface combined with accurate transfers. The graph now contains appropriate details to route concious of the current date and current time, and find the route that will, in the following order of priority,
 
-Furthermore, it doesn't have a stop search as of now, which means that you have to input in stop ids. You can use the current example ones, or you can open Google Maps and search for GRT/GO Stop IDs. Fun ones could be `go:UN`, `grt_trains:6001` or others. You can find full lists of stops once the project runs and downloads the files. The full stop list will be availible in `transit_data/GTFS_Files/agency/stops.txt`
-
-Please note that `transit.py` still outputs some debug information to help see the full route.
+1. Arrive the earliest
+2. Depart the latest
+3. Have the lowest amount of transfers.
 
 ### Note
 

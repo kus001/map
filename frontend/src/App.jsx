@@ -91,10 +91,7 @@ function App() {
           directions will go here
         </div>
         <div className="text-center p-1 border-b">
-          once they take up all the space in the box,
-        </div>
-        <div className="text-center p-1 border-b">
-          they should be scrollable with overflow-y-auto
+          they will be scrollable like this
         </div>
         <div className="text-center p-1 border-b">
           - Kush

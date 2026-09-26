@@ -18,7 +18,7 @@ def get_coordinates(address):
     except Exception as error:
         return None
 
-def nearest_stop(all_stops, lat, long):
+def nearest_stop(all_stops:dict, lat:int, long:int) -> list:
     closest_stop = [
         float('inf'),
         None
@@ -38,3 +38,26 @@ def nearest_stop(all_stops, lat, long):
 
     # print(closest_stop)
     return closest_stop
+
+def nearest_stops(all_stops:dict, lat:int, long:int) -> list:
+    closest_stops = [[
+        float('inf'),
+        None
+    ]]
+
+    for stop_id in all_stops:
+        stop = all_stops[stop_id]
+        slat, slong, sname = stop
+
+        dist = find_dist((slat, slong), (lat, long))
+
+        closest_stops.append([
+            dist,
+            (stop_id, stop)
+        ])
+
+        closest_stops.sort(key=lambda x: x[0])
+        closest_stops = closest_stops[:30]
+
+    # print(closest_stops)
+    return closest_stops

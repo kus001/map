@@ -1,7 +1,7 @@
 // Format.js
 
 export function formatDuration(minutes) {
-  const total = Math.round(minutes);
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
 
   if (total < 60) {
     return `${total} min`;
@@ -14,13 +14,7 @@ export function formatDuration(minutes) {
 }
 
 export function formatDistance(meters) {
-  if (
-    meters === undefined ||
-    meters === null ||
-    Number.isNaN(meters)
-  ) {
-    return "";
-  }
+  const value = Math.max(0, Number(meters) || 0);
 
   if (meters >= 1000) {
     return (
@@ -32,19 +26,28 @@ export function formatDistance(meters) {
 }
 
 export function directionText(step) {
-  if (step.instruction) {
-    return step.modifier ? `${step.instruction} ${step.modifier}` : step.instruction
+  if (!step) {
+    return "Continue";
   }
 
   const type = step.type || "";
+  const instruction = step.instruction || "";
   const modifier = step.modifier || "";
-  const road = step.road || "";
+  const road = step.road || step.name || "";
 
-  let text;
+  if (type === "transit" && instruction && modifier && !step.route &&!step.from && !step.to) {
+    return `${instruction} ${modifier}`;
+  }
+
+  if (instruction) {
+    return instruction;
+  }
 
   if (type === "arrive") {
     return ("Arrive at your destination");
   }
+
+  let text;
 
   if (type === "depart") {
     text = modifier ? `Start heading ${modifier}` : "Start";
@@ -59,7 +62,36 @@ export function directionText(step) {
   }
   
   else if (type === "end of road") {
-    text = modifier ? (`At the end of the road, ` + `turn ${modifier}`) : ("At the end of the road");
+    text = modifier ? (`At the end of the road, turn ${modifier}`) : ("At the end of the road");
+  }
+
+  else if (type === "walk") {
+    text = "Walk";
+    if (step.to) {
+      text += ` to ${step.to}`;
+    }
+  }
+
+  else if (type === "transfer") {
+    text = "Transfer";
+    if (step.to) {
+      text += ` at ${step.to}`;
+    }
+  }
+
+  else if (type === "transit") {
+    if (step.route) {
+      text = `Take route ${step.route}`;
+    }
+    else {
+      text = "Take transit";
+    }
+    if (step.headsign) {
+      text += ` toward ${step.headsign}`;
+    }
+    if (step.from && step.to) {
+      text += ` from ${step.from} to ${step.to}`;
+    }
   }
 
   else if (type === "roundabout") {
@@ -67,16 +99,16 @@ export function directionText(step) {
   }
 
   else {
-    text = type.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase());
+    text = type ? type.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()) : "Continue";
     
     if (modifier) {
       text += (` ${modifier}`);
     }
   }
 
-  if (road) {
+  if (road && type !== "arrive" && type !== "transit" && type != "walk" && type !== "transfer") {
     text += ` onto ${road}`;
   }
 
-  return text || road || "Continue";
+  return text;
 }

@@ -8,7 +8,7 @@ Feedback welcome, please send to [host-transit-page@user.hackclub.app](mailto:ho
 
 The project is now hosted on Vercel with Vite, React, and Tailwind CSS. Access it [here](https://map-thirdspace.vercel.app/).
 
-To run this project locally, fork the repository. In the terminal, type `cd frontend` and `npm run dev`. 
+To run this project locally, fork the repository. Then in the terminal, type `cd frontend` and `npm run dev`. 
 
 ![Map Router screenshot](./frontend/public/readme%20pic.png)
 

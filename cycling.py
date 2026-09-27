@@ -18,11 +18,6 @@ CYCLING_PROFILES = {
 }
 
 def get_cycling_route(start_address, end_address, route_type="regular"):
-
-    # KUSH: added diffferent types of biking, will change the route depending on this
-    # it would be good if someone could add buttons to the website under cycling to 
-    # allow the user to change this setting (PS. WILL BE ADDING THIS TO OTHER MODES)
-
     if not API_KEY:
         return {
             "success": False,
@@ -51,8 +46,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
     end_lat, end_lon = end
 
     url = (
-        "https://api.openrouteservice.org/"
-        f"v2/directions/{profile}"
+        "https://api.heigit.org/"
+        f"openrouteservice/v2/directions/{profile}"
     )
 
     headers = {

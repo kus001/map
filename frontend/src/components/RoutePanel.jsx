@@ -145,7 +145,7 @@ export default function RoutePanel({
                                 >
                                     <div>
                                         <div
-                                            classname="text-xl
+                                            className="text-xl
                                             font-bold
                                             text-charcol
                                         "
@@ -178,7 +178,7 @@ export default function RoutePanel({
                                         {
                                             mode !== "transit" && route.average_speed > 0 && (
                                                 <div
-                                                    classname="
+                                                    className="
                                                         mt-1
                                                         text-[11px]
                                                         text-button

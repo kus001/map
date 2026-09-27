@@ -11,8 +11,8 @@ load_dotenv()
 API_KEY = os.getenv("API")
 
 WALKING_URL = (
-    "https://api.openrouteservice.org/"
-    "v2/directions/foot-walking"
+    "https://api.heigit.org/"
+    "openrouteservice/v2/directions/foot-walking"
 )
 
 def get_walking_route(start_address, end_address):

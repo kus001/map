@@ -82,9 +82,10 @@ export default function MapView({
   );
 
   return (
-    <MapContainer center={[43.4829, -80.5249]} zoom={13} zoomControl={false} className="h-full w-full">
+    <MapContainer center={[43.4829, -80.5249]} zoom={13} zoomControl={true} className="h-full w-full">
       <TileLayer url={tileUrl} maxZoom={20} attribution={attribution} />
-      <ZoomControl position="bottomRight" />
+      {/* Temp remove custom zoom control*/}
+      {/* <ZoomControl position="bottomRight" /> */}
       {data?.routes?.map(route => {
         if (
           route.route_number === selectedRouteNumber

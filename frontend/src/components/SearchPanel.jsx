@@ -157,7 +157,7 @@ export default function SearchPanel({
                     onKeyDown={handleEnter}
                     placeholder="Destination"
                     autoComplete="off"
-                    classNme="
+                    className="
                         h-11
                         rounded-lg
                         border-2
@@ -229,7 +229,7 @@ export default function SearchPanel({
                                 disabled={loading}
                                 onClick={() => onModeChange(id)}
                                 title={label}
-                                calssName="
+                                className="
                                     h-10
                                     gap-1
                                     px-1
@@ -264,7 +264,7 @@ export default function SearchPanel({
                                     key="options.id"
                                     disabled={loading}
                                     onClick={() => onCyclingTypeChange(option.id)}
-                                    classname={`
+                                    className={`
                                         rounded-lg
                                         border
                                         px-1
@@ -306,7 +306,7 @@ export default function SearchPanel({
             <Button
                 type="button"
                 disabled={loading}
-                onCLick={() => onSearch()}
+                onClick={() => onSearch()}
                 className="
                     mt-3
                     h-11

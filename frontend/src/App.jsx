@@ -281,7 +281,7 @@ export default function App() {
               href="https://github.com/BigBrain244466666"
               target="_blank"
               rel="noreferrer"
-              classname="
+              className="
                 transition
                 hover:font-bold
                 hover:text-green
@@ -293,7 +293,7 @@ export default function App() {
               href="https://github.com/roc-ket-cod-er"
               target="_blank"
               rel="noreferrer"
-              classname="
+              className="
                 transition
                 hover:font-bold
                 hover:text-green
@@ -320,7 +320,7 @@ export default function App() {
             type="button"
             onClick={findLocation}
             title="My Location"
-            classname="
+            className="
               absolute
               bottom-[85px]
               right=[10px]

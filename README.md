@@ -23,7 +23,9 @@ all you have to do is run `git clone https://github.com/kus001/map`
 
 4. Next, once you are into your local version of your repo, run `cd frontend`
 
-5. Finally, run the project via `npm run dev`. However, you will need to add API keys for the things in the `.env` file. Take a look at the `.env.sample` page for how it works.
+5. Install dependancies by running `npm install`
+
+6. Finally, run the project via `npm run dev`. However, you will need to add API keys for the things in the `.env` file. Take a look at the `.env.sample` page for how it works. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
 
 ![Map Router screenshot](./frontend/public/readme%20pic.png)
 

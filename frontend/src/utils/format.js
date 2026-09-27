@@ -14,16 +14,34 @@ export function formatDuration(minutes) {
 }
 
 export function directionText(step) {
+  if (
+    meters === undefined ||
+    meters === null ||
+    Number.isNaN(meters)
+  ) {
+    return "";
+  }
+
+  if (meters >= 1000) {
+    return (
+      `${(meters / 1000).toFixed(1)} km`
+    )
+  }
+
+  return (`${Math.round(meters)} m`);
+}
+
+export function directionText(step) {
   if (step.instruction) {
-    return step.instruction;
+    return step.modifier ? `${step.instruction} ${step.modifier}` : step.instruction
   }
 
   const type = step.type || "";
   const modifier = step.modifier || "";
   const road = step.road || "";
-
+  
   if (type === "arrive") {
-    return "Arrive at your destination";
+    return ("Arrive at your destination");
   }
 
   let text = "";
@@ -33,28 +51,32 @@ export function directionText(step) {
   }
 
   else if (type === "turn") {
-    text = `Turn ${modifier}`;
+    text = modifier ? `Turn ${modifier}` : "Turn";
   }
 
   else if (type === "continue") {
-    text = `Continue ${modifier}`;
+    text = modifier : `Continue ${modifier}` : "Continue";
+  }
+  
+  else if (type === "end of road") {
+    text = modifier ? (`At the end of the road, ` + `turn ${modifier}`) : ("At the end of the road");
   }
 
-  else if (type === "end of road") {
-    text = modifier ? `At the end of the road, turn ${modifier}` : "At the end fo the road";
+  else if (type === "roundabout") {
+    text = ("Enter the roundabout");
   }
 
   else {
-    text = type.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
+    text = type.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase());
     
     if (modifier) {
-      text += ` ${modifier}`;
+      text += (` ${modifier}`);
     }
   }
 
   if (road) {
-    text += ` onto ${road}`;
+    text += (` onto ${road}`);
   }
 
-  return text || road || "Continue";
+  return (text || road || "Continue");
 }

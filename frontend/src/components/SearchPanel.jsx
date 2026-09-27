@@ -75,247 +75,193 @@ export default function SearchPanel({
     }
 
     return (
-        <div
-            className="
-                border-b
-                border-button-light/40
-                px-5
-                pb-5
-            "
-        >
-            <div
-                className="
-                    flex
-                    w-5
-                    flex-col
-                    items-center
-                    py-3
-                "
-            >
-                <GoDot
-                    className="
-                    text-lg
-                    text-charcol
-                    "
-                />
+        <div className="px-8 pb-6">
+            <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                    <div className="flex w-6 shrink-0 justify-center">
+                        <GoDot className="text-xl text-charcoal" />
+                    </div>
 
-                <div
-                    className="
-                        my-1
-                        w-px
-                        flex-1
-                        bg-button-light
-                    "
-                />
+                    <input
+                        value={start}
+                        onChange={event => setStart(event.target.value)}
+                        onKeyDown={handleEnter}
+                        placeholder="Starting location"
+                        autoComplete="off"
+                        className="
+                            h-14
+                            min-w-0
+                            flex-1
+                            rounded-xl
+                            border-2
+                            border-green
+                            px-4
+                            text-lg
+                            text-charcoal
+                            outline-none
+                            transition
+                            focus:ring-2
+                            focus:ring-green/20
+                        "
+                    />
+                </div>
 
-                <PiMapPinFill
-                    className="text-green"
-                />
+
+                <div className="flex items-center gap-3">
+                    <div className="flex w-6 shrink-0 justify-center">
+                        <PiMapPinFill className="text-xl text-green" />
+                    </div>
+
+                    <input
+                        value={destination}
+                        onChange={event =>
+                            setDestination(event.target.value)
+                        }
+                        onKeyDown={handleEnter}
+                        placeholder="Destination"
+                        autoComplete="off"
+                        className="
+                            h-14
+                            min-w-0
+                            flex-1
+                            rounded-xl
+                            border-2
+                            border-green
+                            px-4
+                            text-lg
+                            text-charcoal
+                            outline-none
+                            transition
+                            focus:ring-2
+                            focus:ring-green/20
+                        "
+                    />
+                </div>
+
             </div>
-
-            <div
-                className="
-                    flex
-                    flex-1
-                    flex-col
-                    gap-2
-                "
-            >
-                <input
-                    value={start}
-                    onChange={event => setStart(event.target.value)}
-                    onKeyDown={handleEnter}
-                    placeholder="Starting location"
-                    autoComplete="off"
-                    className="
-                        h-11
-                        rounded-lg
-                        border-2
-                        border-button-light
-                        bg0white
-                        px-3
-                        text-sm
-                        text-charcoal
-                        outline-none
-                        transition-all
-                        duration-200
-
-                        placeholder:
-                        text-button
-
-                        focus:
-                        border-green
-
-                        focus:
-                        shadow-md
-                    "
-                />
-
-                <input
-                    value={destination}
-                    onChange={event => setDestination(event.target.value)}
-                    onKeyDown={handleEnter}
-                    placeholder="Destination"
-                    autoComplete="off"
-                    className="
-                        h-11
-                        rounded-lg
-                        border-2
-                        border-button-light
-                        bg-white
-                        px-3
-                        text-sm
-                        text-charcoal
-                        outline-none
-                        transition-all
-                        duration-200
-                        
-                        placeholder:
-                        text-button
-                        
-                        focus:
-                        border-green
-                        
-                        focus: shadow-md
-                    "
-                />
-
+            <div className="mt-3 pl-9">
                 <button
                     type="button"
                     disabled={loading}
                     onClick={onSwap}
-                    title={"Swap locations"}
+                    title="Swap locations"
                     className="
-                        my-auto
                         flex
-                        size-9
+                        h-10
+                        w-10
                         items-center
                         justify-center
-                        rounded-lg
-                        bg-charcoal
+                        rounded-xl
+                        bg-green/40
+                        text-xl
                         text-white
-                        transition-all
-                        duration-200
-                        
-                        hover:
-                        rotate-180
-
-                        hover:
-                        bg-green
-
-                        disabled:
-                        opacity-50
+                        transition
+                        hover:bg-green
                     "
                 >
                     <HiArrowsUpDown />
                 </button>
             </div>
-
             <div
                 className="
-                    mt-4
+                    mt-7
                     grid
                     grid-cols-4
-                    gap-2
+                    gap-3
                 "
             >
-                {
-                    MODES.map(
-                        ({id, label, Icon}) => (
-                            <Button
-                                type="button"
-                                key={id}
-                                active={mode === id}
-                                disabled={loading}
-                                onClick={() => onModeChange(id)}
-                                title={label}
-                                className="
-                                    h-10
-                                    gap-1
-                                    px-1
-                                "
-                            >
-                                <Icon className="text-lg"/>
-                                <span className="text-[10px]">
-                                    {label}
-                                </span>
-                            </Button>
-                        )
-                    )
-                }
+                {MODES.map(({ id, label, Icon }) => (
+                    <Button
+                        type="button"
+                        key={id}
+                        active={mode === id}
+                        disabled={loading}
+                        onClick={() =>
+                            onModeChange(id)
+                        }
+                        title={label}
+                        className="
+                            h-12
+                            gap-2
+                            px-2
+                        "
+                    >
+                        <Icon className="text-lg" />
+
+                        <span className="text-xs">
+                            {label}
+                        </span>
+                    </Button>
+                ))}
             </div>
-            
-            {
-                mode ==="cycling" && (
+            {mode === "cycling" && (
                 <div
                     className="
                         soft-enter
                         mt-3
                         grid
                         grid-cols-4
-                        gap-1.5
+                        gap-2
                     "
                 >
-                    {
-                        BIKE_TYPES.map(
-                            option => (
-                                <button
-                                    type="button"
-                                    key="options.id"
-                                    disabled={loading}
-                                    onClick={() => onCyclingTypeChange(option.id)}
-                                    className={`
-                                        rounded-lg
-                                        border
-                                        px-1
-                                        py-2
-                                        text-[10px]
-                                        font-semibold
-                                        transition-all
-                                        duration-150
-                                        
-                                        hover:
-                                        -translate-y-px
-                                        
-                                        ${
-                                            cyclingType === option.id ? `
-                                                border-green
-                                                bg-green/15
-                                                text-green-dark
-                                                `
-                                                : `
-                                                    border-button-light
-                                                    bg-white
-                                                    text-charcoal
-                                                    
-                                                    hover:
-                                                    bg-green/10
-                                                    `
-                                        }
-                                    `}
-                                >
-                                    {option.label}
-                                </button>
-                            )
-                        )
-                    }
-                </div>
-                )
-            }
+                    {BIKE_TYPES.map(option => (
+                        <button
+                            type="button"
+                            key={option.id}
+                            disabled={loading}
+                            onClick={() =>
+                                onCyclingTypeChange(
+                                    option.id
+                                )
+                            }
+                            className={`
+                                rounded-lg
+                                border
+                                px-2
+                                py-2
+                                text-xs
+                                font-semibold
+                                transition-all
+                                duration-150
+                                hover:-translate-y-px
 
+                                ${
+                                    cyclingType === option.id
+                                        ? `
+                                            border-green
+                                            bg-green/15
+                                            text-green-dark
+                                        `
+                                        : `
+                                            border-button-light
+                                            bg-white
+                                            text-charcoal
+                                            hover:bg-green/10
+                                        `
+                                }
+                            `}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            )}
             <Button
                 type="button"
                 disabled={loading}
-                onClick={() => onSearch()}
+                onClick={onSearch}
                 className="
-                    mt-3
-                    h-11
+                    mt-6
+                    h-12
                     w-full
-                    text-sm
+                    text-base
                 "
             >
-                {loading ? "Finding route..." : "Find Route"}
+                {loading
+                    ? "Finding route..."
+                    : "Find Route"}
             </Button>
+
         </div>
     );
 }

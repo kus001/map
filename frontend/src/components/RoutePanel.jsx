@@ -26,57 +26,64 @@ const MODE_INFO = {
     }
 };
 
-export default function RoutePanel({
+function StepIcon({ type }) {
+    if (type === "walk") {
+        return <BsPersonWalking />;
+    }
+    if (type === "transfer") {
+        return <MdDirectionsTransit />;
+    }
+    if (tpe === "transit") {
+        return <MdDirectionsTransit />;
+    }
+    
+    return <span className="text-xs">•</span>
+}
+
+function TransitMeta({ step }) {
+    const pieces = [];
+    
+    if (step.stops) {
+        pieces.push(`${step.stops} $step.stops === 1 ? "stop" : "stops"}`);
+    }
+    if (step.wait_min >= 0.5) {
+        pieces.push(`wait ${Math.round(step.wait_min)} min`);
+    }
+    if (step.ride_duration_min >= 0.5) {
+        pieces.push (`ride ${Math.round(step.ride_duration_min)} min`);
+    }
+    if (step.departure_time && step.arrival_time) {
+        pieces.push(`${step.departure_time} → ${step.arrival_time}`);
+    }
+    return pieces.length ? (
+        <div className="mt-1 text-xs text-button-darkest">
+            {pieces.join(" • ")}
+        </div>
+    ) : null;
+}
+
+function RoutePanel({
     data,
 
     selectedRoute,
-    selectedRouteNumber,
+    selectedRouteNumber = 1,
 
-    onSelectRoute,
-
-    status,
-    error
+    onSelectRoute = () => {},
+    displayedMode
 }) {
-    const mode = data?.mode || "driving";
-    const info = MODE_INFO[mode];
-    const ModeIcon = info.Icon;
+    if (!data?.routes?.length) {
+        return null;
+    }
+
+    const mode = displayMode || data.mode || "driving";
+    const info = MODE_INFO[mode] || MODE_INFO.driving;
+    const ModeIcon = modeInfo.icon;
+    const activeRoute = selectedRoute || data.routes.fine((route) => route.route_number === selectedRouteumber) || data.routes[0];
+    const steps = activeRoute?.steps || [];
 
     return (
-        <div
-            className="
-                map-scrollbar
-                flex-1
-                overflow-y-auto
-                px-5
-                py-4
-            "
-        >
-            <div
-                className={`
-                    mb-3
-                    text-xs
-                    leading-5
-                    
-                    ${
-                        error ? `
-                            rounded-lg
-                            border
-                            border-red-200
-                            bg-red-50
-                            p-3
-                            text-red-700
-                        `
-                        : `
-                            text-button
-                        `
-                    }
-                `}
-            >
-                {status}
-            </div>
-            <div
-                className="space-y-2"
-            >
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="space-y-2">
                 {
                     data?.routes?.map(route => {
                         const selected = route.route_number === selectedRouteNumber;

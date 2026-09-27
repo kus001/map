@@ -37,6 +37,14 @@ The transit router residing in `transit.py` has now been updated to have a full 
 
 However, the transit system *does not* provide walking instructions to the and in between stops. That should be added at some point soon.
 
+Here's a sample output!
+
+![alt text](./frontend/public/transit_sample_output.png)
+
 ### <center> NOTE
 
 It is recommended to run this project in its own folder so you can easily delete any spawned files. The project generates the transit_data folder when running `transit.py`.
+
+Additionally, since the transit router is written in Python and uses a relatively brute-forced approach, long distance commuting can be very, very slow to calculate. Althought the base A* algorithm is quite fast, there is an additional step on top of it slowing it down quite a bit, the step being searching 900 times, from the 30 closest stops to you and the 30 closest stops to the destination.
+
+### <center> Made with love by @kus001, @roc-ket-cod-er and @BigBrain244466666 </center>

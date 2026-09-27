@@ -14,9 +14,10 @@ export default function App() {
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [status, setStatus] = useStatus("Enter a starting point and destination.");
+  const [status, setStatus] = useState("Enter a starting point and destination.");
   const [currentLocation, setCurrentLocation] = useState(null);
-  const selectedRoute = useMemo(() => route?.routes?.find(route => route.route_number === selectedRouteNumber) || null, [data, selectedRouteNumber]);
+  const [data, setData] = useState(null);
+  const selectedRoute = useMemo(() => data?.routes?.find(route => route.route_number === selectedRouteNumber) || null, [data, selectedRouteNumber]);
 
   async function searchRoutes(
     requestedMode = mode,
@@ -24,7 +25,7 @@ export default function App() {
     requestedStart = start,
     requestedDestination = destination
   ) {
-    const clearnStart = requestedStart.trim();
+    const cleanStart = requestedStart.trim();
     const cleanDestination = requestedDestination.trim();
     if (!cleanStart || !cleanDestination) {
       setError(true);
@@ -86,7 +87,7 @@ export default function App() {
         setStatus(`${typeName} cycling route found`);
       }
 
-      else if (requestMode === "transit") {
+      else if (requestedMode === "transit") {
         setStatus("Transit route found");
       }
 
@@ -98,7 +99,7 @@ export default function App() {
     catch (routeError) {
       console.error("Route search failed: ", routeError);
       setError(true);
-      setStatus(RouteError.message || "Something went wrong.");
+      setStatus(routeError.message || "Something went wrong.");
     }
 
     finally {

@@ -26,7 +26,7 @@ function MapEffects({
       maxZoom: 17
     });
   }, [
-    root, map
+    route?.route_coordinates, map
   ]);
   
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function MapView({
   };
   const routeColor = COLORS[selectedMode] || COLORS.driving;
   const usingMapTiler = Boolean(MAPTILER_KEY);
-  const titleURL = usingMapTiler ? (
+  const tileUrl = usingMapTiler ? (
     "https://api.maptiler.com/mapps/"
     + "streets-v4/256/"
     + "{z}/{x}/{y}.png"
@@ -83,7 +83,7 @@ export default function MapView({
 
   return (
     <MapContainer center={[43.4829, -80.5249]} zoom={13} zoomControl={false} className="h-full w-full">
-      <TileLayer url={titleUrl} maxZoom={20} attribution={attribution} />
+      <TileLayer url={tileUrl} maxZoom={20} attribution={attribution} />
       <ZoomControl position="bottomRight" />
       {data?.routes?.map(route => {
         if (
@@ -109,7 +109,7 @@ export default function MapView({
               lineJoin:"round"
             }}
             eventHandlers={{
-              click: () => onSelectedRoute(route.route_number)
+              click: () => onSelectRoute(route.route_number)
             }}
           />
         );
@@ -208,7 +208,7 @@ export default function MapView({
       }
 
       {
-        crrentLocation && (
+        currentLocation && (
           <>
             <CircleMarker
               center={currentLocation}

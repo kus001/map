@@ -104,57 +104,53 @@ function MapView({
         />
       ))}
 
-
-
-
-      {
-        selectedRoute && selectedMode !== "walking" && (
-          <Polyline
-            positions={selectedRoute.route_coordinates}
-            pathOptions={{
-              color: "#FFFFFF",
-              weight: 11,
-              opacity: 0.85,
-              lineCap: "round",
-              lineJoin: "round"
-            }}
-          />
-        )
-      }
-
-      {
-        selectedRoute && (
-          <Polyline
-            positions={selectedRoute.route_coordinates}
-            pathOptions={{
-              color: routeColor,
-              weight: selectedMode === "walking" ? 6 : 7,
-              opacity: 0.96,
-              /* Walking - dotted, Transit - dashed, Driving/Biking - solid */
-              dashArray: selectedMode === "walking" ? "1 10" : selectedMode === "transit" ? "10 7" : undefined,
-              lineCap: "round",
-              lineJoin: "round"
-            }}
-          />
-        )
-      }
-
-      {
-        selectedMode === "transit" && selectedRoute?.transit_stops?.map(
-          (position, index) => (
-            <CircleMarker
-              key={`transit-stop-${index}`}
-              center={position}
-              radius={4}
+      {route && mode === "transit" && route.segments?.length ? (
+        <transitSegments route={route} />
+      ) : route?.route_coordinates?.length ? (
+        <>
+          {mode !== "walking" && (
+            <Polyline
+              positions={selectedRoute.route_coordinates}
               pathOptions={{
                 color: "#FFFFFF",
-                weight: 2,
-                fillColor: routeColor,
-                FillOpacity: 1
+                weight: 11,
+                opacity: 0.85,
+                lineCap: "round",
+                lineJoin: "round"
               }}
             />
-          )
-        )
+          )}
+
+          <Polyline
+            positions={route.route_coordinates}
+            pathOptions={{
+              color: selectedColor,
+              weight: 7,
+              opacity: 0.94,
+              dashArray: mode === "walking" ? "1 10" : undefined,
+              lineCap: "round",
+              lineJoin: "round"
+            }}
+          />
+        </>
+      ) : null }
+
+      {
+        selectedMode === "transit" && route?.transit_stops?.map((stop) => (
+          <CircleMarker
+            key={stop.id}
+            center={stop.coordinates}
+            radius={4}
+            pathOptions={{
+              color: "#FFFFFF",
+              weight: 2,
+              fillColor: MODE_COLORS.transit,
+              FillOpacity: 1
+            }}
+          >
+            <Popup>{stop.name}</Popup>
+          </CircleMarker>
+        ))
       }
 
       {
@@ -165,15 +161,11 @@ function MapView({
             pathOptions={{
               color: "#FFFFFF",
               weight: 3,
-              fillColor: "668568",
+              fillColor: "#111111",
               fillOpacity: 1
             }}
             >
-              <Popup>
-                <strong>Start</strong>
-                <br />
-                {data.start.address}
-              </Popup>
+              <Popup>Start: {data.start.address}</Popup>
             </CircleMarker>
         )
       }
@@ -186,50 +178,35 @@ function MapView({
             pathOptions={{
               color: "#FFFFFF",
               weight: 3,
-              fillColor: "#2F3E46",
+              fillColor: "#111111",
               fillOpacity: 1
             }}
           >
-            <Popup>
-              <strong>Destination</strong>
-              <br />
-              {data.end.address}
-            </Popup>
+            <Popup>Destination: {data.end.address}</Popup>
           </CircleMarker>
         )
       }
 
       {
-        currentLocation && (
-          <>
-            <CircleMarker
-              center={currentLocation}
-              radius={14}
-              pathOptions={{
-                color: "#66856B",
-                weight: 1,
-                fillColor: "#66856B",
-                fillOpacity: 0.15,
-                opacity: 0.3
-              }}
-            />
-            <CircleMarker
-              center={currentLocation}
-              radius={7}
-              pathOptions={{
-                color: "#FFFFFF",
-                weight: 3,
-                fillColor: "#66858B",
-                fillOpacity: 1
-              }}
-            >
-              <Popup>Your Location</Popup>
-            </CircleMarker>
-          </>
+        currentLocation?.length === 2 && (
+          <CircleMarker
+            center={currentLocation}
+            radius={8}
+            pathOptions={{
+              color: "#D7E3DE",
+              weight: 5,
+              fillColor: "#66856B",
+              fillOpacity: 1,
+            }}
+          >
+            <Popup>Your current Location</Popup>
+          </CircleMarker>
         )
       }
       
-      <MapEffects route={selectedRoute} currentLocation={currentLocation} />
+      <MapEffects routeCoordinates={routeCoordinates} currentLocation={currentLocation} />
     </MapContainer>
   );
 }
+
+export default MapView

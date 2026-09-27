@@ -5,8 +5,16 @@ from flask import Flask, request, jsonify
 from driving import get_driving_route
 from walking import get_walking_route
 from cycling import get_cycling_route
+from transit import get_transitroute
 
 app = Flask(__name__)
+
+VALID_CYCLING_TYPES = {
+    "regular",
+    "road",
+    "mountain",
+    "electric"
+}
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -41,8 +49,21 @@ def routes():
     elif mode == "walking":
         result = get_walking_route(start, destination)
 
+    # Victor: fixed it
     elif mode == "cycling":
-        result = get_cycling_route(start, destination, route_type="regular") # from KUSH: I WILL fix this tomorrow, did not have enough time today 
+        result = get_cycling_route(start, destination, route_type="regular").strip().lower()
+
+        if route_type not in VALID_CYCLING_TYPES:
+            route_type = "regular"
+
+        result = get_cycling_route(
+            start,
+            destination,
+            route_type = route_type
+        )
+
+    elif mode == "transit":
+        result = get_transit_route(start, destination)
 
     else:
         return jsonify({

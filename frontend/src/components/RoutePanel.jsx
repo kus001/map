@@ -85,26 +85,16 @@ function RoutePanel({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <div className="space-y-2">
                 {
-                    data?.routes?.map(route => {
-                        const selected = route.route_number === selectedRouteNumber;
+                    data?.routes?.map((route) => {
+                        const selected = route.route_number === activeRoute.route_number;
                         const labels = [];
 
-                        if (data.routes.ength > 1) {
-                            if (route.route_number === data.fastest_route_number) {
-                                labels.push("FASTEST");
-                            }
-
-                            if (route.route_number === data.shortest_route_number) {labels.push("Shortest");}
+                        if (data.routes.ength > 1 && route.route_number === data.fastest_route_number) {
+                            labels.push("FASTEST");
                         }
-
-                        let routeTitle = info.name;
-
-                        if (mode === "driving") {
-                            routeTitle = (`Route ` + route.route_number);
-                        }
-
-                        if (mode === "cycling" && data.route_type) {
-                            routeTitle = (`${data.route_type.charAt(0).toUpperCase()}${data.route_type.slice(1)} bike`);
+                        
+                        if (data.routes.length > 1 && route.route_number === data.shortest_route_number) {
+                            labels.push("SHORTEST");
                         }
 
                         return (
@@ -112,47 +102,24 @@ function RoutePanel({
                                 type="button"
                                 key={route.route_number}
                                 onClick={() => onSelectRoute(route.route_number)}
-                                className={`
-                                    soft-enter
-                                    w-full
-                                    rounded-lg
-                                    border-2
-                                    p-4
-                                    text-left
-                                    transition-all
-                                    duration-200
-                                    
-                                    hover:
-                                    -translate-y-0.5
-                                    
-                                    hover:
-                                    shadow-md
-                                    
-                                    ${
-                                        selected ? `
-                                            border-green
-                                            bg-green/10
-                                        `
-                                        :`
-                                            border-button-light
-                                            bg-white
-                                            
-                                            hover:
-                                            border-green
-                                        `
-                                    }
-                                `}
+                                className={`w-full rounded-lg border-2 p-4 text-left transition-all ${
+                                    selected 
+                                        ? "border-green bg-green/10 shadow-sm"
+                                        : "border-button-light bg-white hover:border-green hover:shadow-sm"
+                                }`}
                             >
                                 <div
                                     className="
                                         flex
+                                        items-start
                                         justify-between
                                         gap-3
                                     "
                                 >
                                     <div>
                                         <div
-                                            className="text-xl
+                                            className="
+                                            text-2xl
                                             font-bold
                                             text-charcol
                                         "
@@ -166,14 +133,14 @@ function RoutePanel({
                                                 mt-1
                                                 flex
                                                 items-center
-                                                gap-1.5
-                                                text-xs
-                                                text-button
+                                                gap-2
+                                                text-sm
+                                                text-button-darkest
                                             "
                                         >
                                             <ModeIcon />
                                             <span>
-                                                {routeTitle}
+                                                {modeInfo.label}
                                             </span>
                                             <span>
                                                 •
@@ -183,75 +150,36 @@ function RoutePanel({
                                             </span>
                                         </div>
                                         {
-                                            mode !== "transit" && route.average_speed > 0 && (
+                                            mode === "cycling" && (route.ascent_m || route.descent_m) && (
                                                 <div
                                                     className="
-                                                        mt-1
-                                                        text-[11px]
-                                                        text-button
+                                                    mt-1
+                                                    text-xs
+                                                    text-button-darkest
                                                     "
                                                 >
-                                                    {route.average_speed.toFixed(1)} km/h avg
-                                                </div>
-                                            )
-                                        }
-                                        {
-                                            mode === "cycling" && route.ascent_m > 0 && (
-                                                <div
-                                                    className="mt-1
-                                                    text-[11px]
-                                                    text-green-dark
-                                                    "
-                                                >
-                                                    ↑ {
-                                                        Math.round(route.ascent_m)
-                                                    } m ascent
-                                                </div>
-                                            )
-                                        }
-                                        {
-                                            mode === "cycling" && route.decent_m > 0 && (
-                                                <div
-                                                    className="
-                                                        text-[11px]
-                                                        text-green[dark
-                                                    "
-                                                >
-                                                    ↓ {
-                                                        Math.round(route.descent_m)
-                                                    } m descent
+                                                    {route.ascent_m
+                                                        ? `↑ ${Math.round(route.ascent_m)} m`
+                                                        : ""}
+                                                    {route.ascent_m && route.descent_m ? " • " : ""}
+                                                    {route.descent_m
+                                                        ?  `↓ ${Math.round(route.descent_m)} m`
+                                                        : ""}
                                                 </div>
                                             )
                                         }
                                     </div>
-                                    <div
-                                        className="
-                                            flex
-                                            flex-wrap
-                                            justify-end
-                                            gap-1
-                                        "
-                                    >
-                                        {
-                                            labels.map(label => (
-                                                <span
-                                                    key={label}
-                                                    className="
-                                                        h-fit
-                                                        rounded-full
-                                                        bg-green/15
-                                                        px-2
-                                                        py-1
-                                                        text-[9px]
-                                                        font-bold
-                                                        text-green-dark
-                                                    "
-                                                >
-                                                    {label}
-                                                </span>
-                                            ))
-                                        }
-                                    </div>
+                                    {labels.length > 0 && (
+                                        <div className="
+                                            text-right
+                                            text=[10px]
+                                            font-bold
+                                            tracking-wide
+                                            text-green-dark"
+                                        >
+                                            {labels.join(" • ")}
+                                        </div>
+                                    )}
                                 </div>
                             </button>
                         );
@@ -259,105 +187,54 @@ function RoutePanel({
                 }
             </div>
 
-            {
-                selectedRoute && (
-                    <div
-                        className="
-                            soft-enter
-                            mt-5
-                            border-t
-                            border-button-light
-                            pt-4
-                        "
-                    >
+            <div className="my-5 border-5 border-button-light" />
+            <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-charcoal">Directions</h2>
+                <span className="text-xs text-button-darkest">
+                    {steps.length} {steps.length === 1 ? "step" : "steps"}
+                </span>
+            </div>
+
+            {steps.length === 0 ? (
+                <div className="rounded-lg border border-button-light p-4 text-sm text-button-darkest">
+                    No directions were returned for this route.
+                </div>
+            ) : (
+                <div className="overflow-hidden rounded-lg border border-button-light bg-white">
+                    {steps.map((step, index) => (
                         <div
-                            className="
-                                mb-2
-                                flex
-                                items-center
-                                justify-between
-                            "
+                            key={`${step.type || "step"}-${index}`}
+                            className="flex gap-3 border-b border-button-light p-3 last:border-b-0"
                         >
-                            <h2 className="
-                                    font-bold
-                                    text-charcoal
-                                "
-                            >
-                                Directions
-                            </h2>
-                            <span
-                                className="
-                                    text-[11px]
-                                    text-button
-                                "
-                            >
-                                {selectedRoute.steps?.length ?? 0} steps
-                            </span>
-                        </div>
-
-                        {
-                            selectedRoute.steps?.map((step, index) => (
-                                <div
-                                    key={(`${index}-` + `${step.instruction}`)}
-                                    className="
-                                        grid
-                                        grid-cols-[32px_minmax(0,1fr)_auto]
-                                        items-center
-                                        gap-2
-                                        border-b
-                                        border-button-light/40
-                                        py-3
-                                        transition-all
-                                        duration-150
-                                        
-                                        hover:
-                                        bg-green/5
-                                    "
-                                >
-                                    <div
-                                        className="
-                                            flex
-                                            size-8
-                                            items-center
-                                            justify-center
-                                            rounded-full
-                                            bg-green/10
-                                            text-green-dark
-                                        "
-                                    >
-                                        <ModeIcon />
-                                    </div>
-                                    <div
-                                        className="
-                                            min-w-0
-                                            text-xs
-                                            leading-5
-                                            text-charcoal
-                                        "
-                                    >
-                                        {directionText(step)}
-                                    </div>
-                                    {
-                                        step.distance_m > 0 && (
-                                            <div
-                                                className="
-                                                    whitespace-nowrap
-                                                    text-[11px]
-                                                    text-button
-                                            "
-                                            >
-                                                {formatDistance(step.distance_m)}
-                                            </div>
-                                        )
-                                    }
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-charcoal text-white">
+                                <StepIcon type={step.type} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium leading-5 text-charcoal">
+                                    {directionText(step)}
                                 </div>
-                            ))
-                            
-                        }
-                    </div>
-                )
-            }
-
+                                {step.type === "transit" ? (
+                                    <TransitMeta step={step} />
+                                ) : (
+                                    <div classname="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-button-darkest">
+                                        {step.duration_min >= 0.5 && (
+                                            <span className="flex items-center gap-1">
+                                                <IoTimeOutline />
+                                                {formatDuration(step.duration_min)}
+                                            </span>
+                                        )}
+                                        {step.distance_m > 0 && (
+                                            <span>{formatDistance(step.distance_m)}</span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
+
+export default RoutePanel;

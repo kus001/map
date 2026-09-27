@@ -3,10 +3,9 @@ import {
   CircleMarker,
   MapContainer,
   Polyline,
-  PolyLine,
   Popup,
-  Tilelayer,
-  Usemap,
+  TileLayer,
+  useMap,
   ZoomControl
 } from "react-leaflet"
 
@@ -83,7 +82,7 @@ export default function MapView({
   );
 
   return (
-    <MapContrainer center={[43.4829, -80.5249]} zoom={13} zoomControl={false} className="h-full w-full">
+    <MapContainer center={[43.4829, -80.5249]} zoom={13} zoomControl={false} className="h-full w-full">
       <TileLayer url={titleUrl} maxZoom={20} attribution={attribution} />
       <ZoomControl position="bottomRight" />
       {data?.routes?.map(route => {
@@ -239,6 +238,6 @@ export default function MapView({
       }
       
       <MapEffects route={selectedRoute} currentLocation={currentLocation} />
-    </MapContrainer>
+    </MapContainer>
   );
 }

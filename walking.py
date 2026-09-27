@@ -10,7 +10,18 @@ load_dotenv()
 
 API_KEY = os.getenv("API")
 
+WALKING_URL = (
+    "https://api.openrouteservice.org/"
+    "v2/directions/foot-walking"
+)
+
 def get_walking_route(start_address, end_address):
+    if not API_KEY:
+        return {
+            "success": False,
+            "error": ("OpenRouteService API Key is missing.")
+        }
+
     start = get_coordinates(start_address)
     end = get_coordinates(end_address)
 
@@ -25,33 +36,35 @@ def get_walking_route(start_address, end_address):
             "error": "destination couldn't be found"
         }
 
-    startLat, startLon = start
-    endLat, endLon = end
+    start_lat, start_lon = start
+    end_lat, end_lon = end
 
-    # api stuff
     headers = {
-        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
+        "Authorization": API_KEY,
+        "Accept": "application/json, application/geo+json"
     }
 
-    url = f'https://api.heigit.org/openrouteservice/v2/directions/foot-walking?api_key={API_KEY}&start={startLon},{startLat}&end={endLon},{endLat}'
-    call = requests.get(url, headers=headers)
+    parms = {
+        "start": f"{start_lon},{start_lat}",
+        "end": f"{end_lon},{end_lat}"
+    }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(WALKING_URL, headers=headers, parms=parms, timeout=15)
         response.raise_for_status()
         data = response.json()
 
     except requests.RequestException as error:
         return {
             "success": False,
-            "error": f"walking routing server error: {error}"
+            "error": f"Walking routing server error: {error}"
         }
 
-    # if data.get("code") != "Ok":
-    #     return {
-    #         "success": False,
-    #         "error": data.get("message", "No cycling route could be found.")
-    #     }
+    except ValueError:
+        return {
+            "success": False,
+            "error": ("Walking routing server returned invalid data.")
+        }
 
     if not data.get("features"):
         return {
@@ -61,24 +74,29 @@ def get_walking_route(start_address, end_address):
 
     route_data = data['features'][0]
     properties = route_data['properties']
+    summary = properties.get("summary",{})
     distance_km = (data['features'][0]['properties']['summary']['distance'])/1000
     duration_min = (data['features'][0]['properties']['summary']['distance'])/60
 
+    geometry = route_data["geometry"]["coordinates"]
+
     route_coordinates = [
         [lat, lon]
-        for lon, lat in route_data['geometry']["coordinates"]
+        for lon, lat in geometry
     ]
 
     steps = []
 
-    # gonna be different than the regular api
     for segment in properties["segments"]:
         for step in segment["steps"]:
 
             steps.append({
                 "instruction": step.get("instruction", ""),
+                "type": "walking",
+                "modifier": ""
+                "road": step.get("name", "")
                 "name": step.get("name", ""),
-                "distance_m": step["distance"]
+                "distance_m": step["distance", 0]
             })
 
     route = {
@@ -96,12 +114,12 @@ def get_walking_route(start_address, end_address):
 
         "start": {
             "address": start_address,
-            "coordinates": [startLat, startLon]
+            "coordinates": [start_lat, start_lon]
         },
 
         "end": {
             "address": end_address,
-            "coordinates": [endLat, endLon]
+            "coordinates": [end_lat, end_lon]
         },
 
         "routes": [route],

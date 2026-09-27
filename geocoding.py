@@ -24,7 +24,7 @@ def get_coordinates(address):
         return None
 
     try:
-        print("Geocoding:", clean_address)
+        print("GEOCODING:", clean_address)
 
         location = geocode(clean_address, timeout=10)
 

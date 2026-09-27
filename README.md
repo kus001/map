@@ -8,9 +8,7 @@ Feedback welcome, please send to [host-transit-page@user.hackclub.app](mailto:ho
 
 The project is now hosted on Vercel with Vite, React, and Tailwind CSS. Access it [here](https://map-thirdspace.vercel.app/).
 
-To run the project, as of now, you should run main.py. This will host the transit webpage locally, and then you should open [http://127.0.0.1:5000](http://127.0.0.1:5000). However, as of now, that will only open the driving/walking router, as transit is not yet finished.
-
-Or to run the React/Tailwind version of the software, do `cd frontend` and `npm run dev` in the terminal. 
+To run this project locally, fork the repository. In the terminal, type `cd frontend` and `npm run dev`. 
 
 ![Map Router screenshot](./frontend/public/readme%20pic.png)
 

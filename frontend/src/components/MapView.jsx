@@ -21,12 +21,22 @@ const MODE_COLORS = {
   transit: "#8A6F4D"
 }
 
+function validCoordinate(coordinate) {
+  return (
+    Array.isArray(coordinate) &&
+    coordinate.length >= 2 &&
+    Number.isFinite(Number(coordinate[0])) &&
+    Number.isFinite(Number(coordinate[1]))
+  );
+}
+
 function MapEffects({routeCoordinates, currentLocation}) {
   const map = useMap();
 
   useEffect(() => {
-    if (routeCoordinates?.length >= 2) {
-      const bounds = L.latLngBounds(routeCoordinates);
+    const safeRouteCoordinates = (routeCoordinates ?? []).filter(validCoordinate);
+    if (safeRouteCoordinates.length >= 2) {
+      const bounds = L.latLngBounds(safeRouteCoordinates);
       map.fitBounds(bounds, {
         padding: [42, 42],
         animate: true,
@@ -34,19 +44,16 @@ function MapEffects({routeCoordinates, currentLocation}) {
       return;
     }
 
-    if (currentLocation?.length === 2) {
-      map.flyTo(currentLocation, 15, {duration: 0.8});
+    if (validCoordinate(currentLocation)) {
+      map.flyTo([Number(currentLocation[0]), Number(currentLocation[1])], 15, {duration: 0.8});
     }
-    map.fitBounds(routeCoordinates, {
-      padding: [60, 60],
-      maxZoom: 17
-    });
   }, [map, routeCoordinates, currentLocation]);
   return null;
 }
 
 function TransitSegments({ route }) {
-  if (!route?.segments?.length) {
+  const segments = route?.segments ?? [];
+  if (segments.length === 0) {
     return null;
   }
 
@@ -71,7 +78,7 @@ function TransitSegments({ route }) {
 }
 
 function MapView({
-  data, selectedRoute, selectedRouteNumber = 1, onSelectedRoute = () => {}, displayedMode, currentLocation
+  data, selectedRoute, selectedRouteNumber = 1, onSelectRoute = () => {}, displayedMode, currentLocation
 }) {
   const mode = displayedMode || data?.mode || "driving";
   const route = useMemo(() => {
@@ -82,19 +89,23 @@ function MapView({
   }, [data, selectedRoute, selectedRouteNumber]);
   const routeCoordinates = route?.route_coordinates || [];
 
-  const otherRoutes = data?.routes?.find(route => route.route_number === selectedRouteNumber);
+  const routes = data?.routes ?? [];
+  const otherRoutes = routes.filter((item) => item.route_number !== selectedRouteNumber);
   const tileUrl = MAPTILER_KEY ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}` : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
   const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
+  const mapCenter = validCoordinate(currentLocation)
+    ? [Number(currentLocation[0]), Number(currentLocation[1])]
+    : DEFAULT_CENTER;
 
   return (
-    <MapContainer center={[DEFAULT_CENTER]} zoom={13} zoomControl={false} scrollWheelZoom className="h-full w-full">
-      <TileLayer url={tileUrl} attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> %copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
+    <MapContainer center={mapCenter} zoom={13} zoomControl={false} scrollWheelZoom className="h-full w-full">
+      <TileLayer url={tileUrl} attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
       <ZoomControl position="topright" />
       {otherRoutes.map((otherRoute) => (
         <Polyline
           key={`other-${otherRoute.route_number}`}
           positions={otherRoute.route_coordinates || []}
-          eventHandlers={{click: () => onSelectedRoute(otherRoute.route_number)}}
+          eventHandlers={{click: () => onSelectRoute(otherRoute.route_number)}}
           pathOptions={{
             color: "#7D8589",
             weight: 5,
@@ -106,12 +117,12 @@ function MapView({
       ))}
 
       {route && mode === "transit" && route.segments?.length ? (
-        <transitSegments route={route} />
+        <TransitSegments route={route} />
       ) : route?.route_coordinates?.length ? (
         <>
           {mode !== "walking" && (
             <Polyline
-              positions={selectedRoute.route_coordinates}
+              positions={route.route_coordinates}
               pathOptions={{
                 color: "#FFFFFF",
                 weight: 11,
@@ -137,7 +148,7 @@ function MapView({
       ) : null }
 
       {
-        mode === "transit" && route?.transit_stops?.map((stop) => (
+        (route?.transit_stops ?? []).filter((stop) => validCoordinate(stop.coordinates)).map((stop) => (
           <CircleMarker
             key={stop.id}
             center={stop.coordinates}
@@ -146,7 +157,7 @@ function MapView({
               color: "#FFFFFF",
               weight: 2,
               fillColor: MODE_COLORS.transit,
-              FillOpacity: 1
+              fillOpacity: 1
             }}
           >
             <Popup>{stop.name}</Popup>
@@ -155,7 +166,7 @@ function MapView({
       }
 
       {
-        data?.start?.coordinates && (
+        validCoordinate(data?.start?.coordinates) && (
           <CircleMarker
             center={data.start.coordinates}
             radius={7}
@@ -172,7 +183,7 @@ function MapView({
       }
 
       {
-        data?.end?.coordinates && (
+        validCoordinate(data?.end?.coordinates) && (
           <CircleMarker
             center={data.end.coordinates}
             radius={7}
@@ -189,7 +200,7 @@ function MapView({
       }
 
       {
-        currentLocation?.length === 2 && (
+        validCoordinate(currentLocation) && (
           <CircleMarker
             center={currentLocation}
             radius={8}

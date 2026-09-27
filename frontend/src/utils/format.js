@@ -39,7 +39,7 @@ export function directionText(step) {
   const type = step.type || "";
   const modifier = step.modifier || "";
   const road = step.road || "";
-  
+
   if (type === "arrive") {
     return ("Arrive at your destination");
   }
@@ -55,7 +55,7 @@ export function directionText(step) {
   }
 
   else if (type === "continue") {
-    text = modifier : `Continue ${modifier}` : "Continue";
+    text = modifier ? `Continue ${modifier}` : "Continue";
   }
   
   else if (type === "end of road") {

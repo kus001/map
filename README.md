@@ -1,14 +1,22 @@
-# [Map](https://map-thirdspace.vercel.app/)
+# <center> [Map](https://map-thirdspace.vercel.app/)
 
-Map is a student-made open source routing software. Still under development. 
+#### [Map](https://map-thirdspace.vercel.app/) is a student-made open source routing software. [Map](https://map-thirdspace.vercel.app/) is still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
-Feedback welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+## <center> Running / Using [Map](https://map-thirdspace.vercel.app/)
 
-## Running the project
+#### <center> [Map](https://map-thirdspace.vercel.app/) is now hosted on Vercel at [this](https://map-thirdspace.vercel.app/) URL! Additionally, you can click any instance of the word '[Map](https://map-thirdspace.vercel.app/)' to go to the webpage!
 
-The project is now hosted on Vercel with Vite, React, and Tailwind CSS. Access it [here](https://map-thirdspace.vercel.app/).
+If you'd rather compile it and run it yourself, locally, that to is simple. You must have Vite and `npm`.\
+To run [Map](https://map-thirdspace.vercel.app/) locally, follow the following (quite simple) steps!
 
-To run this project locally, fork the repository. Then in the terminal, type `cd frontend` and `npm run dev`. 
+1. Fork [the Map repository](https://github.com/kus001/map). **Please note that forking is *optional*** Forking the repository creates your own version of the files, allowing you to modify and edit the open source files however you so desire!
+
+2. Next, clone the repository. Cloning the newly made repository permits you to have your own version of [our repository](https://github.com/kus001/map) downloaded locally onto your computer!
+If you forked the repository first, run `git clone <your-repository-url>`.
+If you did *not* fork [our repository](https://github.com/kus001/map),
+all you have to do is run `git clone https://github.com/kus001/map`
+
+3. Then in the terminal, type `cd frontend` and `npm run dev`. You will need API keys in the .env
 
 ![Map Router screenshot](./frontend/public/readme%20pic.png)
 

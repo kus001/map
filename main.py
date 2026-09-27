@@ -49,18 +49,11 @@ def routes():
     elif mode == "walking":
         result = get_walking_route(start, destination)
 
-    # Victor: fixed it
     elif mode == "cycling":
-        result = get_cycling_route(start, destination, route_type="regular").strip().lower()
-
-        if route_type not in VALID_CYCLING_TYPES:
+        route_type = data.get("route_type", "regular").strip().lower()
+        if route_type not in {"regular", "road", "mountain", "electric"}:
             route_type = "regular"
-
-        result = get_cycling_route(
-            start,
-            destination,
-            route_type = route_type
-        )
+        result = get_cycling_route(start, destination, route_type=route_type)
 
     elif mode == "transit":
         result = get_transit_route(start, destination)

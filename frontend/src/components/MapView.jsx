@@ -10,6 +10,7 @@ import {
 } from "react-leaflet"
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
+console.log("Maptiler loaded:", Boolean(MAPTILER_KEY));
 
 function MapEffects({
   route,
@@ -61,7 +62,7 @@ export default function MapView({
   const routeColor = COLORS[selectedMode] || COLORS.driving;
   const usingMapTiler = Boolean(MAPTILER_KEY);
   const tileUrl = usingMapTiler ? (
-    "https://api.maptiler.com/mapps/"
+    "https://api.maptiler.com/maps/"
     + "streets-v4/256/"
     + "{z}/{x}/{y}.png"
     + `?key=${MAPTILER_KEY}`

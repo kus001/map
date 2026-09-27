@@ -44,13 +44,13 @@ def get_walking_route(start_address, end_address):
         "Accept": "application/json, application/geo+json"
     }
 
-    parms = {
+    params = {
         "start": f"{start_lon},{start_lat}",
         "end": f"{end_lon},{end_lat}"
     }
 
     try:
-        response = requests.get(WALKING_URL, headers=headers, parms=parms, timeout=15)
+        response = requests.get(WALKING_URL, headers=headers, params=params, timeout=15)
         response.raise_for_status()
         data = response.json()
 
@@ -96,7 +96,7 @@ def get_walking_route(start_address, end_address):
                 "modifier": "",
                 "road": step.get("name", ""),
                 "name": step.get("name", ""),
-                "distance_m": step["distance", 0]
+                "distance_m": step.get("distance", 0)
             })
 
     route = {

@@ -48,18 +48,10 @@ export default function App() {
           route_type: requestedCyclingType
         })
       });
-      
-      let result;
 
-      try {
-        result = await response.json();
-      }
+      const result = await response.json();
 
-      catch {
-        throw new Error("The routing server returned an invalid response.");
-      }
-
-      if (!response.ok || result.success) {
+      if (!response.ok || !result.success) {
         throw new Error(
           result.error || "Route could not be found."
         );

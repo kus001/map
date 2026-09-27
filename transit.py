@@ -23,7 +23,7 @@ total_time = float("inf")
 def coordify(stop_data):
     return stop_data[0:2]
 
-def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, date=None, cuttoff=float('inf')):
+def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, date=None, cutoff=float('inf')):
     if start_time is None:
         start_time = time_to_seconds(datetime.now().strftime("%H:%M:%S"))  # seconds since midnight
     if date is None:
@@ -58,7 +58,7 @@ def transit_a_star(graph, start_id, goal_id, safety_buffer=4, start_time=None, d
 
         current_g, current_boardings = graph_costs.get((current_id, current_trip), (float('inf'), float('inf')))
 
-        if current_g > cuttoff:
+        if current_g > cutoff:
             return None, float("inf")
 
         current_arrival_abs = start_time + current_g * 60  # seconds since midnight, "now" for this state
@@ -246,7 +246,7 @@ def get_transit_route(start_address, end_address):
             end_walk_seconds = (end_stops[end_index][0])
             temp_time = (start_walk_seconds / 60)
             temp_time += (end_walk_seconds / 60)
-            transit_start_time = (time_to_seconds(datetime.now().strftime("%H:%M:S")) + start_walk_seconds)
+            transit_start_time = (time_to_seconds(datetime.now().strftime("%H:%M:%S")) + start_walk_seconds)
             candidate_route, route_time = (
                 transit_a_star(
                     graph,

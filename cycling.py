@@ -94,8 +94,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
 
     properties = route_data.get("properties", {})
     summary = properties.get("summary", {})
-    distance_km = route_data["distance"] / 1000
-    duration_min = route_data["duration"] / 60
+    distance_km = summary.get("distance", 0) / 1000
+    duration_min = summary.get("duration", 0) / 60
 
     geometry = route_data["geometry"]["coordinates"]
 

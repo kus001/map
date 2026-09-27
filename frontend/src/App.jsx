@@ -163,4 +163,199 @@ export default function App() {
 
   const displayedMode = data?.mode || mode;
 
+  return (
+    <div
+      className="
+        flex
+        h-screen
+        w-screen
+        overflow-hidden
+        bg-white
+      "
+    >
+      <aside
+        className="
+          z-[1000]
+          flex
+          h-screen
+          w-[360px]
+          flex-shrink-0
+          flex-col
+          border-r-2
+          border-charcoal
+          bg-white
+          shadow-xl
+          
+          max-[760px]:absolute
+          max-[760px]:bottom-3
+          max-[760px]:left-3
+          max-[760px]:right-3
+          max-[760px]:h-[58vh]
+          max-[760px]:w-auto
+          max-[760px]:overflow-hidden
+          max-[760px]:rounded-xl
+          max-[760px]:border-2
+        "
+        >
+          <header
+            className="
+              px-5
+              pb-4
+              pt-4
+            "
+          >
+            <a
+              href="https://github.com/kus001/map"
+              target="_blank"
+              rel="noreferrer"
+              className="
+                inline-block
+                text-2xl
+                font-bold
+                tracking-tight
+                text-charcoal
+                transition-all
+                duration-200
+                hover:tracking-wide
+                hover: text-green
+              "
+            >Map Router</a>
+            <div
+              className="
+                mt-0.5
+                text-[11px]
+                text-button
+              "
+            >Drive. Walk. Back. Transit.
+            </div>
+          </header>
+          <SearchPanel
+            start={start}
+            destination={destination}
+            setStart={setStart}
+            setDestination={setDestination}
+            mode={mode}
+            cyclingType={cyclingType}
+            onModeChange={changeMode}
+            onCyclingTypeChange = {changeCyclingType}
+            onSearch={searchRoutes}
+            onSwap={swapLocations}
+            loading={loading}
+          />
+          <RoutePanel
+            data={data}
+            selectedRoute={selectedRoute}
+            selectedRouteNumber={selectedRouteNumber}
+            onSelectRoute={setSelectedRouteNumber}
+            status={status}
+            error={error}
+          />
+          <footer
+            className="
+              flex
+              items-center
+              justify-center
+              gap-2
+              border-t
+              border-button-light/50
+              py-3
+              text-[11px]
+              text-button
+            "
+          >
+            <span>made by</span>
+            <a
+              href="https://github.com/kus001"
+              target="_blank"
+              rel="noreferrer"
+              className="
+                transition
+                hover:font-bold
+                hover:text-green
+                hover:underline
+              "
+            >Kush</a>
+            <span>•</span>
+            <a
+              href="https://github.com/BigBrain244466666"
+              target="_blank"
+              rel="noreferrer"
+              classname="
+                transition
+                hover:font-bold
+                hover:text-green
+                hover:underline
+              "
+            >Victor</a>
+            <span>•</span>
+            <a
+              href="https://github.com/roc-ket-cod-er"
+              target="_blank"
+              rel="noreferrer"
+              classname="
+                transition
+                hover:font-bold
+                hover:text-green
+                hover:underline
+              "
+            >Madhav</a>
+          </footer>
+        </aside>
+        <main
+          className="
+            relative
+            min-w-0
+            flex-1
+          "
+        >
+          <MapView
+            data={data}
+            selectedRouteNumber={selectedRouteNumber}
+            selectedMode={displayedMode}
+            onSelectRoute={setSelectedRouteNumber}
+            currentLocation={currentLocation}
+          />
+          <button
+            type="button"
+            onClick={findLocation}
+            title="My Location"
+            classname="
+              absolute
+              bottom-[85px]
+              right=[10px]
+              z-[500]
+              
+              flex
+              size-11
+              items-center
+              justify-center
+              
+              rounded-lg
+              border-2
+              border-charcoal
+              
+              bg-white
+              text-xl
+              text-charcoal
+              
+              shadow-lg
+              transition-all
+              duration-200
+              
+              hover:-transalte-y-1
+              hover:border-green
+              hover:bg-green
+              hover:text-white
+              hover:shadow-xl
+              
+              active:translate-y-0
+              
+              max-[750px]:bottom-[61vh
+            "
+          >
+            <MdMyLocation />
+          </button>
+        </main>
+    </div>
+  );
 }

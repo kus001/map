@@ -249,7 +249,7 @@ export default function SearchPanel({
             <Button
                 type="button"
                 disabled={loading}
-                onClick={onSearch}
+                onClick={() => onSearch()}
                 className="
                     mt-6
                     h-12

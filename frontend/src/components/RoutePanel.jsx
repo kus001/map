@@ -45,7 +45,7 @@ function TransitMeta({ step }) {
     const pieces = [];
     
     if (step.stops) {
-        pieces.push(`${step.stops} $step.stops === 1 ? "stop" : "stops"}`);
+        pieces.push(`${step.stops} ${step.stops === 1 ? "stop" : "stops"}`);
     }
     if (step.wait_min >= 0.5) {
         pieces.push(`wait ${Math.round(step.wait_min)} min`);
@@ -78,8 +78,8 @@ function RoutePanel({
 
     const mode = displayedMode || data.mode || "driving";
     const modeInfo = MODE_INFO[mode] || MODE_INFO.driving;
-    const ModeIcon = modeInfo.icon;
-    const activeRoute = selectedRoute || data.routes.fine((route) => route.route_number === selectedRouteNumber) || data.routes[0];
+    const ModeIcon = modeInfo.Icon;
+    const activeRoute = selectedRoute || data.routes.find((route) => route.route_number === selectedRouteNumber) || data.routes[0];
     const steps = activeRoute?.steps || [];
 
     return (
@@ -90,7 +90,7 @@ function RoutePanel({
                         const selected = route.route_number === activeRoute.route_number;
                         const labels = [];
 
-                        if (data.routes.ength > 1 && route.route_number === data.fastest_route_number) {
+                        if (data.routes.length > 1 && route.route_number === data.fastest_route_number) {
                             labels.push("FASTEST");
                         }
                         
@@ -122,7 +122,7 @@ function RoutePanel({
                                             className="
                                             text-2xl
                                             font-bold
-                                            text-charcol
+                                            text-charcoal
                                         "
                                         >
                                             {
@@ -141,7 +141,7 @@ function RoutePanel({
                                         >
                                             <ModeIcon />
                                             <span>
-                                                {modeInfo.label}
+                                                {modeInfo.name}
                                             </span>
                                             <span>
                                                 •
@@ -173,7 +173,7 @@ function RoutePanel({
                                     {labels.length > 0 && (
                                         <div className="
                                             text-right
-                                            text=[10px]
+                                            text-[10px]
                                             font-bold
                                             tracking-wide
                                             text-green-dark"
@@ -217,7 +217,7 @@ function RoutePanel({
                                 {step.type === "transit" ? (
                                     <TransitMeta step={step} />
                                 ) : (
-                                    <div classname="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-button-darkest">
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-button-darkest">
                                         {step.duration_min >= 0.5 && (
                                             <span className="flex items-center gap-1">
                                                 <IoTimeOutline />

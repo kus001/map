@@ -5,9 +5,10 @@ import { MdDirectionsTransit } from "react-icons/md";
 import {GoDot} from "react-icons/go";
 import {PiMapPinFill} from "react-icons/pi";
 import {HiArrowsUpDown} from "react-icons/hi2";
+
 import Button from "./Button.jsx";
 
-const Modes = [
+const MODES = [
     {
         id:"driving",
         label: "Drive",

@@ -2,3 +2,4 @@ Flask
 requests
 geopy
 python-dotenv
+aioconsole

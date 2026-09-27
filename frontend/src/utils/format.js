@@ -13,7 +13,7 @@ export function formatDuration(minutes) {
   return mins ? `${hours} hr ${mins} min` : `${hours} hr`;
 }
 
-export function directionText(step) {
+export function formatDistance(meters) {
   if (
     meters === undefined ||
     meters === null ||
@@ -25,7 +25,7 @@ export function directionText(step) {
   if (meters >= 1000) {
     return (
       `${(meters / 1000).toFixed(1)} km`
-    )
+    );
   }
 
   return (`${Math.round(meters)} m`);
@@ -40,11 +40,11 @@ export function directionText(step) {
   const modifier = step.modifier || "";
   const road = step.road || "";
 
+  let text;
+
   if (type === "arrive") {
     return ("Arrive at your destination");
   }
-
-  let text = "";
 
   if (type === "depart") {
     text = modifier ? `Start heading ${modifier}` : "Start";
@@ -75,8 +75,8 @@ export function directionText(step) {
   }
 
   if (road) {
-    text += (` onto ${road}`);
+    text += ` onto ${road}`;
   }
 
-  return (text || road || "Continue");
+  return text || road || "Continue";
 }

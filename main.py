@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 from driving import get_driving_route
 from walking import get_walking_route
 from cycling import get_cycling_route
-from transit import get_transitroute
+from transit import get_transit_route
 
 app = Flask(__name__)
 

@@ -1,3 +1,4 @@
+import { IoTimeOutline } from "react-icons/io5";
 import {IoMdBicycle} from "react-icons/io";
 import {IoCarOutline} from "react-icons/io5";
 import {BsPersonWalking} from "react-icons/bs";
@@ -33,7 +34,7 @@ function StepIcon({ type }) {
     if (type === "transfer") {
         return <MdDirectionsTransit />;
     }
-    if (tpe === "transit") {
+    if (type === "transit") {
         return <MdDirectionsTransit />;
     }
     
@@ -75,10 +76,10 @@ function RoutePanel({
         return null;
     }
 
-    const mode = displayMode || data.mode || "driving";
-    const info = MODE_INFO[mode] || MODE_INFO.driving;
+    const mode = displayedMode || data.mode || "driving";
+    const modeInfo = MODE_INFO[mode] || MODE_INFO.driving;
     const ModeIcon = modeInfo.icon;
-    const activeRoute = selectedRoute || data.routes.fine((route) => route.route_number === selectedRouteumber) || data.routes[0];
+    const activeRoute = selectedRoute || data.routes.fine((route) => route.route_number === selectedRouteNumber) || data.routes[0];
     const steps = activeRoute?.steps || [];
 
     return (

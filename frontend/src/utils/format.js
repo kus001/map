@@ -16,13 +16,13 @@ export function formatDuration(minutes) {
 export function formatDistance(meters) {
   const value = Math.max(0, Number(meters) || 0);
 
-  if (meters >= 1000) {
+  if (value >= 1000) {
     return (
-      `${(meters / 1000).toFixed(1)} km`
+      `${(value / 1000).toFixed(1)} km`
     );
   }
 
-  return (`${Math.round(meters)} m`);
+  return (`${Math.round(value)} m`);
 }
 
 export function directionText(step) {

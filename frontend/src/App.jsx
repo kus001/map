@@ -219,7 +219,7 @@ export default function App() {
                 text-[11px]
                 text-button
               "
-            >Drive. Walk. Back. Transit.
+            >Drive. Walk. Bike. Transit.
             </div>
           </header>
           <SearchPanel

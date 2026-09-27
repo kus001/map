@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import {
   CircleMarker,
   MapContainer,
@@ -9,6 +9,9 @@ import {
   ZoomControl
 } from "react-leaflet"
 
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
 const DEFAULT_CENTER = [43.4829, -80.5249];
 const MODE_COLORS = {
@@ -18,7 +21,7 @@ const MODE_COLORS = {
   transit: "#8A6F4D"
 }
 
-function MapEffects({route, currentLocation}) {
+function MapEffects({routeCoordinates, currentLocation}) {
   const map = useMap();
 
   useEffect(() => {
@@ -34,7 +37,7 @@ function MapEffects({route, currentLocation}) {
     if (currentLocation?.length === 2) {
       map.flyTo(currentLocation, 15, {duration: 0.8});
     }
-    map.fitBounds(route.route_coordinates, {
+    map.fitBounds(routeCoordinates, {
       padding: [60, 60],
       maxZoom: 17
     });
@@ -77,11 +80,9 @@ function MapView({
     }
     return data?.routes?.find((item) => item.route_number === selectedRouteNumber);
   }, [data, selectedRoute, selectedRouteNumber]);
-  const rootCoordinates = route?.route_coordinates || [];
+  const routeCoordinates = route?.route_coordinates || [];
 
-  const selectedRoute = data?.routes?.find(route => route.route_number === selectedRouteNumber);
-  const routeColor = COLORS[selectedMode] || COLORS.driving;
-  const usingMapTiler = Boolean(MAPTILER_KEY);
+  const otherRoutes = data?.routes?.find(route => route.route_number === selectedRouteNumber);
   const tileUrl = MAPTILER_KEY ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}` : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
   const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
 
@@ -127,7 +128,7 @@ function MapView({
               color: selectedColor,
               weight: 7,
               opacity: 0.94,
-              dashArray: mode === "walking" ? "1 10" : undefined,
+              dashArray: mode === "walking" ? "1 10" : (mode === "transit" ? "10 7" : undefined),
               lineCap: "round",
               lineJoin: "round"
             }}
@@ -136,7 +137,7 @@ function MapView({
       ) : null }
 
       {
-        selectedMode === "transit" && route?.transit_stops?.map((stop) => (
+        mode === "transit" && route?.transit_stops?.map((stop) => (
           <CircleMarker
             key={stop.id}
             center={stop.coordinates}

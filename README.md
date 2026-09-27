@@ -41,27 +41,27 @@ Here's a sample output!
 
 ![Sample Transit Output](./frontend/public/transit_sample_output.png)
 
-### <center> NOTES </center>
+## <center> NOTES </center>
 
 <details>
-<summary><strong> Running transit.py </strong></summary>
+<summary><h3 style="display: inline;"> Running transit.py </h3></summary>
 
 It is recommended to run this project in its own folder so you can easily delete any spawned files. The project generates the transit_data folder when running `transit.py`.
 
 </details>
 
 <details>
-<summary><strong> Speed Limitation on transit.py </strong></summary>
+<summary><h3 style="display: inline;"> Speed Limitation on transit.py </h3></summary>
 
 Additionally, since the transit router is written in Python and uses a relatively brute-forced approach, long distance commuting can be very, very slow to calculate. Althought the base A* algorithm is quite fast, there is an additional step on top of it slowing it down quite a bit, the step being searching 900 times, from the 30 closest stops to you and the 30 closest stops to the destination. A speed update will be coming soon, as currently the system uses just brute force, but the A* algorithm's graph could likely be updated to include the additional edges with the 30 closest stops being attached to the starting stop, allowing the A* algorithm to not have to search the same stop so many times (And not have to be run 900 times!)
 
 </details>
 
 <details>
-<summary> <strong> AI </strong> </summary>
+<summary> <h3 style="display: inline;"> AI </h3> </summary>
 
 In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI.
 
 </details>
 
-### <center> Made with love by @kus001, @roc-ket-cod-er and @BigBrain244466666 </center>
+### <center> Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666 </center>

@@ -8,11 +8,14 @@ from geocoding import get_coordinates
 
 load_dotenv()
 
-API_KEY = os.getenv(
-    "API"
-)
+API_KEY = os.getenv("API")
 
-CYCLING_URL = None
+CYCLING_PROFILES = {
+    "regular": "cycling-regular",
+    "road": "cycling-road",
+    "mountain": "cycling-mountain",
+    "electric": "cycling-electric"
+}
 
 def get_cycling_route(start_address, end_address, route_type="regular"):
 
@@ -20,20 +23,13 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
     # it would be good if someone could add buttons to the website under cycling to 
     # allow the user to change this setting (PS. WILL BE ADDING THIS TO OTHER MODES)
 
-    if route_type == "road":
-        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-road"
-    elif route_type == 'mountain':
-        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-mountain"
-    elif route_type == "electric":
-        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-electric"
-    else:
-        CYCLING_URL = "https://api.openrouteservice.org/v2/directions/cycling-regular"
-
     if not API_KEY:
         return {
             "success": False,
-            "error": "Cycling API Key is missing"
+            "error": "Cycling API Key is missing."
         }
+
+    profile = CYCLING_PROFILES.get(route_type, "cycling-regular")
 
     start = get_coordinates(start_address)
 
@@ -54,6 +50,11 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
     start_lat, start_lon = start
     end_lat, end_lon = end
 
+    url = (
+        "https://api.openrouteservice.org/"
+        f"v2/directions/{profile}"
+    )
+
     headers = {
         "Authorization": API_KEY,
         "Accept": "application/json, application/geo+json"
@@ -66,7 +67,7 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
 
     try:
         response = requests.get(
-            CYCLING_URL,
+            url,
             headers=headers,
             params=params,
             timeout=15
@@ -151,6 +152,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         "success": True,
 
         "mode": "cycling",
+
+        "route_type": route_type,
 
         "start": {
             "address": start_address,

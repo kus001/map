@@ -93,8 +93,8 @@ def get_walking_route(start_address, end_address):
             steps.append({
                 "instruction": step.get("instruction", ""),
                 "type": "walking",
-                "modifier": ""
-                "road": step.get("name", "")
+                "modifier": "",
+                "road": step.get("name", ""),
                 "name": step.get("name", ""),
                 "distance_m": step["distance", 0]
             })

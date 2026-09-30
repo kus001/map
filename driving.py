@@ -2,7 +2,7 @@
 
 import requests
 
-from geocoding import get_coordinates
+from helpers.geocoding import get_coordinates
 
 OSRM_URL = (
     "https://router.project-osrm.org/"

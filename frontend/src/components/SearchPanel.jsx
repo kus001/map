@@ -94,14 +94,18 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green
+                            border-green-light
                             px-4
                             text-lg
                             text-charcoal
                             outline-none
-                            transition
+                            transition-all
+                            duration-200
+                            ease-out
+                            focus:border-green
                             focus:ring-2
-                            focus:ring-green/20
+                            focus:ring-green/15
+                            shadow-sm
                         "
                     />
                 </div>
@@ -126,14 +130,18 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green
+                            border-green-light
                             px-4
                             text-lg
                             text-charcoal
                             outline-none
-                            transition
+                            transition-all
+                            duration-200
+                            ease-out
+                            focus:border-green
                             focus:ring-2
                             focus:ring-green/20
+                            shadow-sm
                         "
                     />
                 </div>

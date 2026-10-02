@@ -264,7 +264,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wider
                 hover:font-bold
                 hover:text-green
                 hover:underline
@@ -276,7 +279,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wide
                 hover:font-bold
                 hover:text-green
                 hover:underline
@@ -288,7 +294,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wide
                 hover:font-bold
                 hover:text-green
                 hover:underline

@@ -1,6 +1,6 @@
 import csv
-import shutil
 import sys
+import shutil
 import pickle
 from pathlib import Path
 from datetime import datetime
@@ -8,10 +8,10 @@ from datetime import datetime
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
 
-from _transit.download_gtfs import download_gtfs
-from time_management import time_to_seconds, seconds_to_time, delta_time, delta_time_in_minutes
-from print_color import bold, green
 from distance import find_dist
+from print_color import bold, green
+from _transit.download_gtfs import download_gtfs
+from time_management import time_to_seconds, delta_time_in_minutes
 
 graph = {}
 node_positions = {}
@@ -50,7 +50,7 @@ def add_neighbor(stop_id, neighbor_stop_id, trip_id, distance=1, departure_time=
         departure_time = time_to_seconds(departure_time)
         arrival_time   = time_to_seconds(arrival_time)
 
-    # Every scheduled trip on this route for this hop is kept (not just the fastest one)
+    # Every scheduled trip on this route for this hop is kept
     hop_key = (stop_id, neighbor_stop_id, trip_id)
     if hop_key in _seen_trip_hops:
         return  # already have this exact scheduled trip

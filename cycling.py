@@ -4,7 +4,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from geocoding import get_coordinates
+from helpers.geocoding import get_coordinates
 
 load_dotenv()
 

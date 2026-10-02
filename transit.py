@@ -5,15 +5,12 @@ import os
 from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-
 from heapq import heappop, heappush
 from itertools import count
 from bisect import bisect_left
 from datetime import datetime
 
-from geocoding import get_coordinates
-
+from helpers.geocoding import get_coordinates
 from helpers.coords import nearest_stops, get_coordinates
 from helpers._transit.make_graph import make_graph
 from helpers.distance import dist_time, find_dist
@@ -27,7 +24,6 @@ stops = data.node_positions
 
 legs = []
 total_time = float("inf")
-
 
 def coordify(stop_data):
     return stop_data[0:2]

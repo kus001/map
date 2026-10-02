@@ -11,8 +11,8 @@ from time import monotonic_ns
 from heapq import heappop, heappush
 from json import dumps as prettyjson
 
+from helpers.coords import nearest_stops
 from helpers.geocoding import get_coordinates
-from helpers.coords import nearest_stops, get_coordinates
 from helpers.distance import dist_time, find_dist
 from helpers.print_color import bold, green, red, blue, magenta
 from helpers.time_management import time_to_seconds, seconds_to_time

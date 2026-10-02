@@ -125,8 +125,8 @@ function MapView({
               positions={route.route_coordinates}
               pathOptions={{
                 color: "#FFFFFF",
-                weight: 11,
-                opacity: 0.85,
+                weight: 9,
+                opacity: 0.45,
                 lineCap: "round",
                 lineJoin: "round"
               }}
@@ -138,7 +138,7 @@ function MapView({
             pathOptions={{
               color: selectedColor,
               weight: 7,
-              opacity: 0.94,
+              opacity: 1,
               dashArray: mode === "walking" ? "1 10" : (mode === "transit" ? "10 7" : undefined),
               lineCap: "round",
               lineJoin: "round"

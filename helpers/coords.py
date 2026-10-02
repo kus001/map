@@ -8,16 +8,6 @@ from geopy.geocoders import Nominatim
 from distance import find_dist
 geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
-def get_coordinates(address):
-    try: 
-        location = geolocator.geocode(address)
-
-        if location is None:
-            return None
-        return location.latitude, location.longitude
-    except Exception as error:
-        return None
-
 def nearest_stop(all_stops:dict, lat:int, long:int) -> list:
     closest_stop = [
         float('inf'),
@@ -39,7 +29,7 @@ def nearest_stop(all_stops:dict, lat:int, long:int) -> list:
     # print(closest_stop)
     return closest_stop
 
-def nearest_stops(all_stops:dict, lat:int, long:int) -> list:
+def nearest_stops(all_stops:dict, lat:int, long:int, amount_of_stops:int=50) -> list:
     closest_stops = [[
         float('inf'),
         None
@@ -57,7 +47,7 @@ def nearest_stops(all_stops:dict, lat:int, long:int) -> list:
         ])
 
         closest_stops.sort(key=lambda x: x[0])
-        closest_stops = closest_stops[:30]
+        closest_stops = closest_stops[:amount_of_stops]
 
     # print(closest_stops)
     return closest_stops

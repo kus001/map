@@ -1,7 +1,9 @@
 // app.jsx
 
 import {useMemo, useState} from "react";
-import {MdMyLocation} from "react-icons/md"
+import {MdMyLocation} from "react-icons/md";
+import { TbMoonStars } from "react-icons/tb";
+import { PiSunFill } from "react-icons/pi";
 import SearchPanel from "./components/SearchPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import MapView from "./components/MapView.jsx";
@@ -197,29 +199,31 @@ export default function App() {
               pt-4
             "
           >
-            <a
-              href="https://github.com/kus001/map"
-              target="_blank"
-              rel="noreferrer"
-              className="
-                inline-block
-                text-2xl
-                font-bold
-                tracking-tight
-                text-green
-                transition-all
-                duration-200
-                hover:tracking-wide
-                hover:text-green-dark
-              "
-            >Map Router</a>
+            <div className="flex items-center justify-between">
+              <a
+                href="https://github.com/kus001/map"
+                target="_blank"
+                rel="noreferrer"
+                className="
+                  inline-block
+                  text-2xl
+                  font-bold
+                  tracking-tight
+                  text-green
+                  transition-all
+                  duration-200
+                  hover:tracking-wide
+                  hover:text-green-dark
+                "
+                >Map Router
+              </a>
+              <PiSunFill className="text-green"/>
+            </div>
             <div
               className="
                 mt-0.5
                 text-[11px]
                 text-button
-                duration-200
-                hover:tracking-wide
               "
             >Drive. Walk. Bike. Transit.
             </div>

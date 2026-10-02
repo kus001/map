@@ -206,11 +206,11 @@ export default function App() {
                 text-2xl
                 font-bold
                 tracking-tight
-                text-charcoal
+                text-green
                 transition-all
                 duration-200
                 hover:tracking-wide
-                hover: text-green
+                hover:text-green-dark
               "
             >Map Router</a>
             <div
@@ -218,6 +218,8 @@ export default function App() {
                 mt-0.5
                 text-[11px]
                 text-button
+                duration-200
+                hover:tracking-wide
               "
             >Drive. Walk. Bike. Transit.
             </div>

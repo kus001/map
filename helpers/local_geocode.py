@@ -8,11 +8,7 @@
 # Matching strategy: the real dataset here is ~263k rows, far too many for a linear
 # fuzzy scan per query. Addresses are indexed by civic (house) number first, which is
 # highly selective (~45 addresses per civic number on average, a few thousand at worst
-# for very common numbers like "10"/"15"/"50") — this cuts the fuzzy-match candidate
-# set down by ~100-6000x before any string comparison happens. The street suffix
-# (St/Dr/Cres/...) is also stripped from both the index and the query before matching,
-# so "610 Stonebury", "610 Stonebury Crescent", and "610 Stonebury Cres" all resolve
-# to the same entry instead of needing an exact suffix match.
+# for very common numbers like "10"/"15"/"50")
 
 # Without the CSV present, local_geocode() always returns None and the caller falls
 # back to the next layer (e.g. Nominatim) — this is an optional accelerator, not a hard requirement.

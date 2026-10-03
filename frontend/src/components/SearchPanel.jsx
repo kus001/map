@@ -3,7 +3,7 @@ import { IoCarOutline } from "react-icons/io5";
 import { BsPersonWalking } from "react-icons/bs";
 import { MdDirectionsTransit } from "react-icons/md";
 import { GoDot } from "react-icons/go";
-import { PiMapPinFill } from "react-icons/pi";
+import { PiMapPinFill, PiSunFill } from "react-icons/pi";
 import { HiArrowsUpDown } from "react-icons/hi2";
 
 import Button from "./Button.jsx";
@@ -94,14 +94,17 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green
+                            border-green-light
                             px-4
                             text-lg
                             text-charcoal
                             outline-none
-                            transition
+                            transition-all
+                            duration-200
+                            ease-out
+                            focus:border-green
                             focus:ring-2
-                            focus:ring-green/20
+                            focus:ring-green/15
                         "
                     />
                 </div>
@@ -126,12 +129,15 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green
+                            border-green-light
                             px-4
                             text-lg
                             text-charcoal
                             outline-none
-                            transition
+                            transition-all
+                            duration-200
+                            ease-out
+                            focus:border-green
                             focus:ring-2
                             focus:ring-green/20
                         "

@@ -72,7 +72,7 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
 
         data = response.json()
 
-    except requests.RequestExceptions as error:
+    except requests.RequestException as error:
         return {
             "success": False,
             "error": f"Cycling routing server error: {error}"
@@ -156,7 +156,7 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         },
 
         "end": {
-            "address": end,
+            "address": end_address,
             "coordinates": [end_lat, end_lon]
         },
 

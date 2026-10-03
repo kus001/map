@@ -1,7 +1,9 @@
 // app.jsx
 
 import {useMemo, useState} from "react";
-import {MdMyLocation} from "react-icons/md"
+import {MdMyLocation} from "react-icons/md";
+import { TbMoonStars } from "react-icons/tb";
+import { PiSunFill } from "react-icons/pi";
 import SearchPanel from "./components/SearchPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import MapView from "./components/MapView.jsx";
@@ -17,6 +19,7 @@ export default function App() {
   const [status, setStatus] = useState("Enter a starting point and destination.");
   const [currentLocation, setCurrentLocation] = useState(null);
   const [data, setData] = useState(null);
+  const [darkMode, setDarkMode] = useState();
   const selectedRoute = useMemo(() => data?.routes?.find(route => route.route_number === selectedRouteNumber) || null, [data, selectedRouteNumber]);
 
   async function searchRoutes(
@@ -158,16 +161,17 @@ export default function App() {
 
   return (
     <div
-      className="
+      className={`
         flex
         h-screen
         w-screen
         overflow-hidden
         bg-white
-      "
+        ${darkMode ? "bg-green-light" : "bg-green"}
+      `}
     >
       <aside
-        className="
+        className={`
           z-[1000]
           flex
           h-screen
@@ -176,9 +180,8 @@ export default function App() {
           flex-col
           border-r-2
           border-charcoal
-          bg-white
           shadow-xl
-          
+          ${darkMode ? "bg-charcoal" : "bg-white"}
           max-[760px]:absolute
           max-[760px]:bottom-3
           max-[760px]:left-3
@@ -188,7 +191,7 @@ export default function App() {
           max-[760px]:overflow-hidden
           max-[760px]:rounded-xl
           max-[760px]:border-2
-        "
+        `}
         >
           <header
             className="
@@ -197,22 +200,35 @@ export default function App() {
               pt-4
             "
           >
-            <a
-              href="https://github.com/kus001/map"
-              target="_blank"
-              rel="noreferrer"
-              className="
-                inline-block
-                text-2xl
-                font-bold
-                tracking-tight
-                text-charcoal
-                transition-all
-                duration-200
-                hover:tracking-wide
-                hover: text-green
-              "
-            >Map Router</a>
+            <div className="flex items-center justify-between">
+              <a
+                href="https://github.com/kus001/map"
+                target="_blank"
+                rel="noreferrer"
+                className={`
+                  inline-block
+                  text-2xl
+                  font-bold
+                  tracking-tight
+                  transition-all
+                  duration-200
+                  hover:tracking-wide
+                  hover:text-green-dark
+                  ${darkMode ? "text-green-light" : "text-green"}
+                `}
+                >Map Router
+              </a>
+              <button
+                  type="button"
+                  onClick={() => setDarkMode(!darkMode)}
+              >
+                  {darkMode ? (
+                      <PiSunFill className="text-green" />
+                  ) : (
+                      <TbMoonStars className="text-green" />
+                  )}
+              </button>
+            </div>
             <div
               className="
                 mt-0.5
@@ -262,7 +278,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wider
                 hover:font-bold
                 hover:text-green
                 hover:underline
@@ -274,7 +293,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wide
                 hover:font-bold
                 hover:text-green
                 hover:underline
@@ -286,7 +308,10 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className="
-                transition
+                transition-all
+                duration-100
+                ease-out
+                hover:tracking-wide
                 hover:font-bold
                 hover:text-green
                 hover:underline

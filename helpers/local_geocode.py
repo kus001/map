@@ -152,7 +152,6 @@ def local_geocode(address, fuzzy_cutoff=0.85):
     matches = get_close_matches(key, _normalized_keys, n=1, cutoff=fuzzy_cutoff)
     if matches:
         return _index[matches[0]]
-
     return None
 
 def is_available():

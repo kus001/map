@@ -238,4 +238,6 @@ def is_available():
     _load_index()
     return bool(_by_civic)
 
-_load_index()
+_load_index() # basically load the index when this file is imported 
+# as to make sure that you only really have to import it once ... it doesn't reaaalllly do much,
+# as after the first routing request it will be anyways loaded in, but still I just felt that it should be there probably for the better and helps judge RAM usage.

@@ -439,7 +439,7 @@ if __name__ == "__main__":
     timing["start"]=0
     for key in timing:
         timing[key] = f"{timing[key]/1000:.3f} ms"
-    print("\n" + red(prettyjson(timing, indent=4)) + "\n")
+    print(red(prettyjson(timing, indent=4)) + "\n")
 
     if not result["success"]:
         print(result["error"])

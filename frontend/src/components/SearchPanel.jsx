@@ -88,8 +88,9 @@ export default function SearchPanel({
                         onChange={event => setStart(event.target.value)}
                         onKeyDown={handleEnter}
                         placeholder="Starting location"
+                        darkMode={darkMode}
                         autoComplete="off"
-                        className="
+                        className={`
                             h-14
                             min-w-0
                             flex-1
@@ -98,7 +99,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            text-charcoal
+                            ${darkMode ? "text-white" : "text-black"}
                             outline-none
                             transition-all
                             duration-200
@@ -106,7 +107,7 @@ export default function SearchPanel({
                             focus:border-green
                             focus:ring-2
                             focus:ring-green/15
-                        "
+                        `}
                     />
                 </div>
 
@@ -122,6 +123,7 @@ export default function SearchPanel({
                         }
                         onKeyDown={handleEnter}
                         placeholder="Destination"
+                        darkMode={darkMode}
                         autoComplete="off"
                         className={`
                             h-14
@@ -132,7 +134,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            text-charcoal
+                            ${darkMode ? "text-white" : "text-black"}
                             outline-none
                             transition-all
                             duration-200
@@ -216,6 +218,7 @@ export default function SearchPanel({
                             type="button"
                             key={option.id}
                             disabled={loading}
+                            darkMode={darkMode}
                             onClick={() =>
                                 onCyclingTypeChange(
                                     option.id
@@ -237,12 +240,11 @@ export default function SearchPanel({
                                         ? `
                                             border-green
                                             bg-green/15
-                                            text-green-dark
+                                            ${darkMode ? "text-white" : "text-green-dark"}
                                         `
                                         : `
                                             border-button-light
-                                            bg-white
-                                            text-charcoal
+                                            ${darkMode ? "bg-charcoal text-white" : "bg-white text-charcoal"}
                                             hover:bg-green/10
                                         `
                                 }

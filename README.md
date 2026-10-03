@@ -2,9 +2,9 @@
 
 #### [Map](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
-## <center> Running / Using [Map](https://map.host-transit-page.hackclub.app/)
+<h2 align="center"> Running / Using Map </h2>
 
-<center><strong> <a href=https://map.host-transit-page.hackclub.app> Map </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a> Additionally, you can click many instances of the word '<a href=https://map.host-transit-page.hackclub.app>Map</a>' to go to the webpage! </strong></center>
+<p align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> Map </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a> Additionally, you can click many instances of the word '<a href=https://map.host-transit-page.hackclub.app>Map</a>' to go to the webpage! </strong></p>
 
 If you'd rather compile it and run it yourself, locally, that to is simple. You must have Vite and `npm`.\
 In fact, Map is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will require either putting in the location into `transit_data/geocode_cache.json`.

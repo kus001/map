@@ -1,3 +1,8 @@
+from time import monotonic_ns
+
+def us():
+    return monotonic_ns() // 1_000
+
 def time_to_seconds(time_str):
     """Convert a time string in HH:MM:SS format to seconds since midnight."""
     h, m, s = map(int, time_str.split(':'))

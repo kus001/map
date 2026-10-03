@@ -200,12 +200,10 @@ def local_geocode(address, fuzzy_cutoff=0.6):
         return None
 
     civic_number, core_street, direction = _parse_address(address)
-    if civic_number is None:
-        return None  # no house number given - this fast path needs one to narrow the search
+    if civic_number is None: return None
 
     candidates = _by_civic.get(civic_number)
-    if not candidates:
-        return None
+    if not candidates: return None
 
     exact = [c for c in candidates if c[0] == core_street]
 
@@ -215,7 +213,7 @@ def local_geocode(address, fuzzy_cutoff=0.6):
             return direction_exact[0][2]
         # A direction was given but no exact match carries it — fuzzy-match the street
         # name, but ONLY among candidates tagged with that same direction, so e.g. a
-        # typo'd "Kign St N" can never resolve to the St S side of town.
+        # typo'd "Kign St N" can never resolve to the St S side of town. <<<-----------
         pool = [c for c in candidates if c[1] == direction] or candidates
     else:
         if len(exact) == 1:
@@ -240,4 +238,6 @@ def is_available():
     _load_index()
     return bool(_by_civic)
 
-_load_index()
+_load_index() # basically load the index when this file is imported 
+# as to make sure that you only really have to import it once ... it doesn't reaaalllly do much,
+# as after the first routing request it will be anyways loaded in, but still I just felt that it should be there probably for the better and helps judge RAM usage.

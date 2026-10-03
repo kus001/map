@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import count
 from bisect import bisect_left
 from datetime import datetime
-from time import monotonic_ns
 from heapq import heappop, heappush
 from json import dumps as prettyjson
 
@@ -15,7 +14,7 @@ from helpers.coords import nearest_stops
 from helpers.geocoding import get_coordinates
 from helpers.distance import dist_time, find_dist
 from helpers.print_color import bold, green, red, blue, magenta
-from helpers.time_management import time_to_seconds, seconds_to_time
+from helpers.time_management import time_to_seconds, seconds_to_time, us
 
 print("Loading transit data...")
 from helpers._transit.make_graph import make_graph
@@ -28,9 +27,6 @@ stops = data.node_positions
 
 legs = []
 total_time = float("inf")
-
-def ms():
-    return round(monotonic_ns() / 1_000_000, 3)
 
 def coordify(stop_data):
     return stop_data[0:2]
@@ -230,7 +226,7 @@ def get_transit_route(start_address, end_address, timing=None):
     end_coords = get_coordinates(end_address)
 
     if timing is not None:
-        timing["geocode"] = ms() - timing_offset
+        timing["geocode"] = us() - timing_offset
 
     if start_coords is None:
         return {
@@ -257,7 +253,7 @@ def get_transit_route(start_address, end_address, timing=None):
 
     total_time = float("inf")
 
-    if timing: timing["nearest_stops"] = ms() - timing_offset
+    if timing: timing["nearest_stops"] = us() - timing_offset
 
     # Instead of running a full A* search for the 30 nearest stops, add the walk-to-stop distances into the graph
     # as edges from two temporary "virtual" nodes, and run A* only once!
@@ -291,7 +287,7 @@ def get_transit_route(start_address, end_address, timing=None):
             else:
                 graph[stop_id].pop(VIRTUAL_END, None)
 
-    if timing: timing["Done routing"] = ms() - timing_offset
+    if timing: timing["Done routing"] = us() - timing_offset
 
     if transit_route is None or total_time == float("inf"):
         return {
@@ -411,7 +407,7 @@ def get_transit_route(start_address, end_address, timing=None):
         "transit_stops": transit_stop_coordinates
     }
 
-    if timing: timing["Done formatting"] = ms() - timing_offset
+    if timing: timing["Done formatting"] = us() - timing_offset
 
     return {
         "success": True,
@@ -437,10 +433,13 @@ if __name__ == "__main__":
 
     print("\nFinding transit route...\n")
 
-    timing = {"start": ms()}
+    timing = {"start": us()}
     result = get_transit_route(start_address, end_address, timing=timing)
 
-    timing["start"]=0; print("\n" + red(prettyjson(timing, indent=4)) + "\n")
+    timing["start"]=0
+    for key in timing:
+        timing[key] = f"{timing[key]/1000:.3f} ms"
+    print(red(prettyjson(timing, indent=4)) + "\n")
 
     if not result["success"]:
         print(result["error"])

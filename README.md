@@ -66,7 +66,11 @@ Here's a sample output!
 
 ![Sample Transit Output](./frontend/public/transit_sample_output.png)
 
-## <center> NOTES </center>
+<div align="center">
+
+## NOTES
+
+</div>
 
 <details>
 <summary><h3 style="display: inline;"> Running transit.py </h3></summary>

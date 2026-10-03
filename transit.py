@@ -438,12 +438,7 @@ if __name__ == "__main__":
     print("\nFinding transit route...\n")
 
     timing = {"start": ms()}
-
-    result = get_transit_route(
-        start_address,
-        end_address,
-        timing=timing
-    )
+    result = get_transit_route(start_address, end_address, timing=timing)
 
     timing["start"]=0; print("\n" + red(prettyjson(timing, indent=4)) + "\n")
 

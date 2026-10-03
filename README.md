@@ -26,9 +26,9 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
     - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you want to run `cd C:\Users\YourName\Documents\Github`
 
-4. Next, once you are into your local version of your repo, run `cd frontend`
+4. Next, once you are into your local version of your repo, run `cd frontend`. This will move you into the frontend repo where all the website code resides.
 
-5. Install dependancies by running `npm install`
+5. Install dependancies by running `npm install`.
 
 6. Finally, run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
 
@@ -36,19 +36,23 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
 8. Make sure to run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
 
-9. That's it! If you'd like to host your own server, keep reading.
+9. That's it! If you'd like to host your own server, keep reading. Please note that this has only been tested on linux.
 
     1. Build: build the website by running `npm run build` in the `frontend` directory.
 
-    2. Install PM2: `npm install pm2@latest -g`
+    2. Install PM2: `npm install pm2@latest -g`. PM2 allows you to host the server even when you have closed the terminal!
     
-    3. Still in the `frontend` directory, run `pm2 start ecosystem.config.cjs --env production`
+    3. Still in the `frontend` directory, run `pm2 start ecosystem.config.cjs --env production`. This will cause the server to run on port `:5173`.
 
     4. To keep the python script running in the background, run `nohup python3 main.py > output.log 2>&1 &` in the base directory where `main.py` resides.
 
 ![MAP Router screenshot](./frontend/public/readme%20pic.png)
 
-### <center> TRANSIT
+<div align="center">
+
+### TRANSIT
+
+</div>
 
 The transit router residing in `transit.py` has now been updated to have a full user-interface combined with accurate transfers! The router uses a homegrown version of the [A*](https://en.wikipedia.org/wiki/A*_search_algorithm) (Pronounced A Star) search algorithm! The graph now contains appropriate details to route concious of the current date and current time, and find the route that will, in the following order of priority,
 

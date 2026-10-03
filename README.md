@@ -1,13 +1,15 @@
 # <center> [Map](https://map.host-transit-page.hackclub.app/)
 
-#### [Map](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software. [Map](https://map.host-transit-page.hackclub.app/) is still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+#### [Map](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
 ## <center> Running / Using [Map](https://map.host-transit-page.hackclub.app/)
 
-#### <center> [Map](https://map.host-transit-page.hackclub.app/) is now hosted on Vercel at [this](https://map.host-transit-page.hackclub.app/) URL! Additionally, you can click any instance of the word '[Map](https://map.host-transit-page.hackclub.app/)' to go to the webpage!
+<center><strong> <a href=https://map.host-transit-page.hackclub.app> Map </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a> Additionally, you can click many instances of the word '<a href=https://map.host-transit-page.hackclub.app>Map</a>' to go to the webpage! </strong></center>
 
 If you'd rather compile it and run it yourself, locally, that to is simple. You must have Vite and `npm`.\
-To run [Map](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps! **Please note that you will require API keys**
+In fact, Map is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will require either putting in the location into `transit_data/geocode_cache.json`.
+
+To run [Map](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
 
 1. Fork [the Map repository](https://github.com/kus001/map). **Please note that forking is *optional*** Forking the repository creates your own version of the files, allowing you to modify and edit the open source files however you so desire!
 
@@ -67,18 +69,18 @@ It is recommended to run this project in its own folder so you can easily delete
 </details>
 
 <details>
-<summary><h3 style="display: inline;"> Speed Limitation on transit.py </h3></summary>
+<summary><h3 style="display: inline;">Speed Limitation on transit.py</h3></summary>
 
 ~~Additionally, since the transit router is written in Python and uses a relatively brute-forced approach, long distance commuting can be very, very slow to calculate. Althought the base A* algorithm is quite fast, there is an additional step on top of it slowing it down quite a bit, the step being searching 900 times, from the 30 closest stops to you and the 30 closest stops to the destination. A speed update will be coming soon, as currently the system uses just brute force, but the A* algorithm's graph could likely be updated to include the additional edges with the 30 closest stops being attached to the starting stop, allowing the A* algorithm to not have to search the same stop so many times (And not have to be run 900 times!)~~
 
-FIXED!! Algorithm now runs really quickly, and only once! However, for long distances it can still be quite slow.
+FIXED!! Algorithm now runs really quickly, and only once! However, for long distances it can still be quite slow ... even then that's most likely just a server side problem, very usable as an end user.
 
 </details>
 
 <details>
-<summary> <h3 style="display: inline;"> AI </h3> </summary>
+<summary><h3 style="display: inline;">AI</h3></summary>
 
-In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI.
+In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI. Occasionally, such as with the local geocoding, the feature would be started with AI help then mostly done by hand.
 
 </details>
 

@@ -2,7 +2,7 @@
 
 import requests
 import os
-from helpers.coords import get_coordinates
+from helpers.geocoding import get_coordinates
 from dotenv import load_dotenv
 from helpers.print_color import red, green, blue
 

@@ -239,3 +239,5 @@ def is_available():
     """Whether the local address-points dataset is actually loaded and usable."""
     _load_index()
     return bool(_by_civic)
+
+_load_index()

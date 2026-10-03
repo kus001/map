@@ -1,7 +1,6 @@
 # Driving.py
 
 import requests
-
 from helpers.geocoding import get_coordinates
 
 OSRM_URL = (

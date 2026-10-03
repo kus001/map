@@ -95,8 +95,4 @@ In general, there was AI usage for this project, however the majority of it was 
 
 </details>
 
-<h3 align="center">
-
 $$\color{red}\text{Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666}$$
-
-</h3>

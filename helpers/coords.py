@@ -4,9 +4,7 @@ import sys
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
 
-from geopy.geocoders import Nominatim
 from distance import find_dist
-geolocator = Nominatim(user_agent="map_walking_thirdspace")
 
 def nearest_stop(all_stops:dict, lat:int, long:int) -> list:
     closest_stop = [

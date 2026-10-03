@@ -2,12 +2,14 @@ export default function Button({
     active = false,
     children,
     className = "",
+    darkMode,
     ...props
 }) {
     const base = `
         flex
         items-center
         justify-center
+        shadow-md
         rounded-lg
         border-2
         font-semibold
@@ -28,7 +30,7 @@ export default function Button({
         `
         : `
             border-charcoal
-            bg-charcoal
+            ${darkMode ? "bg-green-light" : "bg-charcoal"}
             text-white
             hover:border-green
             hover:bg-green

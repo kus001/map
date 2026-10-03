@@ -112,7 +112,7 @@ export default function SearchPanel({
 
                 <div className="flex items-center gap-3">
                     <div className="flex w-6 shrink-0 justify-center">
-                        <PiMapPinFill className={`text-xl ${darkMode ? "text-green-light" : "text-green"}`} />
+                        <PiMapPinFill className={`text-xl ${darkMode ? "text-green-light" : "text-green"}`}/>
                     </div>
 
                     <input
@@ -182,6 +182,7 @@ export default function SearchPanel({
                         key={id}
                         active={mode === id}
                         disabled={loading}
+                        darkMode={darkMode}
                         onClick={() =>
                             onModeChange(id)
                         }
@@ -230,7 +231,7 @@ export default function SearchPanel({
                                 transition-all
                                 duration-150
                                 hover:-translate-y-px
-
+                                ${darkMode ? "bg-green-light" : "bg-green border-green"}
                                 ${
                                     cyclingType === option.id
                                         ? `
@@ -256,12 +257,14 @@ export default function SearchPanel({
                 type="button"
                 disabled={loading}
                 onClick={() => onSearch()}
-                className="
+                darkMode={darkMode}
+                className={`
                     mt-6
                     h-12
                     w-full
-                    text-base
-                "
+                    shadow-lg
+                    ${darkMode ? "bg-green-light" : "bg-green border-green"}
+                `}
             >
                 {loading
                     ? "Finding route..."

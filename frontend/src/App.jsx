@@ -19,6 +19,7 @@ export default function App() {
   const [status, setStatus] = useState("Enter a starting point and destination.");
   const [currentLocation, setCurrentLocation] = useState(null);
   const [data, setData] = useState(null);
+  const [darkMode, setDarkMode] = useState();
   const selectedRoute = useMemo(() => data?.routes?.find(route => route.route_number === selectedRouteNumber) || null, [data, selectedRouteNumber]);
 
   async function searchRoutes(
@@ -217,7 +218,16 @@ export default function App() {
                 "
                 >Map Router
               </a>
-              <PiSunFill className="text-green"/>
+              <button
+                  type="button"
+                  onClick={() => setDarkMode(!darkMode)}
+              >
+                  {darkMode ? (
+                      <PiSunFill className="text-green" />
+                  ) : (
+                      <TbMoonStars className="text-green" />
+                  )}
+              </button>
             </div>
             <div
               className="

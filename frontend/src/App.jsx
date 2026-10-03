@@ -230,11 +230,12 @@ export default function App() {
               </button>
             </div>
             <div
-              className="
+              className={`
                 mt-0.5
                 text-[11px]
                 text-button
-              "
+                ${darkMode ? "text-white" : "text-charcoal"}
+              `}
             >Drive. Walk. Bike. Transit.
             </div>
           </header>
@@ -260,7 +261,7 @@ export default function App() {
             error={error}
           />
           <footer
-            className="
+            className={`
               flex
               items-center
               justify-center
@@ -270,22 +271,24 @@ export default function App() {
               py-3
               text-[11px]
               text-button
-            "
+              ${darkMode ? "text-gray-400" : "text-gray"}
+            `}
           >
             <span>made by</span>
             <a
               href="https://github.com/kus001"
               target="_blank"
               rel="noreferrer"
-              className="
+              className={`
                 transition-all
                 duration-100
                 ease-out
                 hover:tracking-wider
                 hover:font-bold
-                hover:text-green
+                hover:text-green-light
                 hover:underline
-              "
+                ${darkMode ? "text-gray-400" : "text-gray"}
+              `}
             >Kush</a>
             <span>•</span>
             <a
@@ -337,7 +340,7 @@ export default function App() {
             type="button"
             onClick={findLocation}
             title="My Location"
-            className="
+            className={`
               absolute
               bottom-[85px]
               right=[10px]
@@ -359,7 +362,6 @@ export default function App() {
               shadow-lg
               transition-all
               duration-200
-              
               hover:-transalte-y-1
               hover:border-green
               hover:bg-green
@@ -369,7 +371,7 @@ export default function App() {
               active:translate-y-0
               
               max-[750px]:bottom-[61vh
-            "
+            `}
           >
             <MdMyLocation />
           </button>

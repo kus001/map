@@ -251,6 +251,7 @@ export default function App() {
             onSearch={searchRoutes}
             onSwap={swapLocations}
             loading={loading}
+            darkMode={darkMode}
           />
           <RoutePanel
             data={data}
@@ -271,7 +272,7 @@ export default function App() {
               py-3
               text-[11px]
               text-button
-              ${darkMode ? "text-gray-400" : "text-gray"}
+              ${darkMode ? "text-white" : "text-gray"}
             `}
           >
             <span>made by</span>
@@ -287,7 +288,7 @@ export default function App() {
                 hover:font-bold
                 hover:text-green-light
                 hover:underline
-                ${darkMode ? "text-gray-400" : "text-gray"}
+                ${darkMode ? "text-white" : "text-gray"}
               `}
             >Kush</a>
             <span>•</span>

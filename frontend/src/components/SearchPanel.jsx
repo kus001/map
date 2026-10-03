@@ -66,7 +66,8 @@ export default function SearchPanel({
     onSearch,
     onSwap,
 
-    loading
+    loading,
+    darkMode
 }) {
     function handleEnter(event) {
         if (event.key === "Enter") {
@@ -79,7 +80,7 @@ export default function SearchPanel({
             <div className="space-y-4">
                 <div className="flex items-center gap-3">
                     <div className="flex w-6 shrink-0 justify-center">
-                        <GoDot className="text-xl text-charcoal" />
+                        <GoDot className={`text-xl ${darkMode ? "text-green-light" : "text-charcoal"}`}/>
                     </div>
 
                     <input
@@ -109,10 +110,9 @@ export default function SearchPanel({
                     />
                 </div>
 
-
                 <div className="flex items-center gap-3">
                     <div className="flex w-6 shrink-0 justify-center">
-                        <PiMapPinFill className="text-xl text-green" />
+                        <PiMapPinFill className={`text-xl ${darkMode ? "text-green-light" : "text-green"}`} />
                     </div>
 
                     <input
@@ -123,7 +123,7 @@ export default function SearchPanel({
                         onKeyDown={handleEnter}
                         placeholder="Destination"
                         autoComplete="off"
-                        className="
+                        className={`
                             h-14
                             min-w-0
                             flex-1
@@ -140,7 +140,7 @@ export default function SearchPanel({
                             focus:border-green
                             focus:ring-2
                             focus:ring-green/20
-                        "
+                        `}
                     />
                 </div>
 
@@ -151,19 +151,19 @@ export default function SearchPanel({
                     disabled={loading}
                     onClick={onSwap}
                     title="Swap locations"
-                    className="
+                    className={`
                         flex
                         h-10
                         w-10
                         items-center
                         justify-center
                         rounded-xl
-                        bg-green/40
                         text-xl
                         text-white
                         transition
                         hover:bg-green
-                    "
+                        ${darkMode ? "bg-green-light/40" : "bg-green/40"}
+                    `}
                 >
                     <HiArrowsUpDown />
                 </button>

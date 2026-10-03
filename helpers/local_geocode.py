@@ -28,6 +28,7 @@
 
 import csv
 import re
+import pickle
 from pathlib import Path
 from difflib import SequenceMatcher
 from pyproj import Transformer
@@ -36,6 +37,7 @@ _CANDIDATE_PATHS = [
     Path("transit_data") / "addresses.csv",
     Path("transit_data") / "address_points.csv",
 ]
+_INDEX_CACHE_PATH = Path("transit_data") / "address_index_cache.pkl"
 
 # UTM Zone 17N (NAD83) -> WGS84 lat/lon. Covers the Waterloo Region open-data exports.
 _utm17n_to_latlon = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=True)
@@ -104,11 +106,21 @@ def _load_index():
     if _by_civic is not None:
         return
 
-    _by_civic = {}
-
     csv_path = _resolve_csv_path()
     if csv_path is None:
+        _by_civic = {}
         return
+
+    # Reuse a cached, pre-built index if it's at least as new as the source CSV
+    if _INDEX_CACHE_PATH.exists() and _INDEX_CACHE_PATH.stat().st_mtime >= csv_path.stat().st_mtime:
+        try:
+            with open(_INDEX_CACHE_PATH, "rb") as f:
+                _by_civic = pickle.load(f)
+            return
+        except Exception:
+            pass  # corrupt/incompatible cache - fall through and rebuild from the CSV
+
+    _by_civic = {}
 
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -164,6 +176,13 @@ def _load_index():
                 continue
 
             _by_civic.setdefault(civic_number, []).append((core_street, direction, (lat, lon)))
+
+    try:
+        _INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_INDEX_CACHE_PATH, "wb") as f:
+            pickle.dump(_by_civic, f)
+    except Exception:
+        pass  # caching is an optimization, not a requirement - a write failure shouldn't break geocoding
 
 def local_geocode(address, fuzzy_cutoff=0.6):
     """Look up an address in the local address-points index. Returns (lat, lon) or None

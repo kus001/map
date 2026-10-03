@@ -8,9 +8,9 @@
 
 If you'd rather copy and paste it, its [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL maybe incoming!)
 
-If you'd rather compile it and run it yourself, locally, that to is simple. You must have `vite` and `npm` installed. If you don't, now's a great time to get them installed.
+If you'd rather compile it and run it yourself, locally, that too is quite simple. It prerequisites `vite` and `npm` installed. If you don't, now's a great time to get them installed.
 
-In fact, MAP is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will require either putting in the location into `transit_data/geocode_cache.json`.
+In fact, MAP is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will have to put the location into `transit_data/geocode_cache.json`.
 
 To run [MAP](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
 

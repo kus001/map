@@ -1,30 +1,17 @@
 # Local, offline address geocoding using a municipal "Address Points" open-data CSV.
-#
-# To enable this layer, download an address points dataset and save it as
-# transit_data/addresses.csv (transit_data/address_points.csv also works):
-#   - Region of Waterloo Open Data:  https://www.regionofwaterloo.ca/opendata
-#   - City of Kitchener Open Data:   https://open-kitchenergis.opendata.arcgis.com
-#   - City of Waterloo Open Data:    https://opendata.waterloo.ca
-#   - City of Cambridge Open Data:   (see cambridge.ca/opendata)
-# Any of these work — look for a dataset named something like "Address Points" and
-# export/download it as CSV. Column names vary by source, so this loader auto-detects
+# To enable this layer, download an address points dataset and save it as transit_data/addresses.csv.
+
+# Column names vary by source, so this loader auto-detects
 # common variants (civic number + street name, OR a single full-address column), and
 # auto-detects whether the coordinate columns are plain lat/lon or UTM easting/northing
-# (the Region of Waterloo export uses NAD83 UTM Zone 17N, e.g. "X"/"Y" columns in the
-# hundreds-of-thousands / millions range) and converts UTM to lat/lon with pyproj.
-#
+
 # Matching strategy: the real dataset here is ~263k rows, far too many for a linear
 # fuzzy scan per query. Addresses are indexed by civic (house) number first, which is
 # highly selective (~45 addresses per civic number on average, a few thousand at worst
-# for very common numbers like "10"/"15"/"50") — this cuts the fuzzy-match candidate
-# set down by ~100-6000x before any string comparison happens. The street suffix
-# (St/Dr/Cres/...) is also stripped from both the index and the query before matching,
-# so "610 Stonebury", "610 Stonebury Crescent", and "610 Stonebury Cres" all resolve
-# to the same entry instead of needing an exact suffix match.
-#
+# for very common numbers like "10"/"15"/"50")
+
 # Without the CSV present, local_geocode() always returns None and the caller falls
-# back to the next layer (e.g. Nominatim) — this is an optional accelerator, not a
-# hard requirement.
+# back to the next layer (e.g. Nominatim) — this is an optional accelerator, not a hard requirement.
 
 import csv
 import re

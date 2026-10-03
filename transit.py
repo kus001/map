@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import count
 from bisect import bisect_left
 from datetime import datetime
-from time import monotonic_ns
 from heapq import heappop, heappush
 from json import dumps as prettyjson
 
@@ -15,7 +14,7 @@ from helpers.coords import nearest_stops
 from helpers.geocoding import get_coordinates
 from helpers.distance import dist_time, find_dist
 from helpers.print_color import bold, green, red, blue, magenta
-from helpers.time_management import time_to_seconds, seconds_to_time
+from helpers.time_management import time_to_seconds, seconds_to_time, ms
 
 print("Loading transit data...")
 from helpers._transit.make_graph import make_graph
@@ -28,9 +27,6 @@ stops = data.node_positions
 
 legs = []
 total_time = float("inf")
-
-def ms():
-    return round(monotonic_ns() / 1_000_000, 3)
 
 def coordify(stop_data):
     return stop_data[0:2]

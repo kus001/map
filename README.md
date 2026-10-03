@@ -25,11 +25,21 @@ all you have to do is run `git clone https://github.com/kus001/map`
 
 5. Install dependancies by running `npm install`
 
-6. Finally, run the project via `npm run dev`. However, you will need to add API keys for the things in the `.env` file. Take a look at the `.env.sample` page for how it works. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
+6. Finally, run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
 
 7. Install more dependancies by running `pip install -r requirements.txt` in the base folder (typically `map/`) (in a new terminal)
 
-8. Make sure to run `python3 main.py` or else your server will not function! The server uses ports 5000 and 5173.
+8. Make sure to run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
+
+9. That's it! If you'd like to host your own server, keep reading.
+
+    1. Build: build the website by running `npm run build` in the `frontend` directory.
+
+    2. Install PM2: `npm install pm2@latest -g`
+    
+    3. Still in the `frontend` directory, run `pm2 start ecosystem.config.cjs --env production`
+
+    4. To keep the python script running in the background, run `nohup python3 main.py > output.log 2>&1 &` in the base directory where `main.py` resides.
 
 ![Map Router screenshot](./frontend/public/readme%20pic.png)
 

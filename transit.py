@@ -445,7 +445,7 @@ if __name__ == "__main__":
         timing=timing
     )
 
-    timing["start"]=0; print(red(prettyjson(timing, indent=4))+"\n")
+    timing["start"]=0; print("\n" + red(prettyjson(timing, indent=4)) + "\n")
 
     if not result["success"]:
         print(result["error"])
@@ -461,4 +461,3 @@ if __name__ == "__main__":
             f"\nEstimated Commute Time: "
             f"{total_time:.1f} minutes\n"
         )
-

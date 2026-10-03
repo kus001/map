@@ -11,11 +11,11 @@ import json
 import re
 import sys
 from pathlib import Path
-from local_geocode import local_geocode
 
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
 
+from local_geocode import local_geocode
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 
@@ -69,6 +69,7 @@ _known_places = _load_known_places()
 _cache = _load_cache()
 
 def get_coordinates(address):
+    print("get_coordinates:", address)
     clean_address = address.strip()
     if not clean_address:
         return None
@@ -86,6 +87,8 @@ def get_coordinates(address):
         _cache[key] = local_result
         _save_cache()
         return local_result
+    
+    print("get_coordinates: local_geocode failed; falling back to Nominatim")
 
     try:
         location = geocode(

@@ -1,10 +1,14 @@
 <h1 align="center"><a href=https://map.host-transit-page.hackclub.app> MAP </a></h1>
 
+<div align="center">
+
 #### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+
+</div align="center">
 
 <h2 align="center"> Running / Using MAP </h2>
 
-<p align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></p>
+<h4 align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
 
 If you'd rather copy and paste it, its [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL maybe incoming!)
 

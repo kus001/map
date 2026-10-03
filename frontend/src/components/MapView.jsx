@@ -78,7 +78,7 @@ function TransitSegments({ route }) {
 }
 
 function MapView({
-  data, selectedRoute, selectedRouteNumber = 1, onSelectRoute = () => {}, displayedMode, currentLocation
+  data, selectedRoute, selectedRouteNumber = 1, onSelectRoute = () => {}, displayedMode, currentLocation, darkMode
 }) {
   const mode = displayedMode || data?.mode || "driving";
   const route = useMemo(() => {
@@ -97,8 +97,10 @@ function MapView({
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;
 
+
+  console.log("map mode: ", darkMode);  
   return (
-    <MapContainer center={mapCenter} zoom={13} zoomControl={false} scrollWheelZoom className="h-full w-full">
+    <MapContainer center={mapCenter} zoom={13} zoomControl={false} scrollWheelZoom className={`h-full w-full ${darkMode ? "darkMap" : ""}`}>
       <TileLayer url={tileUrl} attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
       <ZoomControl position="topright" />
       {otherRoutes.map((otherRoute) => (

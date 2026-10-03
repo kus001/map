@@ -336,6 +336,7 @@ export default function App() {
             selectedMode={displayedMode}
             onSelectRoute={setSelectedRouteNumber}
             currentLocation={currentLocation}
+            darkMode={darkMode}
           />
           <button
             type="button"

@@ -205,17 +205,17 @@ export default function App() {
                 href="https://github.com/kus001/map"
                 target="_blank"
                 rel="noreferrer"
-                className="
+                className={`
                   inline-block
                   text-2xl
                   font-bold
                   tracking-tight
-                  text-green
                   transition-all
                   duration-200
                   hover:tracking-wide
                   hover:text-green-dark
-                "
+                  ${darkMode ? "text-charcoal" : "text-green"}
+                `}
                 >Map Router
               </a>
               <button

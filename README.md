@@ -94,5 +94,8 @@ FIXED!! Algorithm now runs really quickly, and only once! However, for long dist
 In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI. Occasionally, such as with the local geocoding, the feature would be started with AI help then mostly done by hand.
 
 </details>
+<div align="center">
 
 ### $$\color{red}\text{Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666}$$
+
+</div>

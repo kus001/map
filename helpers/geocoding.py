@@ -84,8 +84,8 @@ def get_coordinates(address):
 
     local_result = local_geocode(clean_address)
     if local_result is not None:
-        _cache[key] = local_result
-        _save_cache()
+        # _cache[key] = local_result
+        # _save_cache()
         return local_result
     
     print("get_coordinates: local_geocode failed; falling back to Nominatim")

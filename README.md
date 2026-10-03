@@ -1,25 +1,28 @@
-<h1 align="center"><a href=https://map.host-transit-page.hackclub.app> Map </a></h1>
+<h1 align="center"><a href=https://map.host-transit-page.hackclub.app> MAP </a></h1>
 
-#### [Map](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
-<h2 align="center"> Running / Using Map </h2>
+<h2 align="center"> Running / Using MAP </h2>
 
-<p align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> Map </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a> Additionally, you can click many instances of the word '<a href=https://map.host-transit-page.hackclub.app>Map</a>' to go to the webpage! </strong></p>
+<p align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></p>
 
-If you'd rather compile it and run it yourself, locally, that to is simple. You must have Vite and `npm`.\
-In fact, Map is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will require either putting in the location into `transit_data/geocode_cache.json`.
+If you'd rather copy and paste it, its [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL maybe incoming!)
 
-To run [Map](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
+If you'd rather compile it and run it yourself, locally, that to is simple. You must have `vite` and `npm` installed. If you don't, now's a great time to get them installed.
 
-1. Fork [the Map repository](https://github.com/kus001/map). **Please note that forking is *optional*** Forking the repository creates your own version of the files, allowing you to modify and edit the open source files however you so desire!
+In fact, MAP is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will require either putting in the location into `transit_data/geocode_cache.json`.
 
-2. Next, clone the repository. Cloning the newly made repository permits you to have your own version of [our repository](https://github.com/kus001/map) downloaded locally onto your computer! Please note that where you are type the following in will be where the new folder is made.
+To run [MAP](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
+
+1. **Optional:** Fork [the MAP repository](https://github.com/kus001/map). Forking the repository creates your own version of the files, allowing you to modify and edit the open source files however you so desire, and also the ability to share your own version! Forking also allows you to make pull requests, which are a way of contributing back to the main repository. By doing so you help make open source software even better!
+
+2. Next, **clone the repository**. Cloning the newly made repository permits you to have your own version of [our repository](https://github.com/kus001/map) downloaded locally onto your computer! Please note that where you type the following in will be where the new folder is made.
 
    - If you forked the repository first, run `git clone <your-repository-url>`.
    - If you did *not* fork [our repository](https://github.com/kus001/map),
-all you have to do is run `git clone https://github.com/kus001/map`
+all you have to do is **run the following** `git clone https://github.com/kus001/map`
 
-3. If you haven't changed directories after running the previous command, **skip this step**. Otherwise, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
+3. **Skip this step** if you haven't changed directories after running the previous command. Otherwise, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) back to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
 
     - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you want to run `cd C:\Users\YourName\Documents\Github`
 
@@ -43,7 +46,7 @@ all you have to do is run `git clone https://github.com/kus001/map`
 
     4. To keep the python script running in the background, run `nohup python3 main.py > output.log 2>&1 &` in the base directory where `main.py` resides.
 
-![Map Router screenshot](./frontend/public/readme%20pic.png)
+![MAP Router screenshot](./frontend/public/readme%20pic.png)
 
 ### <center> TRANSIT
 

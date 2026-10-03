@@ -161,16 +161,17 @@ export default function App() {
 
   return (
     <div
-      className="
+      className={`
         flex
         h-screen
         w-screen
         overflow-hidden
         bg-white
-      "
+        ${darkMode ? "bg-green-light" : "bg-green"}
+      `}
     >
       <aside
-        className="
+        className={`
           z-[1000]
           flex
           h-screen
@@ -179,9 +180,8 @@ export default function App() {
           flex-col
           border-r-2
           border-charcoal
-          bg-white
           shadow-xl
-          
+          ${darkMode ? "bg-charcoal" : "bg-white"}
           max-[760px]:absolute
           max-[760px]:bottom-3
           max-[760px]:left-3
@@ -191,7 +191,7 @@ export default function App() {
           max-[760px]:overflow-hidden
           max-[760px]:rounded-xl
           max-[760px]:border-2
-        "
+        `}
         >
           <header
             className="
@@ -214,7 +214,7 @@ export default function App() {
                   duration-200
                   hover:tracking-wide
                   hover:text-green-dark
-                  ${darkMode ? "text-charcoal" : "text-green"}
+                  ${darkMode ? "text-green-light" : "text-green"}
                 `}
                 >Map Router
               </a>

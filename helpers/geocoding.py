@@ -11,11 +11,11 @@ import json
 import re
 import sys
 from pathlib import Path
-from local_geocode import local_geocode
 
 cwd = Path.cwd()
 sys.path.append(str(cwd / "helpers"))
 
+from local_geocode import local_geocode
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 

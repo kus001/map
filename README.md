@@ -1,4 +1,4 @@
-# <center> [Map](https://map.host-transit-page.hackclub.app/)
+<h1 align="center"><a href=https://map.host-transit-page.hackclub.app> Map </a></h1>
 
 #### [Map](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 

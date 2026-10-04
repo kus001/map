@@ -1,0 +1,2 @@
+agency_id,fare_id,price,currency_type,payment_method,transfers,transfer_duration
+Grand River Transit,1,4.00,CAD,0,,7200

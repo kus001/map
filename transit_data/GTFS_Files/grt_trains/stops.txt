@@ -1,0 +1,33 @@
+stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,zone_id,stop_url,location_type,parent_station,stop_timezone,wheelchair_boarding
+6001,,Conestoga Station - Southbound,,43.49829213483276,-80.52951572611032,,,0,,,1
+6008,,Grand River Hospital Station - Southbound,,43.457139,-80.511567,,,0,,,1
+6012,,Kitchener Market Station - Southbound,,43.446375998,-80.48384806,,,0,,,1
+6108,,Fairway Station - Northbound,,43.422394557,-80.44259065,,,0,,,1
+6122,,Northfield Station - Northbound,,43.49700152,-80.54300133,,,0,,,1
+6113,,Frederick Station - Northbound,,43.44940161,-80.48748309,,,0,,,1
+6118,,Waterloo Public Square Station - Northbound,,43.464236449,-80.52246747,,,0,,,1
+6007,,Allen Station - Southbound,,43.460097321,-80.51885593999998,,,0,,,1
+6111,,Borden Station - Northbound,,43.442304233,-80.47475407,,,0,,,1
+6120,,University Of Waterloo Station - Northbound,,43.473404296,-80.54129367,,,0,,,1
+6116,,Grand River Hospital Station - Northbound,,43.457195,-80.511623,,,0,,,1
+6119,,Laurier-Waterloo Park Station - Northbound,,43.469018891,-80.53453578,,,0,,,1
+6112,,Kitchener Market Station - Northbound,,43.446413619,-80.48380448,,,0,,,1
+6121,,Research and Technology Station - Northbound,,43.481607188,-80.54511444,,,0,,,1
+6005,,Laurier-Waterloo Park Station - Southbound,,43.46896069600001,-80.53461781999998,,,0,,,1
+6117,,Allen Station - Northbound,,43.460118769,-80.51881745,,,0,,,1
+6006,,Willis Way Station - Southbound,,43.462566364,-80.52381569,,,0,,,1
+6109,,Block Line Station - Northbound,,43.422825032,-80.46292583,,,0,,,1
+6004,,University Of Waterloo Station - Southbound,,43.473352503,-80.54140163,,,0,,,1
+6002,,Northfield Station - Southbound,,43.496965083,-80.54312158,,,0,,,1
+6011,,Queen Station - Southbound,,43.448605,-80.48935726,,,0,,,0
+6003,,Research and Technology Station - Southbound,,43.481591713,-80.5452988,,,0,,,1
+6014,,Mill Station - Southbound,,43.433353495,-80.47781542,,,0,,,1
+6123,,Conestoga Station - Northbound,,43.498271687,-80.52959604,,,0,,,1
+6010,,Victoria Park Station - Southbound,,43.450085011,-80.49333684,,,0,,,1
+6110,,Mill Station - Northbound,,43.433466949,-80.47761799,,,0,,,1
+6114,,Kitchener City Hall Station - Northbound,,43.45210862,-80.49118049,,,0,,,1
+6013,,Borden Station - Southbound,,43.44226659200001,-80.47479269999998,,,0,,,1
+6009,,Central Station - Southbound,,43.452895387,-80.49867507,,,0,,,1
+6115,,Central Station - Northbound,,43.453044329,-80.49855395,,,0,,,1
+6016,,Fairway Station - Southbound,,43.422341186,-80.44254049,,,0,,,1
+6015,,Block Line Station - Southbound,,43.422733033,-80.46308476999998,,,0,,,1

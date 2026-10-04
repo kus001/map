@@ -25,6 +25,6 @@ frontend/dist/
 Thumbs.db
 
 # Existing project data
-transit_data/GTFS_Files/
+transit_data/GTFS_Files/*/stop_times.txt
 transit_data/address_index_cache*.pkl
 frontend/package-lock.json

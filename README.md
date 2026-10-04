@@ -2,7 +2,7 @@
 
 <div align="center">
 
-#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development, and all feedback is always welcome, please send to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
 </div align="center">
 
@@ -10,11 +10,11 @@
 
 <h4 align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
 
-If you'd rather copy and paste it, its [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL maybe incoming!)
+If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL may be incoming!)
 
-If you'd rather compile it and run it yourself, locally, that too is quite simple. It prerequisites `vite` and `npm` installed. If you don't, now's a great time to get them installed.
+If you'd rather compile it and run it yourself, locally, that too is quite simple, however it does prerequisite `vite` and `npm`. If you don't have them installed, now's a great time to get them.
 
-In fact, MAP is designed to be able to run fully offline for transit routing! the local A* will work its way and route. However, if the address is not in the Region Of Waterloo's Address Lookup, then you will have to put the location into `transit_data/geocode_cache.json`.
+In fact, MAP is designed to be able to run fully offline for transit routing! (Alas, some features such as real time GTFS would not be possible). The local A* algorithm will work normally and do its routing job! However, if the address is not in the Region Of Waterloo's Address Lookup, then you will have to put the location into `transit_data/geocode_cache.json`. (Only for offline operation, as the geocoding falls back to online servers otherwise.)
 
 To run [MAP](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
 
@@ -26,19 +26,17 @@ To run [MAP](https://map.host-transit-page.hackclub.app/) locally, follow the fo
    - If you did *not* fork [our repository](https://github.com/kus001/map),
 all you have to do is **run the following** `git clone https://github.com/kus001/map`
 
-3. **Skip this step** if you haven't changed directories after running the previous command. Otherwise, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) back to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
+3. Next, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
 
-    - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you want to run `cd C:\Users\YourName\Documents\Github`
+    - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you'll likely want to run `cd C:\Users\YourName\Documents\Github\map`
 
-4. Next, once you are into your local version of your repo, run `cd frontend`. This will move you into the frontend repo where all the website code resides.
+4. Next, once you are into your local version of your repo, run `cd frontend && npm install`. The first part will move you into the frontend repo where all the website code resides, while the second part will install the dependancies of the code.
 
-5. Install dependancies by running `npm install`.
+6. After that, you'll want to run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
 
-6. Finally, run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
+7. For the python script, you should install its dependancies by running `pip install -r requirements.txt` in the base folder (typically `map/`) (in a new terminal)
 
-7. Install more dependancies by running `pip install -r requirements.txt` in the base folder (typically `map/`) (in a new terminal)
-
-8. Make sure to run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
+8. Finally, make sure you run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
 
 9. That's it! If you'd like to host your own server, keep reading. Please note that this has only been tested on linux.
 
@@ -58,13 +56,16 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
         2. In this case, you want to kill `14682`. Do this by running `kill 14682`.
 
-        3. After that, pull the new code with `git pull`. If this fails, you will likely have to fix up `frontent/geocode_cache.json`, as it may have populated with things as your server has run. If you are ok with getting rid of any local changes, then you can just run `rm transit_data/geocode_cache.json && git pull`
+        3. After that, pull the new code with `git pull`. If this fails, you will likely have to fix up `frontent/geocode_cache.json`, as it may have populated with things as your server has run. If you are ok with getting rid of any local changes, then you can just run `git restore transit_data/geocode_cache.json && git pull`
 
         4. Next, you'd like to build and redeploy the code. Do this by running `cd frontend/ && npm run build && pm2 restart all && cd ..`
 
         5. Restart `main.py` by running `nohup python3 main.py > output.log 2>&1 &`.
 
-        6. **If you'd like a one liner:** Just run `rm transit_data/geocode_cache.json && git pull && cd frontend/ && npm run build && pm2 restart all && cd ..`. If you stopped `main.py` earlier, also run `nohup python3 main.py > output.log 2>&1 &` in the base folder. Note that this will destroy your local cache of places.
+        6. **If you'd like a one liner:** Just run `git restore transit_data/geocode_cache.json || git pull && git pull && cd frontend/ && npm run build && pm2 restart all && cd ..`.
+            - If you stopped `main.py` earlier, also run `nohup python3 main.py > output.log 2>&1 &` in the base folder. Note that this will destroy your local cache of places.
+
+            - If PM2 wasn't already started, then just run `cd frontend/ && pm2 start ecosystem.config.cjs --env production && cd ..` first.
 
 ![MAP Router screenshot](./frontend/public/readme%20pic.png)
 
@@ -80,7 +81,7 @@ The transit router residing in `transit.py` has now been updated to have a full 
 2. Depart the latest
 3. Have the least amount of transfers.
 
-However, the transit system *does not* provide walking instructions to the and in between stops. That should be added at some point soon.
+However, the transit system *does not* (yet) provide walking instructions to the and in between stops. That should be added at some point soon.
 
 Here's a sample output!
 

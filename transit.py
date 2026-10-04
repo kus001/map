@@ -8,6 +8,7 @@ from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
+from json import dumps as prettyjson
 
 import requests
 from dotenv import load_dotenv
@@ -741,6 +742,7 @@ def get_transit_route(
     departure_datetime=None,
     timing=None,
 ):
+  global steps
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
@@ -1053,3 +1055,27 @@ def get_transit_route(
         "fastest_route_number": 1,
         "shortest_route_number": 1,
     }
+
+if __name__ == "__main__":
+    start_address = input(("Starting Address: "))
+    end_address = input(("End Address: "))
+
+    print("\nFinding transit route...\n")
+
+    timing = {"start": us()}
+    result = get_transit_route(start_address, end_address, timing=timing)
+
+    timing["start"]=0
+    for key in timing:
+        timing[key] = f"{timing[key]/1000:.3f} ms"
+    print("\n" + (prettyjson(timing, indent=4)) + "\n")
+
+    if not result["success"]:
+        print(result["error"])
+    else:
+        for leg in steps:
+            print(leg)
+        print(
+            f"\nEstimated Commute Time: "
+           # f"{total_time:.1f} minutes\n"
+        )

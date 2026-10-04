@@ -50,6 +50,22 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
     4. To keep the python script running in the background, run `nohup python3 main.py > output.log 2>&1 &` in the base directory where `main.py` resides.
 
+    5. If you want to reload your server with our latest code, run the following. Start in the base directory for this git repo. In this case, that's going to be `map/`. We assume that this is already running, and you just want to rebuild with the latest code. It will also be assumed that the amount of RAM available is very limited. If that is not the case, ignore steps 1 and 2.
+
+        1. Run `top`. This will allow you to find the `python3` process running, to kill it and provide enough RAM for the building.
+
+        ![](assets/image3.png)
+
+        2. In this case, you want to kill `14682`. Do this by running `kill 14682`.
+
+        3. After that, pull the new code with `git pull`. If this fails, you will likely have to fix up `frontent/geocode_cache.json`, as it may have populated with things as your server has run. If you are ok with getting rid of any local changes, then you can just run `rm transit_data/geocode_cache.json && git pull`
+
+        4. Next, you'd like to build and redeploy the code. Do this by running `cd frontend/ && npm run build && pm2 restart all && cd ..`
+
+        5. Restart `main.py` by running `nohup python3 main.py > output.log 2>&1 &`.
+
+        6. **If you'd like a one liner:** Just run `rm transit_data/geocode_cache.json && git pull && cd frontend/ && npm run build && pm2 restart all && cd ..`. If you stopped `main.py` earlier, also run `nohup python3 main.py > output.log 2>&1 &` in the base folder. Note that this will destroy your local cache of places.
+
 ![MAP Router screenshot](./frontend/public/readme%20pic.png)
 
 <div align="center">

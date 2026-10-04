@@ -110,8 +110,8 @@ def get_coordinates(address):
 
     local_result = local_geocode(clean_address)
     if local_result is not None:
-        _cache[key] = tuple(local_result)
-        _save_cache()
+        # _cache[key] = tuple(local_result)
+        # _save_cache()
         return tuple(local_result)
 
     

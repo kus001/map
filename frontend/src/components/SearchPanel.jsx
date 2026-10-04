@@ -197,9 +197,9 @@ export default function SearchPanel({
                     >
                         <Icon className="text-lg" />
 
-                        <span className="text-xs">
+                        {/* <span className="text-xs">
                             {label}
-                        </span>
+                        </span> */}
                     </Button>
                 ))}
             </div>

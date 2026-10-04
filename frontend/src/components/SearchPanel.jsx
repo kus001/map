@@ -449,10 +449,12 @@ export default function SearchPanel({
                 onClick={() => onTransitPreferenceChange(option.id)}
                 className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
                   transitPreference === option.id
-                    ? "border-green bg-green/15 text-green"
+                    ? darkMode
+                      ? "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                      : "border-green bg-green/15 text-green active:bg-green/25"
                     : darkMode
-                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10"
-                      : "border-button-light bg-white text-charcoal hover:bg-green/10"
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                      : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
                 }`}
               >
                 {option.label}
@@ -530,8 +532,7 @@ export default function SearchPanel({
         disabled={loading}
         onClick={() => onSearch()}
         darkMode={darkMode}
-        className="mt-4 h-11 w-full border-green bg-green shadow-md active:scale-[0.99] active:bg-green-dark"
-      >
+        className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] ${darkMode? "border-blue bg-blue active:bg-blue-dark": "border-green bg-green active:bg-green-dark"}`}>
         {loading
           ? "Finding route..."
           : timingMode === "scheduled"

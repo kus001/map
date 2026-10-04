@@ -91,8 +91,11 @@ function MapView({
 
   const routes = data?.routes ?? [];
   const otherRoutes = routes.filter((item) => item.route_number !== selectedRouteNumber);
-  const tileUrl = MAPTILER_KEY ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}` : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-  const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
+  // const tileUrl = darkMode ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+  console.log("dark mode: ", darkMode);
+const tileUrl = darkMode
+    ? `https://api.maptiler.com/maps/streets-v4-dark/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`
+    : `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`;  const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;

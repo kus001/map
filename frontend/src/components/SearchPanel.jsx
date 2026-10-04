@@ -99,7 +99,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            ${darkMode ? "text-white bg-charcoal-light" : "text-black"}
+                            ${darkMode ? "text-darkmode-gray bg-charcoal-light" : "text-black"}
                             outline-none
                             transition-all
                             duration-200
@@ -134,7 +134,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            ${darkMode ? "text-white bg-charcoal-light" : "text-black"}
+                            ${darkMode ? "text-darkmode-gray bg-charcoal-light" : "text-black"}
                             outline-none
                             transition-all
                             duration-200
@@ -247,7 +247,7 @@ export default function SearchPanel({
                                             ${darkMode ? "text-green" : "text-green-dark"}
                                         `
                                         : `
-                                            ${darkMode ? "bg-charcoal text-white border-green-light" : "border-green-dark bg-white text-charcoal active:bg-gray/10"}
+                                            ${darkMode ? "bg-charcoal text-darkmode-gray border-green-light" : "border-green-dark bg-white text-charcoal active:bg-gray/10"}
                                             hover:bg-green/10
                                         `
                                 }
@@ -270,7 +270,7 @@ export default function SearchPanel({
                     active:bg-green-dark
                     active:scale-99
                     shadow-lg
-                    ${darkMode ? "bg-green-light" : "bg-green border-green"}
+                    ${darkMode ? "bg-green" : "bg-green border-green"}
                 `}
             >
                 {loading

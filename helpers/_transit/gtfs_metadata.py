@@ -8,139 +8,133 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GTFS_ROOT = PROJECT_ROOT / "transit_data" / "GTFS_Files"
 
 
-def _read_rows(path):
+def _iter_rows(path):
     if not path.exists():
-        return []
+        return
 
     try:
         with path.open("r", encoding="utf-8-sig", newline="", errors="replace") as file:
-            return list(csv.DictReader(file))
+            yield from csv.DictReader(file)
     except Exception:
-        return []
+        return
 
 
 @lru_cache(maxsize=8)
-def _agency_index(agency):
+def _routes_index(agency):
+    """Routes are small, so keeping only this lightweight table in RAM is fine."""
     folder = GTFS_ROOT / agency
-    if not folder.exists():
-        return {}
-
-    routes = {
+    return {
         row.get("route_id"): row
-        for row in _read_rows(folder / "routes.txt")
+        for row in _iter_rows(folder / "routes.txt") or ()
         if row.get("route_id")
     }
 
-    index = {}
-    for trip in _read_rows(folder / "trips.txt"):
-        trip_id = trip.get("trip_id")
-        if not trip_id:
-            continue
 
-        route_id = trip.get("route_id") or ""
-        route = routes.get(route_id, {})
+def _trip_meta_from_row(agency, folder, trip, routes):
+    route_id = trip.get("route_id") or ""
+    route = routes.get(route_id, {})
 
-        index[str(trip_id)] = {
-            "agency": agency,
-            "feed_dir": str(folder),
-            "trip_id": str(trip_id),
-            "shape_id": trip.get("shape_id") or "",
-            "headsign": trip.get("trip_headsign") or "",
-            "route_id": route_id,
-            "route_short_name": route.get("route_short_name") or "",
-            "route_long_name": route.get("route_long_name") or "",
-            "route_type": route.get("route_type") or "",
-            "route_color": route.get("route_color") or "",
-        }
-
-    return index
+    return {
+        "agency": agency,
+        "feed_dir": str(folder),
+        "trip_id": str(trip.get("trip_id") or ""),
+        "shape_id": trip.get("shape_id") or "",
+        "headsign": trip.get("trip_headsign") or "",
+        "route_id": route_id,
+        "route_short_name": route.get("route_short_name") or "",
+        "route_long_name": route.get("route_long_name") or "",
+        "route_type": route.get("route_type") or "",
+        "route_color": route.get("route_color") or "",
+    }
 
 
-@lru_cache(maxsize=4096)
+def _meta_score(meta, route_hint, headsign_hint):
+    points = 0
+    names = {
+        str(meta.get("route_id") or "").lower(),
+        str(meta.get("route_short_name") or "").lower(),
+        str(meta.get("route_long_name") or "").lower(),
+    }
+
+    if route_hint and route_hint in names:
+        points += 6
+    elif route_hint and any(
+        route_hint in name or name in route_hint for name in names if name
+    ):
+        points += 3
+
+    headsign = str(meta.get("headsign") or "").lower()
+    if headsign_hint and headsign == headsign_hint:
+        points += 3
+    elif headsign_hint and headsign and (
+        headsign_hint in headsign or headsign in headsign_hint
+    ):
+        points += 1
+
+    if meta.get("shape_id"):
+        points += 1
+
+    return points
+
+
+@lru_cache(maxsize=512)
 def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
-    index = _agency_index(str(agency))
-    exact = index.get(str(trip_id))
-    if exact is not None:
-        return exact
-
+    """Find one trip without loading every GTFS trip into a giant Python dict."""
+    agency = str(agency)
+    trip_id = str(trip_id)
     route_hint = str(route_hint or "").strip().lower()
     headsign_hint = str(headsign_hint or "").strip().lower()
 
-    if not route_hint and not headsign_hint:
+    folder = GTFS_ROOT / agency
+    trips_path = folder / "trips.txt"
+    if not trips_path.exists():
         return None
 
-    def score(meta):
-        points = 0
-        names = {
-            str(meta.get("route_id") or "").lower(),
-            str(meta.get("route_short_name") or "").lower(),
-            str(meta.get("route_long_name") or "").lower(),
-        }
+    routes = _routes_index(agency)
+    best = None
+    best_score = -1
 
-        if route_hint and route_hint in names:
-            points += 6
-        elif route_hint and any(
-            route_hint in name or name in route_hint for name in names if name
-        ):
-            points += 3
+    for trip in _iter_rows(trips_path) or ():
+        meta = _trip_meta_from_row(agency, folder, trip, routes)
 
-        headsign = str(meta.get("headsign") or "").lower()
-        if headsign_hint and headsign == headsign_hint:
-            points += 3
-        elif headsign_hint and headsign and (
-            headsign_hint in headsign or headsign in headsign_hint
-        ):
-            points += 1
+        if meta["trip_id"] == trip_id:
+            return meta
 
-        if meta.get("shape_id"):
-            points += 1
+        if route_hint or headsign_hint:
+            score = _meta_score(meta, route_hint, headsign_hint)
+            if score > best_score:
+                best = meta
+                best_score = score
 
-        return points
-
-    candidates = list(index.values())
-    if not candidates:
-        return None
-
-    best = max(candidates, key=score)
-    return best if score(best) >= 4 else None
+    return best if best is not None and best_score >= 4 else None
 
 
-@lru_cache(maxsize=8)
-def _load_shapes(agency):
+@lru_cache(maxsize=64)
+def _load_shape(agency, shape_id):
+    """Load only the requested shape instead of every shape in an agency feed."""
     path = GTFS_ROOT / agency / "shapes.txt"
-    if not path.exists():
-        return {}
+    if not path.exists() or not shape_id:
+        return ()
 
-    shapes = {}
+    points = []
+    for row in _iter_rows(path) or ():
+        if row.get("shape_id") != shape_id:
+            continue
 
-    try:
-        with path.open("r", encoding="utf-8-sig", newline="", errors="replace") as file:
-            for row in csv.DictReader(file):
-                try:
-                    shape_id = row["shape_id"]
-                    sequence = int(float(row.get("shape_pt_sequence", 0)))
-                    point = [
-                        float(row["shape_pt_lat"]),
-                        float(row["shape_pt_lon"]),
-                    ]
-                except (KeyError, TypeError, ValueError):
-                    continue
+        try:
+            sequence = int(float(row.get("shape_pt_sequence", 0)))
+            point = (float(row["shape_pt_lat"]), float(row["shape_pt_lon"]))
+        except (KeyError, TypeError, ValueError):
+            continue
 
-                shapes.setdefault(shape_id, []).append((sequence, point))
-    except Exception:
-        return {}
+        points.append((sequence, point))
 
-    for shape_id, points in list(shapes.items()):
-        points.sort(key=lambda item: item[0])
-        shapes[shape_id] = [point for _, point in points]
-
-    return shapes
+    points.sort(key=lambda item: item[0])
+    return tuple(point for _, point in points)
 
 
 def _point_score(point, target):
-    scale = math.cos(
-        math.radians((float(point[0]) + float(target[0])) / 2)
-    )
+    scale = math.cos(math.radians((float(point[0]) + float(target[0])) / 2))
     dlat = float(point[0]) - float(target[0])
     dlon = (float(point[1]) - float(target[1])) * scale
     return dlat * dlat + dlon * dlon
@@ -165,12 +159,11 @@ def shape_for_trip(
     headsign_hint="",
 ):
     meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
-
     if not meta or not meta.get("shape_id"):
         return None, meta
 
-    shape = _load_shapes(agency).get(meta["shape_id"])
-    if not shape or len(shape) < 2:
+    shape = _load_shape(str(agency), str(meta["shape_id"]))
+    if len(shape) < 2:
         return None, meta
 
     start_candidates = _nearest_indices(shape, start)
@@ -187,7 +180,6 @@ def shape_for_trip(
             score = _point_score(shape[start_index], start) + _point_score(
                 shape[end_index], end
             )
-
             if score < best_score:
                 best_score = score
                 best_pair = (start_index, end_index)
@@ -195,10 +187,7 @@ def shape_for_trip(
     if best_pair is None:
         return None, meta
 
-    geometry = [
-        list(point) for point in shape[best_pair[0] : best_pair[1] + 1]
-    ]
-
+    geometry = [list(point) for point in shape[best_pair[0] : best_pair[1] + 1]]
     if len(geometry) < 2:
         return None, meta
 

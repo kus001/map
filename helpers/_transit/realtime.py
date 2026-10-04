@@ -13,7 +13,7 @@ except ImportError:
     gtfs_realtime_pb2 = None
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-REFRESH_SECONDS = 20
+REFRESH_SECONDS = int(os.getenv("GRT_REALTIME_REFRESH_SECONDS", "30"))
 REQUEST_TIMEOUT = 3.0
 MAX_FRESH_AGE_SECONDS = 180
 
@@ -245,7 +245,7 @@ def _refresh_once():
     alerts_received = False
     jobs = {}
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         for agency, url in TRIP_UPDATE_URLS.items():
             jobs[pool.submit(_fetch_feed, url)] = ("trip", agency)
 

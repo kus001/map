@@ -238,6 +238,7 @@ export default function SearchPanel({
                                 text-center
                                 hover:-translate-y-px
                                 active:border-green-dark
+                                active:bg-gray/10
                                 ${
                                     cyclingType === option.id
                                         ? `
@@ -246,7 +247,7 @@ export default function SearchPanel({
                                             ${darkMode ? "text-green" : "text-green-dark"}
                                         `
                                         : `
-                                            ${darkMode ? "bg-charcoal text-white border-green-light" : "border-green-dark bg-white text-charcoal"}
+                                            ${darkMode ? "bg-charcoal text-white border-green-light" : "border-green-dark bg-white text-charcoal active:bg-gray/10"}
                                             hover:bg-green/10
                                         `
                                 }
@@ -266,6 +267,8 @@ export default function SearchPanel({
                     mt-6
                     h-12
                     w-full
+                    active:bg-green-dark
+                    active:scale-99
                     shadow-lg
                     ${darkMode ? "bg-green-light" : "bg-green border-green"}
                 `}

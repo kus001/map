@@ -14,7 +14,7 @@ export default function Button({
         border-2
         font-semibold
         transition-all
-        duration-200
+        duration-100
         hover:-transate-y-0.5
         hover:shadow-md
         active:transate-y-0
@@ -26,6 +26,7 @@ export default function Button({
         ? `
             border-green
             bg-green
+            active:scale-95
             text-white
         `
         : `

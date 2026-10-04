@@ -1,6 +1,8 @@
 import math
 import os
 import time
+import threading
+from collections import OrderedDict
 from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -8,7 +10,6 @@ from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
-from json import dumps as prettyjson
 
 import requests
 from dotenv import load_dotenv
@@ -44,13 +45,55 @@ ACCESS_WALK_SPEED_MPS = 1.35
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 
-_data = make_graph()
-graph = _data.graph
-stops = _data.node_positions
+_data = None
+graph = None
+stops = None
+_transit_load_lock = threading.Lock()
+_realtime_started = False
 
-# Realtime updates refresh in the background. If the feed is unavailable, routing
-# automatically falls back to the static GTFS schedule.
-start_background_refresh()
+
+def ensure_transit_loaded(verbose=False):
+    """Load the heavy transit graph only when transit is actually needed.
+
+    `verbose=True` is used by the standalone local transit tester so the old
+    loading messages are still available without spamming the production log.
+    Returns the graph load time in seconds, or 0.0 if it was already loaded.
+    """
+    global _data, graph, stops, _realtime_started
+
+    if _data is not None:
+        if verbose:
+            print(f"Transit data already loaded ({len(stops):,} stops).")
+        return 0.0
+
+    with _transit_load_lock:
+        if _data is not None:
+            if verbose:
+                print(f"Transit data already loaded ({len(stops):,} stops).")
+            return 0.0
+
+        if verbose:
+            print("Loading transit data...")
+
+        load_started = time.perf_counter()
+        loaded = make_graph()
+        load_seconds = time.perf_counter() - load_started
+
+        _data = loaded
+        graph = loaded.graph
+        stops = loaded.node_positions
+
+        if not _realtime_started:
+            start_background_refresh()
+            _realtime_started = True
+
+        if verbose:
+            print(
+                f"Transit data loaded in {load_seconds:.3f}s "
+                f"({len(stops):,} stops)."
+            )
+
+        return load_seconds
 
 
 def coord(value):
@@ -198,7 +241,7 @@ def vehicle_label(agency, route_type=None):
     return "transit"
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=64)
 def _walking_route_cached(start_lat, start_lon, end_lat, end_lon):
     if not ORS_API_KEY:
         return None
@@ -265,23 +308,21 @@ def walking_geometry(start, end, fallback_min=None):
     }
 
 
-_SCHEDULE_CACHE = {}
+_SCHEDULE_CACHE = OrderedDict()
+MAX_SCHEDULE_CACHE_ENTRIES = 256
 
 
 def schedule_info(trips):
+    """Return binary-search helpers without allowing the cache to grow forever."""
     key = id(trips)
     cached = _SCHEDULE_CACHE.get(key)
     if cached is not None:
+        _SCHEDULE_CACHE.move_to_end(key)
         return cached
 
-    ordered = sorted(
-        trips,
-        key=lambda trip: (
-            trip.get("departure_time") is None,
-            trip.get("departure_time") or float("inf"),
-        ),
-    )
-
+    # make_graph stores scheduled trips in departure order, so avoid making another
+    # full copy of every edge's trip list.
+    ordered = trips
     info = {
         "trips": ordered,
         "times": [
@@ -296,11 +337,17 @@ def schedule_info(trips):
             if trip.get("trip_id") is not None
         },
     }
+
     _SCHEDULE_CACHE[key] = info
+    _SCHEDULE_CACHE.move_to_end(key)
+
+    while len(_SCHEDULE_CACHE) > MAX_SCHEDULE_CACHE_ENTRIES:
+        _SCHEDULE_CACHE.popitem(last=False)
+
     return info
 
 
-@lru_cache(maxsize=100_000)
+@lru_cache(maxsize=20_000)
 def trip_active(trip_id, date):
     return _data.is_trip_active(trip_id, date)
 
@@ -742,7 +789,8 @@ def get_transit_route(
     departure_datetime=None,
     timing=None,
 ):
-    global steps
+    ensure_transit_loaded()
+
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
@@ -1056,26 +1104,129 @@ def get_transit_route(
         "shortest_route_number": 1,
     }
 
+
+def _local_test_color_helpers():
+    """Load the project's old terminal colors only for standalone testing."""
+    try:
+        from helpers.print_color import bold, blue, green, magenta, red, yellow
+        return bold, blue, green, magenta, red, yellow
+    except Exception:
+        # The web server never needs the color helper. If its optional console
+        # dependency is unavailable, keep the local tester usable without color.
+        identity = lambda value, *args, **kwargs: str(value)
+        return identity, identity, identity, identity, identity, identity
+
+
+def _print_local_route_result(result, timing, graph_load_seconds):
+    """Pretty-print a transit response for `python transit.py` testing."""
+    import json
+
+    bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
+
+    timing_report = {
+        "graph_load": f"{graph_load_seconds * 1000:.3f} ms",
+    }
+
+    for key, value in timing.items():
+        if key == "start":
+            continue
+        timing_report[key] = f"{value / 1000:.3f} ms"
+
+    print(red(json.dumps(timing_report, indent=4)) + "\n")
+
+    if not result.get("success"):
+        print(red(result.get("error", "Transit route failed.")))
+        return
+
+    route = result["routes"][0]
+    steps = route.get("steps", [])
+
+    print(bold("Directions:"))
+    for step in steps:
+        instruction = step.get("instruction", "")
+        step_type = step.get("type", "")
+
+        if step_type == "walk":
+            print(green(instruction))
+        elif step_type == "transfer":
+            print(magenta(instruction))
+        elif step_type == "transit":
+            meta = []
+            if step.get("departure_time") and step.get("arrival_time"):
+                meta.append(f"{step['departure_time']} -> {step['arrival_time']}")
+            if step.get("stops"):
+                meta.append(f"{step['stops']} stops")
+            if step.get("realtime"):
+                meta.append("LIVE")
+
+            suffix = f" ({' | '.join(meta)})" if meta else ""
+            print(blue(instruction + suffix))
+        else:
+            print(yellow(instruction))
+
+    print()
+    print(
+        bold(
+            f"Estimated commute time: {route.get('duration_min', 0):.1f} minutes"
+        )
+    )
+    print(f"Distance: {route.get('distance_km', 0):.2f} km")
+    print(f"Departure: {route.get('departure_datetime', 'now')}")
+
+    realtime = route.get("realtime", {})
+    if realtime.get("available"):
+        print(green("Realtime transit feed available."))
+    elif realtime.get("feed_connected"):
+        print(yellow("Realtime feed connected, but scheduled data was used."))
+    else:
+        print(yellow("Realtime unavailable; scheduled GTFS data was used."))
+
+
 if __name__ == "__main__":
-    start_address = input(("Starting Address: "))
-    end_address = input(("End Address: "))
+    # Restore the old standalone local transit tester while keeping production
+    # imports quiet and memory-efficient.
+    bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
+
+    print(bold("=" * 64))
+    print(bold("Map Router - LOCAL TRANSIT TEST"))
+    print(bold("=" * 64))
+
+    graph_load_seconds = ensure_transit_loaded(verbose=True)
+
+    start_address = input(bold("Starting Address: ")).strip()
+    end_address = input(bold("End Address: ")).strip()
+
+    departure_text = input(
+        bold(
+            "Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
+        )
+    ).strip()
+
+    departure_datetime = None
+    if departure_text:
+        try:
+            departure_datetime = datetime.fromisoformat(departure_text)
+            if departure_datetime.tzinfo is None:
+                departure_datetime = departure_datetime.replace(
+                    tzinfo=TRANSIT_TIMEZONE
+                )
+            else:
+                departure_datetime = departure_datetime.astimezone(
+                    TRANSIT_TIMEZONE
+                )
+        except ValueError:
+            print(red("Invalid date/time. Using current time instead."))
+            departure_datetime = None
 
     print("\nFinding transit route...\n")
 
     timing = {"start": us()}
-    result = get_transit_route(start_address, end_address, timing=timing)
+    result = get_transit_route(
+        start_address,
+        end_address,
+        departure_datetime=departure_datetime,
+        timing=timing,
+    )
 
-    timing["start"]=0
-    for key in timing:
-        timing[key] = f"{timing[key]/1000:.3f} ms"
-    print("\n" + (prettyjson(timing, indent=4)) + "\n")
+    _print_local_route_result(result, timing, graph_load_seconds)
 
-    if not result["success"]:
-        print(result["error"])
-    else:
-        for leg in steps:
-            print(leg)
-        print(
-            f"\nEstimated Commute Time: "
-           # f"{total_time:.1f} minutes\n"
-        )

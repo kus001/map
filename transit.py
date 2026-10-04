@@ -742,7 +742,7 @@ def get_transit_route(
     departure_datetime=None,
     timing=None,
 ):
-  global steps
+    global steps
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 

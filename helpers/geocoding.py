@@ -1,154 +1,211 @@
-# Geocoding.py
-#
-# Resolution order, fastest/most-reliable first:
-#   1. known_places.json  — user-defined ("home", "work", ...)
-#   2. geocode_cache.json — every address ever successfully resolved before
-#   3. local_geocode.py   — municipal open-data address points, offline, no network
-#   4. Nominatim          — last resort; rate-limited and biased to the Waterloo Region
-#                            bounding box so city/province no longer need to be typed
+"""Geocoding helpers for the map router.
+
+Resolution order:
+1. Literal ``lat, lon`` coordinates.
+2. Curated aliases in ``known_places.json`` (if present).
+3. Curated aliases / short forms in ``transit_data/geocode_cache.json``.
+4. Places selected from autocomplete during the current server session.
+5. Waterloo Region's local address-point index.
+6. Nominatim as a last-resort network geocoder.
+
+Important: ``geocode_cache.json`` is treated as project data and is READ ONLY at
+runtime. Normal searches, local address lookups, Nominatim results, and
+autocomplete selections never get written into it.
+"""
 
 import json
 import re
 from functools import lru_cache
 from pathlib import Path
 
-from helpers.local_geocode import local_geocode, search_local
-from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
+from geopy.geocoders import Nominatim
 
-PROJECT_ROOT = (Path(__file__).resolve().parents[1])
-KNOWN_PLACES_PATH = (PROJECT_ROOT / "helpers" / "known_places.json")
-GEOCODE_CACHE_PATH = (PROJECT_ROOT / "transit_data" / "geocode_cache.json")
+from helpers.local_geocode import local_geocode, search_local
 
-# Roughly the the Region of Waterloo bounding box, used to bias Nominatim results to the local area.
-# This is not a hard limit and thus results outside this box can still be returned.
-# i.e. if they are a better match than any local results.
-WATERLOO_REGION_VIEWBOX = [(43.65, -80.65), (43.30, -80.25)]  # (north-west), (south-east)
-_COORDINATE_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+KNOWN_PLACES_PATH = PROJECT_ROOT / "helpers" / "known_places.json"
+GEOCODE_CACHE_PATH = PROJECT_ROOT / "transit_data" / "geocode_cache.json"
 
-_geolocator = Nominatim(user_agent="thirdspace_map_router/1.0")
+# Rough Waterloo Region viewbox. This biases Nominatim toward local results,
+# but bounded=False still allows valid matches elsewhere in Canada.
+WATERLOO_REGION_VIEWBOX = [
+    (43.65, -80.65),
+    (43.30, -80.25),
+]
 
+_COORDINATE_RE = re.compile(
+    r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$"
+)
+
+_geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
 _geocode = RateLimiter(
     _geolocator.geocode,
     min_delay_seconds=1,
     max_retries=2,
     error_wait_seconds=2,
-    swallow_exceptions=True
+    swallow_exceptions=True,
 )
 
-def _normalize_cache_key(address):
-    return re.sub(r"\s+", " ", address.strip().lower())
 
-def _load_known_places():
+def _normalize_key(value):
+    return re.sub(r"\s+", " ", str(value).strip().lower())
+
+
+def _load_coordinate_map(path):
+    """Load a simple {name: [lat, lon]} JSON file safely."""
     try:
-        with KNOWN_PLACES_PATH.open(encoding="utf-8") as file:
+        with path.open(encoding="utf-8") as file:
             raw = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
-    return {
-        key.lower(): tuple(value)
-        for key, value in raw.items()
-        if not key.startswith("_") and isinstance(value, list) and len(value) == 2
-    }
 
-def _load_cache():
-    try:
-        with GEOCODE_CACHE_PATH.open(encoding="utf-8") as file:
-            raw = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-    return {key: tuple(value) for key, value in raw.items()}
+    result = {}
 
-def _save_cache():
-    GEOCODE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with GEOCODE_CACHE_PATH.open("w", encoding="utf-8") as file:
-        json.dump({key: list(value) for key, value in _cache.items()}, file)
+    for key, value in raw.items():
+        if str(key).startswith("_"):
+            continue
 
-_known_places = _load_known_places()
-_cache = _load_cache()
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+
+        try:
+            lat = float(value[0])
+            lon = float(value[1])
+        except (TypeError, ValueError):
+            continue
+
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            result[_normalize_key(key)] = (lat, lon)
+
+    return result
+
+
+# Both of these are persistent project data loaded once at startup.
+# They are never modified by this module.
+_known_places = _load_coordinate_map(KNOWN_PLACES_PATH)
+_saved_aliases = _load_coordinate_map(GEOCODE_CACHE_PATH)
+
+# This is deliberately RAM-only. It speeds up repeated lookups during the current
+# Flask session without polluting geocode_cache.json or creating a search-history
+# file in the repository.
+_runtime_cache = {}
+
 
 def _coordinates_from_text(value):
     match = _COORDINATE_RE.match(value)
     if not match:
         return None
+
     lat = float(match.group(1))
     lon = float(match.group(2))
 
-    if (-90 <= lat <= 90 and -180 <= lon <= 180):
+    if -90 <= lat <= 90 and -180 <= lon <= 180:
         return (lat, lon)
 
     return None
 
-def remember_place(label, lat, lon):
-    key = _normalize_cache_key(label)
-    coordinates = (float(lat), float(lon))
 
+def remember_place(label, lat, lon):
+    """Remember an autocomplete result for this server session only.
+
+    The frontend calls this after the user selects an autocomplete suggestion so
+    routing can reuse its exact coordinates. Nothing is written to disk.
+    """
+    key = _normalize_key(label)
     if not key:
         return
 
-    if (_cache.get(key) != coordinates):
-        _cache[key] = coordinates
-        _save_cache()
+    try:
+        coordinates = (float(lat), float(lon))
+    except (TypeError, ValueError):
+        return
+
+    if not (-90 <= coordinates[0] <= 90 and -180 <= coordinates[1] <= 180):
+        return
+
+    _runtime_cache[key] = coordinates
+
 
 def get_coordinates(address):
-    clean_address = address.strip()
+    clean_address = str(address).strip()
     if not clean_address:
         return None
 
-    direct_coordinates = (_coordinates_from_text(clean_address))
+    direct_coordinates = _coordinates_from_text(clean_address)
+    if direct_coordinates is not None:
+        return direct_coordinates
 
-    if (direct_coordinates is not None):
-        return (direct_coordinates)
+    key = _normalize_key(clean_address)
 
-    key = _normalize_cache_key(clean_address)
-
+    # Intentionally saved project aliases / shorthand names.
     if key in _known_places:
         return _known_places[key]
 
-    if key in _cache:
-        return _cache[key]
+    if key in _saved_aliases:
+        return _saved_aliases[key]
 
+    # Exact coordinates remembered from an autocomplete selection this session.
+    if key in _runtime_cache:
+        return _runtime_cache[key]
+
+    # Civic addresses are resolved from address_points.csv via the generated
+    # address_index_cache_v2.pkl. We only keep the result in RAM here.
     local_result = local_geocode(clean_address)
     if local_result is not None:
-        # _cache[key] = tuple(local_result)
-        # _save_cache()
-        return tuple(local_result)
+        coordinates = (float(local_result[0]), float(local_result[1]))
+        _runtime_cache[key] = coordinates
+        return coordinates
 
-    
+    # Last resort for typed places that were not selected through autocomplete.
     location = _geocode(
         clean_address,
         timeout=10,
         viewbox=WATERLOO_REGION_VIEWBOX,
-        bounded=False,  # prefer results in the region but don't hard-exclude real matches outside it
-        country_codes="ca"
+        bounded=False,
+        country_codes="ca",
     )
 
     if location is None:
         return None
 
     coordinates = (float(location.latitude), float(location.longitude))
-    _cache[key] = coordinates
-    _save_cache()
+    _runtime_cache[key] = coordinates
     return coordinates
+
 
 @lru_cache(maxsize=256)
 def _search_places_cached(query, limit):
-    clean_query = re.sub(r"\s+", " ", query.strip())
-    if (len(clean_query) < 2):
+    clean_query = re.sub(r"\s+", " ", str(query).strip())
+    if len(clean_query) < 2:
         return tuple()
 
     results = search_local(clean_query, limit=limit)
 
-    return tuple((result["label"], result["lat"], result["lon"], result["source"]) for result in results[:limit])
+    return tuple(
+        (
+            result["label"],
+            result["lat"],
+            result["lon"],
+            result["source"],
+        )
+        for result in results[:limit]
+    )
+
 
 def search_places(query, limit=6):
+    """Return local address autocomplete results.
+
+    The React frontend merges these with MapTiler POI/place suggestions.
+    """
     limit = max(1, min(int(limit), 10))
+
     return [
         {
-        "label": label,
-        "lat": lat,
-        "lon": lon,
-        "source": source
+            "label": label,
+            "lat": lat,
+            "lon": lon,
+            "source": source,
         }
-        for (label, lat, lon, source) in _search_places_cached(query, limit)
+        for label, lat, lon, source in _search_places_cached(query, limit)
     ]

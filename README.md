@@ -4,13 +4,24 @@
 
 #### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
 
-</div align="center">
+![Example run!](assets/lightmode.png)
 
-<h2 align="center"> Running / Using MAP </h2>
+^^ Light Mode ^^ | | | vv Dark Mode vv
 
-<h4 align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+![Dark mode example](assets/darkmode.png)
 
-If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL may be incoming!)
+^^ Dark Mode ^^ | | | vv Light Mode (Satellite) vv
+
+![Satelite Mode Example](assets/light_sat.png)
+
+## Running / Using [MAP](https://map.host-transit-page.hackclub.app/)
+
+<h4><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+
+If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
+(A new URL may be incoming!)
+
+</div>
 
 If you'd rather compile it and run it yourself, locally, that too is quite simple, however it does prerequisite `vite` and `npm`. If you don't have them installed, now's a great time to get them.
 
@@ -67,8 +78,6 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
             - If PM2 wasn't already started, then just run `cd frontend/ && pm2 start ecosystem.config.cjs --env production && cd ..` first.
 
-![MAP Router screenshot](./frontend/public/readme%20pic.png)
-
 <div align="center">
 
 ### TRANSIT
@@ -81,11 +90,11 @@ The transit router residing in `transit.py` has now been updated to have a full 
 2. Depart the latest
 3. Have the least amount of transfers.
 
-However, the transit system *does not* (yet) provide walking instructions to the and in between stops. That should be added at some point soon.
-
-Here's a sample output!
-
+~~However, the transit system *does not* (yet) provide walking instructions to the and in between stops. That should be added at some point soon.~~
+~~Here's a sample output!~~
 ![Sample Transit Output](./frontend/public/transit_sample_output.png)
+
+That's all old! Everything should work now!! It should be integrated into the website!
 
 <div align="center">
 

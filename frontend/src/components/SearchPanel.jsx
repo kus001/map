@@ -235,18 +235,18 @@ export default function SearchPanel({
                                 font-semibold
                                 transition-all
                                 duration-150
+                                text-center
                                 hover:-translate-y-px
-                                ${darkMode ? "bg-green-light" : "bg-green border-green"}
+                                active:border-green-dark
                                 ${
                                     cyclingType === option.id
                                         ? `
-                                            border-green
+                                            border-green-dark
                                             bg-green/15
-                                            ${darkMode ? "text-white" : "text-green-dark"}
+                                            ${darkMode ? "text-green" : "text-green-dark"}
                                         `
                                         : `
-                                            border-button-light
-                                            ${darkMode ? "bg-charcoal text-white" : "bg-white text-charcoal"}
+                                            ${darkMode ? "bg-charcoal text-white border-green-light" : "border-green-dark bg-white text-charcoal"}
                                             hover:bg-green/10
                                         `
                                 }

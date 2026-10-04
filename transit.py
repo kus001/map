@@ -26,7 +26,7 @@ from helpers._transit.realtime import (
 )
 from helpers.coords import nearest_stops
 from helpers.geocoding import get_coordinates
-from helpers.time_management import seconds_to_time, time_to_seconds, us
+from helpers.time_management import seconds_to_time, us
 from walking import get_walking_route
 
 load_dotenv()

@@ -3,7 +3,7 @@ import os
 import time
 from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
@@ -41,6 +41,8 @@ MAX_ACCESS_WALK_METERS = 1200
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
+SERVICE_DAY_ROLLOVER_HOUR = 4
+REALTIME_SCHEDULE_WINDOW_HOURS = 3
 
 _data = make_graph()
 graph = _data.graph
@@ -103,10 +105,47 @@ def polyline_distance_m(points):
 def time_label(value):
     if value is None:
         return None
+
     try:
-        return seconds_to_time(int(round(value)))
+        # GTFS permits times past 24:00 for trips that continue after midnight.
+        # Convert those back to a normal clock time for the UI.
+        seconds = int(round(float(value))) % (24 * 3600)
+        return seconds_to_time(seconds)[:5]
     except Exception:
         return None
+
+
+def normalize_departure_datetime(value):
+    """Return an aware America/Toronto datetime for a requested departure."""
+    if value is None:
+        return datetime.now(TRANSIT_TIMEZONE)
+
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).strip())
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=TRANSIT_TIMEZONE)
+
+    return parsed.astimezone(TRANSIT_TIMEZONE)
+
+
+def gtfs_service_clock(departure_datetime):
+    """Translate local date/time to GTFS service date + seconds since service midnight."""
+    service_date = departure_datetime.date()
+    seconds = (
+        departure_datetime.hour * 3600
+        + departure_datetime.minute * 60
+        + departure_datetime.second
+    )
+
+    # Trips after midnight are commonly represented as 24:xx, 25:xx, etc.
+    if departure_datetime.hour < SERVICE_DAY_ROLLOVER_HOUR:
+        service_date -= timedelta(days=1)
+        seconds += 24 * 3600
+
+    return service_date, seconds
 
 
 def route_details(edge):
@@ -345,11 +384,11 @@ def search_transit(
     start_options,
     end_options,
     realtime,
+    departure_datetime=None,
     safety_buffer=TRANSFER_BUFFER_MIN,
 ):
-    now = datetime.now(TRANSIT_TIMEZONE)
-    service_date = now.date()
-    now_seconds = time_to_seconds(now.strftime("%H:%M:%S"))
+    departure_datetime = normalize_departure_datetime(departure_datetime)
+    service_date, now_seconds = gtfs_service_clock(departure_datetime)
 
     start_options = candidate_stops(start_options)
     end_options = candidate_stops(end_options)
@@ -697,9 +736,15 @@ def fetch_walks(jobs):
     return results
 
 
-def get_transit_route(start_address, end_address, timing=None):
-    global steps
+def get_transit_route(
+    start_address,
+    end_address,
+    departure_datetime=None,
+    timing=None,
+):
+  global steps
     timing_start = timing.get("start", us()) if timing is not None else None
+    requested_departure = normalize_departure_datetime(departure_datetime)
 
     def mark(name):
         if timing is not None:
@@ -716,14 +761,28 @@ def get_transit_route(start_address, end_address, timing=None):
 
     start = coord(start)
     end = coord(end)
+
     realtime = realtime_snapshot()
+    current_time = datetime.now(TRANSIT_TIMEZONE)
+    realtime_allowed = (
+        abs((requested_departure - current_time).total_seconds())
+        <= REALTIME_SCHEDULE_WINDOW_HOURS * 3600
+    )
+
+    routing_realtime = dict(realtime)
+    if not realtime_allowed:
+        routing_realtime["available"] = False
+        routing_realtime["vehicles"] = {}
 
     start_options = nearest_stops(stops, *start)
     end_options = nearest_stops(stops, *end)
     mark("nearest_stops")
 
     path, search_time, best_start, best_end = search_transit(
-        start_options, end_options, realtime
+        start_options,
+        end_options,
+        routing_realtime,
+        departure_datetime=requested_departure,
     )
     mark("routing")
 
@@ -898,7 +957,7 @@ def get_transit_route(start_address, end_address, timing=None):
         if meta and meta.get("route_id"):
             route_ids.add(str(meta["route_id"]))
 
-        live_vehicle = vehicle_for_trip(realtime, agency, trip_id)
+        live_vehicle = vehicle_for_trip(routing_realtime, agency, trip_id)
         if live_vehicle:
             vehicle_key = (agency, trip_id)
             if vehicle_key not in used_vehicle_keys:
@@ -955,9 +1014,13 @@ def get_transit_route(start_address, end_address, timing=None):
     )
 
     realtime_info = {
-        "available": bool(realtime.get("available")),
+        "available": bool(routing_realtime.get("available")),
+        "feed_connected": bool(realtime.get("available")),
         "feed_age_seconds": feed_age,
         "used_live_updates": any(step.get("realtime") for step in steps),
+        "suppressed_for_scheduled_trip": bool(
+            realtime.get("available") and not realtime_allowed
+        ),
     }
 
     route = {
@@ -975,6 +1038,7 @@ def get_transit_route(start_address, end_address, timing=None):
         "live_vehicles": live_vehicles,
         "route_coordinates": route_coordinates,
         "realtime": realtime_info,
+        "departure_datetime": requested_departure.isoformat(),
     }
 
     alerts = matching_alerts(realtime, route_ids, used_stop_ids)
@@ -987,6 +1051,7 @@ def get_transit_route(start_address, end_address, timing=None):
         "end": {"address": end_address, "coordinates": end},
         "routes": [route],
         "alerts": alerts,
+        "departure_datetime": requested_departure.isoformat(),
         "fastest_route_number": 1,
         "shortest_route_number": 1,
     }

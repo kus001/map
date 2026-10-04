@@ -5,11 +5,10 @@
   --color-button: #757575;
   --color-button-darker: #686868;
   --color-button-darkest: #565656;
-
   --color-green-light: #8fa88f;
   --color-green: #66856b;
   --color-green-dark: #526f57;
-  --color-darkmode-gray: #b5c0b6;
+  --color-darkmode-gray: #d0d8d1;
   --color-charcoal: #2f3e46;
   --color-charcoal-light: #394b53;
 }
@@ -44,9 +43,14 @@ button {
   background: #e8edf2;
 }
 
-/* Darkens the normal MapTiler streets tiles without relying on a second style ID. */
-.darkMap .leaflet-tile {
-  filter: brightness(0.72) contrast(1.08) saturate(0.8);
+/* Dark mode only affects the raster basemap, not route lines or markers. */
+.dark-street-map .leaflet-tile {
+  filter: invert(0.92) hue-rotate(175deg) brightness(0.62) contrast(1.12)
+    saturate(0.65);
+}
+
+.dark-satellite-map .leaflet-tile {
+  filter: brightness(0.62) contrast(1.1) saturate(0.82);
 }
 
 .leaflet-control-zoom {
@@ -67,7 +71,7 @@ button {
 
 .map-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: #aeb8b0 transparent;
 }
 
 .map-scrollbar::-webkit-scrollbar {
@@ -79,8 +83,8 @@ button {
 }
 
 .map-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
+  background: #aeb8b0;
+  border-radius: 999px;
 }
 
 .map-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -88,13 +92,13 @@ button {
 }
 
 .soft-enter {
-  animation: softEnter 0.22s ease-out;
+  animation: softEnter 0.2s ease-out;
 }
 
 @keyframes softEnter {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(4px);
   }
 
   to {

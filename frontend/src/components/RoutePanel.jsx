@@ -1,7 +1,7 @@
 import { BsPersonWalking } from "react-icons/bs";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline, IoTimeOutline } from "react-icons/io5";
-import { MdDirectionsTransit } from "react-icons/md";
+import { MdCalendarMonth, MdDirectionsTransit } from "react-icons/md";
 
 import {
   directionText,
@@ -72,6 +72,25 @@ function TransitMeta({ step, darkMode }) {
   );
 }
 
+function formatScheduledDeparture(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function RoutePanel({
   data,
   selectedRoute,
@@ -88,7 +107,7 @@ export default function RoutePanel({
     return (
       <div className="min-h-0 flex-1 px-5 py-3">
         <div
-          className={`rounded-lg border p-3 text-sm ${
+          className={`rounded-xl border p-3 text-sm ${
             error
               ? "border-red-300 bg-red-50 text-red-700"
               : darkMode
@@ -111,11 +130,14 @@ export default function RoutePanel({
   const steps = activeRoute?.steps || activeRoute?.stops || [];
   const realtime = activeRoute?.realtime;
   const alerts = data?.alerts ?? [];
+  const scheduledDeparture = formatScheduledDeparture(
+    data.requested_departure_datetime || data.departure_datetime
+  );
 
   return (
-    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">
+    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4">
       <div
-        className={`mb-3 rounded-lg border p-2.5 text-xs ${
+        className={`mb-3 rounded-xl border px-3 py-2.5 text-xs ${
           error
             ? "border-red-300 bg-red-50 text-red-700"
             : darkMode
@@ -126,9 +148,22 @@ export default function RoutePanel({
         {status}
       </div>
 
+      {scheduledDeparture && (
+        <div
+          className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
+            darkMode
+              ? "border-green/40 bg-green/10 text-green-light"
+              : "border-green/30 bg-green/10 text-green-dark"
+          }`}
+        >
+          <MdCalendarMonth className="text-base" />
+          Departing {scheduledDeparture}
+        </div>
+      )}
+
       {mode === "transit" && realtime && (
         <div
-          className={`mb-3 rounded-lg border px-3 py-2 text-xs font-semibold ${
+          className={`mb-3 rounded-xl border px-3 py-2 text-xs font-semibold ${
             realtime.available
               ? "border-green/40 bg-green/10 text-green-dark"
               : darkMode
@@ -142,7 +177,9 @@ export default function RoutePanel({
                   ? ` • ${realtime.feed_age_seconds}s old`
                   : ""
               }${realtime.used_live_updates ? " • live prediction used" : ""}`
-            : "Realtime unavailable — using scheduled transit data"}
+            : realtime.suppressed_for_scheduled_trip
+              ? "Future trip — using the scheduled timetable until closer to departure"
+              : "Realtime unavailable — using scheduled transit data"}
         </div>
       )}
 
@@ -151,7 +188,7 @@ export default function RoutePanel({
           {alerts.map(alert => (
             <div
               key={alert.id}
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
             >
               <div className="font-bold">{alert.header}</div>
               {alert.description && (
@@ -186,7 +223,7 @@ export default function RoutePanel({
               type="button"
               key={route.route_number}
               onClick={() => onSelectRoute(route.route_number)}
-              className={`w-full rounded-lg border-2 p-4 text-left transition-all ${
+              className={`w-full rounded-xl border p-3.5 text-left transition-all ${
                 selected
                   ? "border-green bg-green/10 shadow-sm"
                   : darkMode
@@ -197,7 +234,7 @@ export default function RoutePanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div
-                    className={`text-2xl font-bold ${
+                    className={`text-xl font-bold ${
                       darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
@@ -205,7 +242,7 @@ export default function RoutePanel({
                   </div>
 
                   <div
-                    className={`mt-1 flex items-center gap-2 text-sm ${
+                    className={`mt-1 flex flex-wrap items-center gap-x-2 text-xs ${
                       darkMode ? "text-darkmode-gray" : "text-button-darkest"
                     }`}
                   >
@@ -229,7 +266,7 @@ export default function RoutePanel({
                 </div>
 
                 {labels.length > 0 && (
-                  <div className="text-right text-[10px] font-bold tracking-wide text-green-dark">
+                  <div className="text-right text-[10px] font-bold tracking-wide text-green">
                     {labels.join(" • ")}
                   </div>
                 )}
@@ -239,11 +276,11 @@ export default function RoutePanel({
         })}
       </div>
 
-      <div className="my-5 border-t border-button-light" />
+      <div className="my-4 border-t border-button-light/60" />
 
       <div className="mb-3 flex items-center justify-between">
         <h2
-          className={`text-lg font-bold ${
+          className={`text-base font-bold ${
             darkMode ? "text-darkmode-gray" : "text-charcoal"
           }`}
         >
@@ -260,7 +297,7 @@ export default function RoutePanel({
 
       {steps.length === 0 ? (
         <div
-          className={`rounded-lg border p-4 text-sm ${
+          className={`rounded-xl border p-4 text-sm ${
             darkMode
               ? "border-button bg-charcoal-light text-darkmode-gray"
               : "border-button-light bg-white text-button-darkest"
@@ -270,7 +307,7 @@ export default function RoutePanel({
         </div>
       ) : (
         <div
-          className={`overflow-hidden rounded-lg border ${
+          className={`overflow-hidden rounded-xl border ${
             darkMode
               ? "border-button bg-charcoal-light"
               : "border-button-light bg-white"
@@ -279,9 +316,11 @@ export default function RoutePanel({
           {steps.map((step, index) => (
             <div
               key={`${step.type || "step"}-${index}`}
-              className="flex gap-3 border-b border-button-light/50 p-3 last:border-b-0"
+              className={`flex gap-3 border-b p-3 last:border-b-0 ${
+                darkMode ? "border-button/50" : "border-button-light/60"
+              }`}
             >
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-charcoal text-white">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green text-white">
                 <StepIcon type={step.type} />
               </div>
 

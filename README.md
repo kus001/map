@@ -26,19 +26,17 @@ To run [MAP](https://map.host-transit-page.hackclub.app/) locally, follow the fo
    - If you did *not* fork [our repository](https://github.com/kus001/map),
 all you have to do is **run the following** `git clone https://github.com/kus001/map`
 
-3. **Skip this step** if you haven't changed directories after running the previous command. Otherwise, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) back to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
+3. Next, you must change your [working directory](https://en.wikipedia.org/wiki/Working_directory) to the one in which you cloned/downloaded the files. This is the one that we can't really help you with, but it will be wherever you ran the previous command. 
 
-    - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you want to run `cd C:\Users\YourName\Documents\Github`
+    - For example on windows if you ran this in `C:\Users\YourName\Documents\Github`, then you'll likely want to run `cd C:\Users\YourName\Documents\Github\map`
 
-4. Next, once you are into your local version of your repo, run `cd frontend`. This will move you into the frontend repo where all the website code resides.
+4. Next, once you are into your local version of your repo, run `cd frontend && npm install`. The first part will move you into the frontend repo where all the website code resides, while the second part will install the dependancies of the code.
 
-5. Install dependancies by running `npm install`.
+6. After that, you'll want to run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
 
-6. Finally, run the project via `npm run dev`. You can run `npm run dev -- --host` to make it discoverable to other computers on the network!
+7. For the python script, you should install its dependancies by running `pip install -r requirements.txt` in the base folder (typically `map/`) (in a new terminal)
 
-7. Install more dependancies by running `pip install -r requirements.txt` in the base folder (typically `map/`) (in a new terminal)
-
-8. Make sure to run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
+8. Finally, make sure you run `python3 main.py` or else your server will not function! The server uses ports 8080 and 5173.
 
 9. That's it! If you'd like to host your own server, keep reading. Please note that this has only been tested on linux.
 

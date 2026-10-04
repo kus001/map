@@ -6,17 +6,22 @@
 
 ![Example run!](assets/lightmode.png)
 
-<p align="center"> ^^ Light Mode ^^ | | | vv Dark Mode vv </p>
+^^ Light Mode ^^ | | | vv Dark Mode vv
 
 ![Dark mode example](assets/darkmode.png)
 
-</div align="center">
+^^ Dark Mode ^^ | | | vv Light Mode (Satellite) vv
 
-<h2 align="center"> Running / Using MAP </h2>
+![Satelite Mode Example](assets/light_sat.png)
 
-<h4 align="center"><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+## Running / Using [MAP](https://map.host-transit-page.hackclub.app/)
 
-If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/) (A new URL may be incoming!)
+<h4><strong> <a href=https://map.host-transit-page.hackclub.app> MAP </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+
+If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
+(A new URL may be incoming!)
+
+</div>
 
 If you'd rather compile it and run it yourself, locally, that too is quite simple, however it does prerequisite `vite` and `npm`. If you don't have them installed, now's a great time to get them.
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -6,20 +6,21 @@ import {
   Popup,
   TileLayer,
   useMap,
-  ZoomControl
-} from "react-leaflet"
-
+  ZoomControl,
+} from "react-leaflet";
 import L from "leaflet";
+
 import "leaflet/dist/leaflet.css";
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
 const DEFAULT_CENTER = [43.4829, -80.5249];
+
 const MODE_COLORS = {
   driving: "#66856B",
   walking: "#2F3E46",
   cycling: "#4F7455",
-  transit: "#8A6F4D"
-}
+  transit: "#8A6F4D",
+};
 
 function validCoordinate(coordinate) {
   return (
@@ -30,14 +31,27 @@ function validCoordinate(coordinate) {
   );
 }
 
-function MapEffects({routeCoordinates, currentLocation}) {
+function MapEffects({ routeCoordinates, currentLocation, locationFocusKey }) {
   const map = useMap();
+  const previousFocusKey = useRef(locationFocusKey);
 
   useEffect(() => {
+    const manuallyRequestedLocation = locationFocusKey !== previousFocusKey.current;
+    previousFocusKey.current = locationFocusKey;
+
+    if (manuallyRequestedLocation && validCoordinate(currentLocation)) {
+      map.flyTo(
+        [Number(currentLocation[0]), Number(currentLocation[1])],
+        15,
+        { duration: 0.8 }
+      );
+      return;
+    }
+
     const safeRouteCoordinates = (routeCoordinates ?? []).filter(validCoordinate);
+
     if (safeRouteCoordinates.length >= 2) {
-      const bounds = L.latLngBounds(safeRouteCoordinates);
-      map.fitBounds(bounds, {
+      map.fitBounds(L.latLngBounds(safeRouteCoordinates), {
         padding: [42, 42],
         animate: true,
       });
@@ -45,71 +59,105 @@ function MapEffects({routeCoordinates, currentLocation}) {
     }
 
     if (validCoordinate(currentLocation)) {
-      map.flyTo([Number(currentLocation[0]), Number(currentLocation[1])], 15, {duration: 0.8});
+      map.flyTo(
+        [Number(currentLocation[0]), Number(currentLocation[1])],
+        15,
+        { duration: 0.8 }
+      );
     }
-  }, [map, routeCoordinates, currentLocation]);
+  }, [map, routeCoordinates, currentLocation, locationFocusKey]);
+
   return null;
 }
 
 function TransitSegments({ route }) {
   const segments = route?.segments ?? [];
-  if (segments.length === 0) {
-    return null;
-  }
 
-  return route.segments.map((segment, index) => {
+  return segments.map((segment, index) => {
     const walking = segment.type === "walking";
 
-    return(
+    return (
       <Polyline
         key={`${segment.type}-${segment.route || "walk"}-${index}`}
-        positions={segment.coordinates}
+        positions={segment.coordinates || []}
         pathOptions={{
-          color: walking ? MODE_COLORS.walking : segment.color || MODE_COLORS.transit,
+          color: walking
+            ? MODE_COLORS.walking
+            : segment.color || MODE_COLORS.transit,
           weight: walking ? 5 : 7,
-          opacity: 0.92,
+          opacity: 1,
           dashArray: walking ? "1 10" : undefined,
           lineCap: "round",
-          lineJoin: "round"
+          lineJoin: "round",
         }}
       />
     );
   });
 }
 
-function MapView({
-  data, selectedRoute, selectedRouteNumber = 1, onSelectRoute = () => {}, displayedMode, currentLocation, darkMode
+export default function MapView({
+  data,
+  selectedRoute,
+  selectedRouteNumber = 1,
+  onSelectRoute = () => {},
+  displayedMode,
+  currentLocation,
+  locationFocusKey = 0,
+  darkMode,
 }) {
   const mode = displayedMode || data?.mode || "driving";
+
   const route = useMemo(() => {
     if (selectedRoute) {
       return selectedRoute;
     }
-    return data?.routes?.find((item) => item.route_number === selectedRouteNumber);
-  }, [data, selectedRoute, selectedRouteNumber]);
-  const routeCoordinates = route?.route_coordinates || [];
 
+    return (
+      data?.routes?.find(item => item.route_number === selectedRouteNumber) ||
+      data?.routes?.[0] ||
+      null
+    );
+  }, [data, selectedRoute, selectedRouteNumber]);
+
+  const routeCoordinates = route?.route_coordinates ?? [];
   const routes = data?.routes ?? [];
-  const otherRoutes = routes.filter((item) => item.route_number !== selectedRouteNumber);
-  // const tileUrl = darkMode ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-  console.log("dark mode: ", darkMode);
-const tileUrl = darkMode
-    ? `https://api.maptiler.com/maps/streets-v4-dark/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`
-    : `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`;  const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
+  const otherRoutes = routes.filter(
+    item => item.route_number !== route?.route_number
+  );
+  const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
+
+  const tileUrl = MAPTILER_KEY
+    ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`
+    : darkMode
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;
 
-  console.log("map mode: ", darkMode);  
   return (
-    <MapContainer center={mapCenter} zoom={13} zoomControl={false} scrollWheelZoom className={`h-full w-full ${darkMode ? "darkMap" : ""}`}>
-      <TileLayer url={tileUrl} attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' />
+    <MapContainer
+      center={mapCenter}
+      zoom={13}
+      zoomControl={false}
+      scrollWheelZoom
+      className={`h-full w-full ${darkMode && MAPTILER_KEY ? "darkMap" : ""}`}
+    >
+      <TileLayer
+        url={tileUrl}
+        attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      />
+
       <ZoomControl position="topright" />
-      {otherRoutes.map((otherRoute) => (
+
+      {otherRoutes.map(otherRoute => (
         <Polyline
           key={`other-${otherRoute.route_number}`}
           positions={otherRoute.route_coordinates || []}
-          eventHandlers={{click: () => onSelectRoute(otherRoute.route_number)}}
+          eventHandlers={{
+            click: () => onSelectRoute(otherRoute.route_number),
+          }}
           pathOptions={{
             color: "#7D8589",
             weight: 5,
@@ -132,7 +180,7 @@ const tileUrl = darkMode
                 weight: 9,
                 opacity: 0.45,
                 lineCap: "round",
-                lineJoin: "round"
+                lineJoin: "round",
               }}
             />
           )}
@@ -143,16 +191,17 @@ const tileUrl = darkMode
               color: selectedColor,
               weight: 7,
               opacity: 1,
-              dashArray: mode === "walking" ? "1 10" : (mode === "transit" ? "10 7" : undefined),
+              dashArray: mode === "walking" ? "1 10" : undefined,
               lineCap: "round",
-              lineJoin: "round"
+              lineJoin: "round",
             }}
           />
         </>
-      ) : null }
+      ) : null}
 
-      {
-        (route?.transit_stops ?? []).filter((stop) => validCoordinate(stop.coordinates)).map((stop) => (
+      {(route?.transit_stops ?? [])
+        .filter(stop => validCoordinate(stop.coordinates))
+        .map(stop => (
           <CircleMarker
             key={stop.id}
             center={stop.coordinates}
@@ -161,68 +210,86 @@ const tileUrl = darkMode
               color: "#FFFFFF",
               weight: 2,
               fillColor: MODE_COLORS.transit,
-              fillOpacity: 1
+              fillOpacity: 1,
             }}
           >
             <Popup>{stop.name}</Popup>
           </CircleMarker>
-        ))
-      }
+        ))}
 
-      {
-        validCoordinate(data?.start?.coordinates) && (
+      {(route?.live_vehicles ?? [])
+        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]))
+        .map(vehicle => (
           <CircleMarker
-            center={data.start.coordinates}
+            key={`${vehicle.agency}-${vehicle.trip_id}-${
+              vehicle.vehicle_id || "vehicle"
+            }`}
+            center={[vehicle.lat, vehicle.lon]}
             radius={7}
             pathOptions={{
               color: "#FFFFFF",
               weight: 3,
-              fillColor: "#111111",
-              fillOpacity: 1
-            }}
-            >
-              <Popup>Start: {data.start.address}</Popup>
-            </CircleMarker>
-        )
-      }
-
-      {
-        validCoordinate(data?.end?.coordinates) && (
-          <CircleMarker
-            center={data.end.coordinates}
-            radius={7}
-            pathOptions={{
-              color: "#FFFFFF",
-              weight: 3,
-              fillColor: "#111111",
-              fillOpacity: 1
-            }}
-          >
-            <Popup>Destination: {data.end.address}</Popup>
-          </CircleMarker>
-        )
-      }
-
-      {
-        validCoordinate(currentLocation) && (
-          <CircleMarker
-            center={currentLocation}
-            radius={8}
-            pathOptions={{
-              color: "#D7E3DE",
-              weight: 5,
-              fillColor: "#66856B",
+              fillColor: "#D97706",
               fillOpacity: 1,
             }}
           >
-            <Popup>Your current Location</Popup>
+            <Popup>
+              Live {vehicle.route ? `route ${vehicle.route}` : "transit vehicle"}
+              {vehicle.headsign ? ` toward ${vehicle.headsign}` : ""}
+            </Popup>
           </CircleMarker>
-        )
-      }
-      
-      <MapEffects routeCoordinates={routeCoordinates} currentLocation={currentLocation} />
+        ))}
+
+      {validCoordinate(data?.start?.coordinates) && (
+        <CircleMarker
+          center={data.start.coordinates}
+          radius={7}
+          pathOptions={{
+            color: "#FFFFFF",
+            weight: 3,
+            fillColor: "#111111",
+            fillOpacity: 1,
+          }}
+        >
+          <Popup>Start: {data.start.address}</Popup>
+        </CircleMarker>
+      )}
+
+      {validCoordinate(data?.end?.coordinates) && (
+        <CircleMarker
+          center={data.end.coordinates}
+          radius={7}
+          pathOptions={{
+            color: "#FFFFFF",
+            weight: 3,
+            fillColor: "#111111",
+            fillOpacity: 1,
+          }}
+        >
+          <Popup>Destination: {data.end.address}</Popup>
+        </CircleMarker>
+      )}
+
+      {validCoordinate(currentLocation) && (
+        <CircleMarker
+          center={currentLocation}
+          radius={8}
+          pathOptions={{
+            color: "#D7E3DE",
+            weight: 5,
+            fillColor: "#66856B",
+            fillOpacity: 1,
+          }}
+        >
+          <Popup>Your current location</Popup>
+        </CircleMarker>
+      )}
+
+      <MapEffects
+        routeCoordinates={routeCoordinates}
+        currentLocation={currentLocation}
+        locationFocusKey={locationFocusKey}
+      />
     </MapContainer>
   );
 }
-
-export default MapView

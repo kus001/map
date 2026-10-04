@@ -100,7 +100,6 @@ const tileUrl = darkMode
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;
 
-
   console.log("map mode: ", darkMode);  
   return (
     <MapContainer center={mapCenter} zoom={13} zoomControl={false} scrollWheelZoom className={`h-full w-full ${darkMode ? "darkMap" : ""}`}>

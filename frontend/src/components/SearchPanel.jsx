@@ -4,7 +4,12 @@ import { GoDot } from "react-icons/go";
 import { HiArrowsUpDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
-import { MdAccessTime, MdCalendarMonth, MdDirectionsTransit } from "react-icons/md";
+import {
+  MdAccessTime,
+  MdCalendarMonth,
+  MdDirectionsTransit,
+  MdMyLocation,
+} from "react-icons/md";
 import { PiMapPinFill } from "react-icons/pi";
 
 import Button from "./Button.jsx";
@@ -41,6 +46,8 @@ function LocationInput({
   icon,
   disabled,
   darkMode,
+  endAction = null,
+  skipLookup = false,
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -48,6 +55,10 @@ function LocationInput({
   const suppressNextLookup = useRef(false);
 
   useEffect(() => {
+    if (skipLookup) {
+      return;
+    }
+
     if (suppressNextLookup.current) {
       suppressNextLookup.current = false;
       return;
@@ -141,7 +152,7 @@ function LocationInput({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [value]);
+  }, [value, skipLookup]);
 
   function chooseSuggestion(item) {
     suppressNextLookup.current = true;
@@ -216,13 +227,21 @@ function LocationInput({
         placeholder={placeholder}
         autoComplete="off"
         className={`h-12 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:border-green focus:ring-2 focus:ring-green/15 disabled:opacity-60 ${
+          endAction ? "pr-12" : ""
+        } ${
           darkMode
             ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55"
             : "border-button-light bg-white text-charcoal"
         }`}
       />
 
-      {open && suggestions.length > 0 && (
+      {endAction && (
+        <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2">
+          {endAction}
+        </div>
+      )}
+
+      {!skipLookup && open && suggestions.length > 0 && (
         <div
           className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
@@ -281,6 +300,8 @@ export default function SearchPanel({
   departureTime,
   onDepartureDateChange,
   onDepartureTimeChange,
+  usingCurrentLocation,
+  onUseCurrentLocation,
 }) {
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition focus:border-green ${
     darkMode
@@ -292,18 +313,38 @@ export default function SearchPanel({
     <div className="px-6 pb-5">
       <div className="space-y-3">
         <LocationInput
+          key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
           onChange={setStart}
           onSearch={onSearch}
           placeholder="Starting location"
           disabled={loading}
           darkMode={darkMode}
+          skipLookup={usingCurrentLocation}
           icon={
             <GoDot
               className={`text-xl ${
                 darkMode ? "text-green-light" : "text-charcoal"
               }`}
             />
+          }
+          endAction={
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onUseCurrentLocation}
+              title="Use current location as start"
+              aria-label="Use current location as start"
+              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 ${
+                usingCurrentLocation
+                  ? "border-green bg-green text-white"
+                  : darkMode
+                    ? "border-button bg-charcoal text-green-light hover:border-green hover:bg-green/15"
+                    : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
+              }`}
+            >
+              <MdMyLocation />
+            </button>
           }
         />
 

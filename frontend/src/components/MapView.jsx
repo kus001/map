@@ -31,6 +31,26 @@ function validCoordinate(coordinate) {
   );
 }
 
+function MapThemeEffect({ darkMode, mapStyle }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+
+    container.classList.toggle("map-dark-ui", darkMode);
+    container.classList.toggle(
+      "dark-satellite-map",
+      darkMode && mapStyle === "satellite"
+    );
+
+    return () => {
+      container.classList.remove("map-dark-ui", "dark-satellite-map");
+    };
+  }, [map, darkMode, mapStyle]);
+
+  return null;
+}
+
 function MapEffects({
   routeCoordinates,
   currentLocation,
@@ -130,9 +150,11 @@ function getBaseLayer(mapStyle, darkMode) {
   }
 
   if (MAPTILER_KEY) {
+    const styleId = darkMode ? "streets-v4-dark" : "streets-v4";
+
     return {
-      id: "maptiler-streets",
-      url: `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
+      id: `maptiler-${styleId}`,
+      url: `https://api.maptiler.com/maps/${styleId}/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
       attribution:
         '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     };
@@ -186,22 +208,16 @@ export default function MapView({
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;
 
-  const mapThemeClass = darkMode
-    ? mapStyle === "satellite"
-      ? "dark-satellite-map"
-      : MAPTILER_KEY
-        ? "dark-street-map"
-        : ""
-    : "";
-
   return (
     <MapContainer
       center={mapCenter}
       zoom={13}
       zoomControl={false}
       scrollWheelZoom
-      className={`h-full w-full ${mapThemeClass}`}
+      className="h-full w-full"
     >
+      <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+
       <TileLayer
         key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
         url={baseLayer.url}

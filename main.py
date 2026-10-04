@@ -1,3 +1,6 @@
+import json
+import os
+import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -6,13 +9,18 @@ from flask import Flask, jsonify, request
 from cycling import get_cycling_route
 from driving import get_driving_route
 from helpers.geocoding import remember_place, search_places
-from transit import get_transit_route
+from helpers.time_management import us
 from walking import get_walking_route
 
 app = Flask(__name__)
 
 VALID_CYCLING_TYPES = {"regular", "road", "mountain", "electric"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
+
+# Local-development mode brings back the convenient testing behaviour from the
+# older project without forcing the 2 GB production server to run that way.
+DEV_MODE = "--dev" in sys.argv or os.getenv("MAP_DEV_MODE", "0") == "1"
+PRINT_ROUTE_TIMING = DEV_MODE or os.getenv("MAP_ROUTE_TIMING", "0") == "1"
 
 
 def parse_departure_datetime(value):
@@ -35,6 +43,24 @@ def parse_departure_datetime(value):
         raise ValueError("Scheduled departure must be in the future.")
 
     return parsed
+
+
+def print_timing_report(mode, timing, total_microseconds):
+    """Pretty terminal timing output for local testing."""
+    if timing is None:
+        return
+
+    report = {}
+    for key, value in timing.items():
+        if key == "start":
+            continue
+        report[key] = f"{value / 1000:.3f} ms"
+
+    report["total_request"] = f"{total_microseconds / 1000:.3f} ms"
+
+    print(f"\n[{mode.upper()} ROUTE TIMING]")
+    print(json.dumps(report, indent=4))
+    print()
 
 
 @app.route("/api/health", methods=["GET"])
@@ -99,6 +125,9 @@ def routes():
     except ValueError as error:
         return jsonify({"success": False, "error": str(error)}), 400
 
+    request_started = us()
+    timing = {"start": request_started} if PRINT_ROUTE_TIMING and mode == "transit" else None
+
     if mode == "driving":
         result = get_driving_route(start, destination)
 
@@ -112,10 +141,15 @@ def routes():
         result = get_cycling_route(start, destination, route_type=route_type)
 
     elif mode == "transit":
+        # Keep transit lazy in normal/server mode so the large graph is not loaded
+        # unless somebody actually asks for a transit route.
+        from transit import get_transit_route
+
         result = get_transit_route(
             start,
             destination,
             departure_datetime=departure_datetime,
+            timing=timing,
         )
 
     else:
@@ -123,6 +157,14 @@ def routes():
             "success": False,
             "error": f"Unsupported travel mode: {mode}",
         }), 400
+
+    total_microseconds = us() - request_started
+
+    if PRINT_ROUTE_TIMING:
+        if timing is not None:
+            print_timing_report(mode, timing, total_microseconds)
+        else:
+            print(f"[{mode.upper()} ROUTE] {total_microseconds / 1000:.3f} ms")
 
     if result.get("success"):
         result["requested_departure_datetime"] = (
@@ -134,4 +176,40 @@ def routes():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8080, debug=True)
+    # Normal `python main.py` is the low-memory server-safe mode.
+    # `python main.py --dev` restores the old local testing conveniences:
+    # debug mode, automatic reload, detailed route timings, and verbose output.
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8080"))
+
+    if DEV_MODE:
+        print("=" * 64)
+        print("Map Router - LOCAL DEVELOPMENT MODE")
+        print(f"http://{host}:{port}")
+        print("Debug: ON | Auto reload: ON | Route timing: ON")
+        print("Transit graph remains lazy-loaded until transit is first used.")
+        print("=" * 64)
+
+        app.run(
+            host=host,
+            port=port,
+            debug=True,
+            use_reloader=True,
+        )
+    else:
+        debug = os.getenv("FLASK_DEBUG", "0") == "1"
+
+        print("=" * 64)
+        print("Map Router - LOW-MEMORY SERVER MODE")
+        print(f"http://{host}:{port}")
+        print("Use `python main.py --dev` for local debug/reload/timing mode.")
+        print("=" * 64)
+
+        # The Werkzeug reloader starts another Python process. Keep it disabled
+        # in server mode so a 2 GB machine does not duplicate memory usage.
+        app.run(
+            host=host,
+            port=port,
+            debug=debug,
+            use_reloader=False,
+        )

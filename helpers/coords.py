@@ -1,49 +1,17 @@
-from pathlib import Path
-import sys
+from heapq import nsmallest
+from helpers.distance import find_dist
 
-cwd = Path.cwd()
-sys.path.append(str(cwd / "helpers"))
+def nearest_stop(all_stops, lat, lon):
+    return min(
+        ([find_dist((stop[0], stop[1]), (lat, lon)), (stop_id, stop)] for stop_id, stop in all_stops.items()),
+        key=lambda item: item[0],
+        default=[float("inf"), None]
+    )
 
-from distance import find_dist
-
-def nearest_stop(all_stops:dict, lat:int, long:int) -> list:
-    closest_stop = [
-        float('inf'),
-        None
-    ]
-
-    for stop_id in all_stops:
-        stop = all_stops[stop_id]
-        slat, slong, sname = stop
-
-        dist = find_dist((slat, slong), (lat, long))
-
-        if dist < closest_stop[0]:
-            closest_stop = [
-                dist,
-                (stop_id, stop)
-            ]
-    
-    return closest_stop
-
-def nearest_stops(all_stops:dict, lat:int, long:int, amount_of_stops:int=50) -> list:
-    closest_stops = [[
-        float('inf'),
-        None
-    ]]
-
-    for stop_id in all_stops:
-        stop = all_stops[stop_id]
-        slat, slong, sname = stop
-
-        dist = find_dist((slat, slong), (lat, long))
-
-        closest_stops.append([
-            dist,
-            (stop_id, stop)
-        ])
-
-        closest_stops.sort(key=lambda x: x[0])
-        closest_stops = closest_stops[:amount_of_stops]
-
-    return closest_stops
+def nearest_stops(all_stops, lat, lon, amount_of_stops=50):
+    amount = max(1, int(amount_of_stops))
+    return nsmallest(
+        amount,
+        ([find_dist((stop[0], stop[1]), (lat, lon)), (stop_id, stop)] for stop_id, stop in all_stops.items()),
+        key=lambda item: item[0]
+    )

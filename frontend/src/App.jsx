@@ -235,7 +235,7 @@ export default function App() {
                 mt-0.5
                 text-[11px]
                 text-button
-                ${darkMode ? "text-white" : "text-charcoal"}
+                ${darkMode ? "text-darkmode-gray" : "text-charcoal"}
               `}
             >Drive. Walk. Bike. Transit.
             </div>
@@ -273,7 +273,7 @@ export default function App() {
               py-3
               text-[11px]
               text-button
-              ${darkMode ? "text-white" : "text-gray"}
+              ${darkMode ? "text-darkmode-gray" : "text-gray"}
             `}
           >
             <span>made by</span>
@@ -289,7 +289,7 @@ export default function App() {
                 hover:font-bold
                 hover:text-green-light
                 hover:underline
-                ${darkMode ? "text-white" : "text-gray"}
+                ${darkMode ? "text-darkmode-gray" : "text-gray"}
               `}
             >Kush</a>
             <span>•</span>

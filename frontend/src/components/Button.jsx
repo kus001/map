@@ -31,7 +31,7 @@ export default function Button({
         `
         : `
             border-charcoal
-            ${darkMode ? "bg-green-light" : "bg-charcoal"}
+            ${darkMode ? "bg-charcoal-light" : "bg-charcoal"}
             text-white
             hover:border-green
             hover:bg-green

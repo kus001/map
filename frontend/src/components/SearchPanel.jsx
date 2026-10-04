@@ -4,7 +4,7 @@ import { GoDot } from "react-icons/go";
 import { HiArrowsUpDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
-import { MdDirectionsTransit } from "react-icons/md";
+import { MdAccessTime, MdCalendarMonth, MdDirectionsTransit } from "react-icons/md";
 import { PiMapPinFill } from "react-icons/pi";
 
 import Button from "./Button.jsx";
@@ -24,6 +24,14 @@ const BIKE_TYPES = [
   { id: "mountain", label: "MTB" },
   { id: "electric", label: "E-Bike" },
 ];
+
+function todayInputValue() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function LocationInput({
   value,
@@ -207,17 +215,19 @@ function LocationInput({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
-        className={`h-14 min-w-0 flex-1 rounded-xl border-2 border-green-light px-4 text-lg outline-none transition-all duration-200 ease-out focus:border-green focus:ring-2 focus:ring-green/20 disabled:opacity-60 ${
+        className={`h-12 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:border-green focus:ring-2 focus:ring-green/15 disabled:opacity-60 ${
           darkMode
-            ? "bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/60"
-            : "bg-white text-black"
+            ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55"
+            : "border-button-light bg-white text-charcoal"
         }`}
       />
 
       {open && suggestions.length > 0 && (
         <div
-          className={`absolute left-9 right-0 top-[60px] z-[2000] max-h-72 overflow-y-auto rounded-xl border border-button-light shadow-xl ${
-            darkMode ? "bg-charcoal" : "bg-white"
+          className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
+            darkMode
+              ? "border-button bg-charcoal"
+              : "border-button-light bg-white"
           }`}
         >
           {suggestions.map((item, index) => (
@@ -226,9 +236,9 @@ function LocationInput({
               key={`${item.label}-${index}`}
               onMouseDown={event => event.preventDefault()}
               onClick={() => chooseSuggestion(item)}
-              className={`flex w-full items-start gap-3 border-b border-button-light/30 px-3 py-3 text-left text-sm last:border-b-0 ${
-                index === activeIndex ? "bg-green/20" : "hover:bg-green/10"
-              }`}
+              className={`flex w-full items-start gap-3 border-b px-3 py-3 text-left text-sm last:border-b-0 ${
+                darkMode ? "border-button/40" : "border-button-light/50"
+              } ${index === activeIndex ? "bg-green/20" : "hover:bg-green/10"}`}
             >
               <PiMapPinFill className="mt-0.5 shrink-0 text-green" />
 
@@ -265,10 +275,22 @@ export default function SearchPanel({
   onSwap,
   loading,
   darkMode,
+  timingMode,
+  onTimingModeChange,
+  departureDate,
+  departureTime,
+  onDepartureDateChange,
+  onDepartureTimeChange,
 }) {
+  const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition focus:border-green ${
+    darkMode
+      ? "border-button bg-charcoal-light text-darkmode-gray"
+      : "border-button-light bg-white text-charcoal"
+  }`;
+
   return (
-    <div className="px-8 pb-6">
-      <div className="space-y-4">
+    <div className="px-6 pb-5">
+      <div className="space-y-3">
         <LocationInput
           value={start}
           onChange={setStart}
@@ -302,21 +324,23 @@ export default function SearchPanel({
         />
       </div>
 
-      <div className="mt-3 pl-9">
+      <div className="mt-2 flex justify-end">
         <button
           type="button"
           disabled={loading}
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-10 w-10 items-center justify-center rounded-xl text-xl text-white transition hover:bg-green disabled:opacity-50 ${
-            darkMode ? "bg-green-light/40" : "bg-green/40"
+          className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition hover:bg-green hover:text-white disabled:opacity-50 ${
+            darkMode
+              ? "bg-charcoal-light text-green-light"
+              : "bg-green/10 text-green-dark"
           }`}
         >
           <HiArrowsUpDown />
         </button>
       </div>
 
-      <div className="mt-7 grid grid-cols-4 gap-3">
+      <div className="mt-4 grid grid-cols-4 gap-2">
         {MODES.map(({ id, label, Icon }) => (
           <Button
             type="button"
@@ -326,7 +350,7 @@ export default function SearchPanel({
             darkMode={darkMode}
             onClick={() => onModeChange(id)}
             title={label}
-            className="h-12 px-2 active:bg-green-dark"
+            className="h-10 px-2 active:bg-green-dark"
           >
             <Icon className="text-lg" />
           </Button>
@@ -334,21 +358,19 @@ export default function SearchPanel({
       </div>
 
       {mode === "cycling" && (
-        <div className="soft-enter mt-3 grid grid-cols-4 gap-2">
+        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
           {BIKE_TYPES.map(option => (
             <button
               type="button"
               key={option.id}
               disabled={loading}
               onClick={() => onCyclingTypeChange(option.id)}
-              className={`rounded-lg border px-2 py-2 text-center text-xs font-semibold transition-all duration-150 hover:-translate-y-px disabled:opacity-50 ${
+              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
                 cyclingType === option.id
-                  ? `border-green-dark bg-green/15 ${
-                      darkMode ? "text-green-light" : "text-green-dark"
-                    }`
+                  ? "border-green bg-green/15 text-green"
                   : darkMode
-                    ? "border-green-light bg-charcoal text-darkmode-gray hover:bg-green/10"
-                    : "border-green-dark bg-white text-charcoal hover:bg-green/10"
+                    ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10"
+                    : "border-button-light bg-white text-charcoal hover:bg-green/10"
               }`}
             >
               {option.label}
@@ -357,14 +379,81 @@ export default function SearchPanel({
         </div>
       )}
 
+      <div
+        className={`mt-4 rounded-xl border p-2.5 ${
+          darkMode
+            ? "border-button bg-charcoal-light/60"
+            : "border-button-light bg-green/5"
+        }`}
+      >
+        <div className="grid grid-cols-2 gap-1 rounded-lg p-0.5">
+          <button
+            type="button"
+            onClick={() => onTimingModeChange("now")}
+            className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              timingMode === "now"
+                ? "bg-green text-white shadow-sm"
+                : darkMode
+                  ? "text-darkmode-gray hover:bg-white/5"
+                  : "text-button-darkest hover:bg-white"
+            }`}
+          >
+            <MdAccessTime />
+            Leave now
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onTimingModeChange("scheduled")}
+            className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              timingMode === "scheduled"
+                ? "bg-green text-white shadow-sm"
+                : darkMode
+                  ? "text-darkmode-gray hover:bg-white/5"
+                  : "text-button-darkest hover:bg-white"
+            }`}
+          >
+            <MdCalendarMonth />
+            Schedule
+          </button>
+        </div>
+
+        {timingMode === "scheduled" && (
+          <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
+            <input
+              type="date"
+              value={departureDate}
+              min={todayInputValue()}
+              disabled={loading}
+              onChange={event => onDepartureDateChange(event.target.value)}
+              className={fieldClass}
+              aria-label="Departure date"
+            />
+
+            <input
+              type="time"
+              value={departureTime}
+              disabled={loading}
+              onChange={event => onDepartureTimeChange(event.target.value)}
+              className={fieldClass}
+              aria-label="Departure time"
+            />
+          </div>
+        )}
+      </div>
+
       <Button
         type="button"
         disabled={loading}
         onClick={() => onSearch()}
         darkMode={darkMode}
-        className="mt-6 h-12 w-full border-green bg-green shadow-lg active:scale-[0.99] active:bg-green-dark"
+        className="mt-4 h-11 w-full border-green bg-green shadow-md active:scale-[0.99] active:bg-green-dark"
       >
-        {loading ? "Finding route..." : "Find Route"}
+        {loading
+          ? "Finding route..."
+          : timingMode === "scheduled"
+            ? "Find Scheduled Route"
+            : "Find Route"}
       </Button>
     </div>
   );

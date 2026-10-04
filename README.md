@@ -64,7 +64,10 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
         5. Restart `main.py` by running `nohup python3 main.py > output.log 2>&1 &`.
 
-        6. **If you'd like a one liner:** Just run `rm transit_data/geocode_cache.json && git pull && cd frontend/ && npm run build && pm2 restart all && cd ..`. If you stopped `main.py` earlier, also run `nohup python3 main.py > output.log 2>&1 &` in the base folder. Note that this will destroy your local cache of places.
+        6. **If you'd like a one liner:** Just run `rm transit_data/geocode_cache.json || git pull && cd frontend/ && npm run build && pm2 restart all && cd ..`.
+            - If you stopped `main.py` earlier, also run `nohup python3 main.py > output.log 2>&1 &` in the base folder. Note that this will destroy your local cache of places.
+
+            - If PM2 wasn't already started, then just run `cd frontend/ && pm2 start ecosystem.config.cjs --env production && cd ..` first.
 
 ![MAP Router screenshot](./frontend/public/readme%20pic.png)
 

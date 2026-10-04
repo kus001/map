@@ -50,7 +50,7 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
     5. If you want to reload your server with our latest code, run the following. Start in the base directory for this git repo. In this case, that's going to be `map/`. We assume that this is already running, and you just want to rebuild with the latest code. It will also be assumed that the amount of RAM available is very limited. If that is not the case, ignore steps 1 and 2.
 
-        1. Run `top`. This will allow you to find the `python3` process running, to kill it and provide enough RAM for the building.
+        1. Run `top -o %MEM`. This will allow you to find the `python3` process running, to kill it and provide enough RAM for the building.
 
         ![](assets/image3.png)
 

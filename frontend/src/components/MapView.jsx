@@ -31,49 +31,64 @@ function validCoordinate(coordinate) {
   );
 }
 
-function MapEffects({ routeCoordinates, currentLocation, locationFocusKey }) {
+function MapEffects({
+  routeCoordinates,
+  currentLocation,
+  locationFocusKey,
+  routeFocusKey,
+}) {
   const map = useMap();
-  const previousFocusKey = useRef(locationFocusKey);
+  const previousLocationFocusKey = useRef(locationFocusKey);
+  const previousRouteFocusKey = useRef(routeFocusKey);
 
   useEffect(() => {
-    const manuallyRequestedLocation = locationFocusKey !== previousFocusKey.current;
-    previousFocusKey.current = locationFocusKey;
-
-    if (manuallyRequestedLocation && validCoordinate(currentLocation)) {
-      map.flyTo(
-        [Number(currentLocation[0]), Number(currentLocation[1])],
-        15,
-        { duration: 0.8 }
-      );
+    if (locationFocusKey === previousLocationFocusKey.current) {
       return;
     }
+
+    previousLocationFocusKey.current = locationFocusKey;
+
+    if (!validCoordinate(currentLocation)) {
+      return;
+    }
+
+    map.flyTo(
+      [Number(currentLocation[0]), Number(currentLocation[1])],
+      15,
+      {
+        animate: true,
+        duration: 0.9,
+      }
+    );
+  }, [map, currentLocation, locationFocusKey]);
+
+  useEffect(() => {
+    if (routeFocusKey === previousRouteFocusKey.current) {
+      return;
+    }
+
+    previousRouteFocusKey.current = routeFocusKey;
 
     const safeRouteCoordinates = (routeCoordinates ?? []).filter(validCoordinate);
-
-    if (safeRouteCoordinates.length >= 2) {
-      map.fitBounds(L.latLngBounds(safeRouteCoordinates), {
-        padding: [42, 42],
-        animate: true,
-      });
+    if (safeRouteCoordinates.length < 2) {
       return;
     }
 
-    if (validCoordinate(currentLocation)) {
-      map.flyTo(
-        [Number(currentLocation[0]), Number(currentLocation[1])],
-        15,
-        { duration: 0.8 }
-      );
-    }
-  }, [map, routeCoordinates, currentLocation, locationFocusKey]);
+    const bounds = L.latLngBounds(safeRouteCoordinates);
+    map.flyToBounds(bounds, {
+      padding: [58, 58],
+      maxZoom: 16,
+      animate: true,
+      duration: 1.1,
+      easeLinearity: 0.25,
+    });
+  }, [map, routeCoordinates, routeFocusKey]);
 
   return null;
 }
 
 function TransitSegments({ route }) {
-  const segments = route?.segments ?? [];
-
-  return segments.map((segment, index) => {
+  return (route?.segments ?? []).map((segment, index) => {
     const walking = segment.type === "walking";
 
     return (
@@ -95,6 +110,44 @@ function TransitSegments({ route }) {
   });
 }
 
+function getBaseLayer(mapStyle, darkMode) {
+  if (mapStyle === "satellite") {
+    if (MAPTILER_KEY) {
+      return {
+        id: "maptiler-satellite",
+        url: `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
+        attribution:
+          '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>',
+      };
+    }
+
+    return {
+      id: "esri-satellite",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      attribution:
+        "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    };
+  }
+
+  if (MAPTILER_KEY) {
+    return {
+      id: "maptiler-streets",
+      url: `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
+      attribution:
+        '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    };
+  }
+
+  return {
+    id: darkMode ? "carto-dark" : "carto-light",
+    url: darkMode
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO',
+  };
+}
+
 export default function MapView({
   data,
   selectedRoute,
@@ -103,7 +156,9 @@ export default function MapView({
   displayedMode,
   currentLocation,
   locationFocusKey = 0,
+  routeFocusKey = 0,
   darkMode,
+  mapStyle = "street",
 }) {
   const mode = displayedMode || data?.mode || "driving";
 
@@ -125,16 +180,19 @@ export default function MapView({
     item => item.route_number !== route?.route_number
   );
   const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
-
-  const tileUrl = MAPTILER_KEY
-    ? `https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`
-    : darkMode
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const baseLayer = getBaseLayer(mapStyle, darkMode);
 
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
     : DEFAULT_CENTER;
+
+  const mapThemeClass = darkMode
+    ? mapStyle === "satellite"
+      ? "dark-satellite-map"
+      : MAPTILER_KEY
+        ? "dark-street-map"
+        : ""
+    : "";
 
   return (
     <MapContainer
@@ -142,11 +200,13 @@ export default function MapView({
       zoom={13}
       zoomControl={false}
       scrollWheelZoom
-      className={`h-full w-full ${darkMode && MAPTILER_KEY ? "darkMap" : ""}`}
+      className={`h-full w-full ${mapThemeClass}`}
     >
       <TileLayer
-        url={tileUrl}
-        attribution='&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
+        url={baseLayer.url}
+        attribution={baseLayer.attribution}
+        maxZoom={22}
       />
 
       <ZoomControl position="topright" />
@@ -159,7 +219,7 @@ export default function MapView({
             click: () => onSelectRoute(otherRoute.route_number),
           }}
           pathOptions={{
-            color: "#7D8589",
+            color: darkMode ? "#9AA4A8" : "#7D8589",
             weight: 5,
             opacity: 0.42,
             lineCap: "round",
@@ -176,9 +236,9 @@ export default function MapView({
             <Polyline
               positions={route.route_coordinates}
               pathOptions={{
-                color: "#FFFFFF",
-                weight: 9,
-                opacity: 0.45,
+                color: darkMode ? "#182126" : "#FFFFFF",
+                weight: 10,
+                opacity: 0.55,
                 lineCap: "round",
                 lineJoin: "round",
               }}
@@ -262,7 +322,7 @@ export default function MapView({
           pathOptions={{
             color: "#FFFFFF",
             weight: 3,
-            fillColor: "#111111",
+            fillColor: "#66856B",
             fillOpacity: 1,
           }}
         >
@@ -277,7 +337,7 @@ export default function MapView({
           pathOptions={{
             color: "#D7E3DE",
             weight: 5,
-            fillColor: "#66856B",
+            fillColor: "#4E7CA8",
             fillOpacity: 1,
           }}
         >
@@ -289,6 +349,7 @@ export default function MapView({
         routeCoordinates={routeCoordinates}
         currentLocation={currentLocation}
         locationFocusKey={locationFocusKey}
+        routeFocusKey={routeFocusKey}
       />
     </MapContainer>
   );

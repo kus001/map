@@ -7,6 +7,41 @@ import MapView from "./components/MapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 
+const PREFERENCES_KEY = "map-router-preferences-v1";
+
+const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
+const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
+const VALID_MAP_STYLES = new Set(["street", "satellite"]);
+const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
+const VALID_TRANSIT_PREFERENCES = new Set([
+  "balanced",
+  "less_walking",
+  "fastest",
+]);
+
+// Capture the page-load time outside React rendering. React's purity lint rule
+// correctly rejects Date.now() when it is called during a component render.
+const PAGE_LOAD_TIME = Date.now();
+
+function loadPreferences() {
+  try {
+    const raw = window.localStorage.getItem(PREFERENCES_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const saved = JSON.parse(raw);
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (error) {
+    console.warn("Could not load saved map preferences:", error);
+    return {};
+  }
+}
+
+function validSavedValue(value, allowed, fallback) {
+  return allowed.has(value) ? value : fallback;
+}
+
 function toDateInputValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -20,14 +55,16 @@ function toTimeInputValue(date) {
   ).padStart(2, "0")}`;
 }
 
-function initialScheduledTime() {
-  const date = new Date(Date.now() + 15 * 60 * 1000);
+function initialScheduledTime(nowMs) {
+  const date = new Date(nowMs + 15 * 60 * 1000);
   date.setMinutes(Math.ceil(date.getMinutes() / 5) * 5, 0, 0);
   return {
     date: toDateInputValue(date),
     time: toTimeInputValue(date),
   };
 }
+
+const DEFAULT_INITIAL_SCHEDULE = initialScheduledTime(PAGE_LOAD_TIME);
 
 function coordinateString(location) {
   if (!Array.isArray(location) || location.length < 2) {
@@ -38,13 +75,44 @@ function coordinateString(location) {
 }
 
 export default function App() {
-  const initialSchedule = useMemo(() => initialScheduledTime(), []);
+  const savedPreferences = useMemo(() => loadPreferences(), []);
+  const initialSchedule = useMemo(() => {
+    const fallback = DEFAULT_INITIAL_SCHEDULE;
+    const savedDate = savedPreferences.departureDate;
+    const savedTime = savedPreferences.departureTime;
 
-  const [start, setStart] = useState("");
-  const [startUsesCurrentLocation, setStartUsesCurrentLocation] = useState(false);
+    if (!savedDate || !savedTime) {
+      return fallback;
+    }
+
+    const savedDeparture = new Date(`${savedDate}T${savedTime}:00`);
+    if (
+      Number.isNaN(savedDeparture.getTime()) ||
+      savedDeparture.getTime() < PAGE_LOAD_TIME
+    ) {
+      return fallback;
+    }
+
+    return { date: savedDate, time: savedTime };
+  }, [savedPreferences]);
+
+  const [start, setStart] = useState(() =>
+    savedPreferences.startUsesCurrentLocation ? "Current location" : ""
+  );
+  const [startUsesCurrentLocation, setStartUsesCurrentLocation] = useState(() =>
+    savedPreferences.startUsesCurrentLocation === true
+  );
   const [destination, setDestination] = useState("");
-  const [mode, setMode] = useState("driving");
-  const [cyclingType, setCyclingType] = useState("regular");
+  const [mode, setMode] = useState(() =>
+    validSavedValue(savedPreferences.mode, VALID_MODES, "driving")
+  );
+  const [cyclingType, setCyclingType] = useState(() =>
+    validSavedValue(
+      savedPreferences.cyclingType,
+      VALID_CYCLING_TYPES,
+      "regular"
+    )
+  );
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -55,15 +123,58 @@ export default function App() {
   const [locationFocusKey, setLocationFocusKey] = useState(0);
   const [routeFocusKey, setRouteFocusKey] = useState(0);
   const [data, setData] = useState(null);
-  const [darkMode, setDarkMode] = useState(false);
-  const [mapStyle, setMapStyle] = useState("street");
-  const [timingMode, setTimingMode] = useState("now");
-  const [transitPreference, setTransitPreference] = useState("balanced");
+  const [darkMode, setDarkMode] = useState(
+    () => savedPreferences.darkMode === true
+  );
+  const [mapStyle, setMapStyle] = useState(() =>
+    validSavedValue(savedPreferences.mapStyle, VALID_MAP_STYLES, "street")
+  );
+  const [timingMode, setTimingMode] = useState(() =>
+    validSavedValue(savedPreferences.timingMode, VALID_TIMING_MODES, "now")
+  );
+  const [transitPreference, setTransitPreference] = useState(() =>
+    validSavedValue(
+      savedPreferences.transitPreference,
+      VALID_TRANSIT_PREFERENCES,
+      "balanced"
+    )
+  );
   const [departureDate, setDepartureDate] = useState(initialSchedule.date);
   const [departureTime, setDepartureTime] = useState(initialSchedule.time);
 
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PREFERENCES_KEY,
+        JSON.stringify({
+          mode,
+          cyclingType,
+          startUsesCurrentLocation,
+          darkMode,
+          mapStyle,
+          timingMode,
+          transitPreference,
+          departureDate,
+          departureTime,
+        })
+      );
+    } catch (error) {
+      console.warn("Could not save map preferences:", error);
+    }
+  }, [
+    mode,
+    cyclingType,
+    startUsesCurrentLocation,
+    darkMode,
+    mapStyle,
+    timingMode,
+    transitPreference,
+    departureDate,
+    departureTime,
+  ]);
 
   const selectedRoute = useMemo(
     () =>

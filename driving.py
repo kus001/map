@@ -1,7 +1,7 @@
 # Driving.py
 
 import requests
-from helpers.geocoding import get_coordinates
+from helpers.geocoding import explain_address_problem, get_coordinates
 
 OSRM_URL = (
     "https://router.project-osrm.org/"
@@ -16,13 +16,17 @@ def get_driving_route(start_address, end_address, alternatives=3):
     if start is None:
         return {
             "success": False,
-            "error": "Starting address couldn't be found."
+            "error": explain_address_problem(
+                start_address, "Starting address couldn't be found."
+            )
         }
 
     if end is None:
         return {
             "success": False,
-            "error": "Destination couldn't be found."
+            "error": explain_address_problem(
+                end_address, "Destination couldn't be found."
+            )
         }
 
     start_lat, start_lon = start

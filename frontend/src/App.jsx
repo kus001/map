@@ -212,6 +212,7 @@ export default function App() {
                   tracking-tight
                   transition-all
                   duration-200
+                  active:scale-95
                   hover:tracking-wide
                   hover:text-green-dark
                   ${darkMode ? "text-green-light" : "text-green"}
@@ -223,9 +224,9 @@ export default function App() {
                   onClick={() => setDarkMode(!darkMode)}
               >
                   {darkMode ? (
-                      <PiSunFill className="text-green" />
+                      <PiSunFill className="text-green duration-100 hover:scale-92 active:scale-95" />
                   ) : (
-                      <TbMoonStars className="text-green" />
+                      <TbMoonStars className="text-green duration-100 hover:scale-92 active:scale-96" />
                   )}
               </button>
             </div>

@@ -99,7 +99,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            ${darkMode ? "text-white" : "text-black"}
+                            ${darkMode ? "text-white bg-charcoal-light" : "text-black"}
                             outline-none
                             transition-all
                             duration-200
@@ -134,7 +134,7 @@ export default function SearchPanel({
                             border-green-light
                             px-4
                             text-lg
-                            ${darkMode ? "text-white" : "text-black"}
+                            ${darkMode ? "text-white bg-charcoal-light" : "text-black"}
                             outline-none
                             transition-all
                             duration-200

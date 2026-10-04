@@ -96,7 +96,7 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green-light
+                            border-green-light/60
                             px-4
                             text-lg
                             ${darkMode ? "text-darkmode-gray bg-charcoal-light" : "text-black"}
@@ -131,7 +131,7 @@ export default function SearchPanel({
                             flex-1
                             rounded-xl
                             border-2
-                            border-green-light
+                            border-green-light/60
                             px-4
                             text-lg
                             ${darkMode ? "text-darkmode-gray bg-charcoal-light" : "text-black"}
@@ -139,7 +139,7 @@ export default function SearchPanel({
                             transition-all
                             duration-200
                             ease-out
-                            focus:border-green
+                            focus:border-green-light/80
                             focus:ring-2
                             focus:ring-green/20
                         `}

@@ -179,9 +179,8 @@ export default function App() {
           flex-shrink-0
           flex-col
           border-r-2
-          border-charcoal
           shadow-xl
-          ${darkMode ? "bg-charcoal" : "bg-white"}
+          ${darkMode ? "bg-charcoal border-darkmode-gray/30" : "bg-white border-charcoal"}
           max-[760px]:absolute
           max-[760px]:bottom-3
           max-[760px]:left-3

@@ -16,13 +16,40 @@ const MODE_INFO = {
   transit: { name: "Transit route", Icon: MdDirectionsTransit },
 };
 
-function StepIcon({ type }) {
+function StepIcon({ step }) {
+  const type = step?.type || "";
+  const modifier = String(step?.modifier || "").toLowerCase();
+
   if (type === "walk") {
     return <BsPersonWalking />;
   }
 
   if (type === "transfer" || type === "transit") {
     return <MdDirectionsTransit />;
+  }
+
+  if (type === "arrive") {
+    return <span className="text-sm font-bold">✓</span>;
+  }
+
+  if (type === "u_turn") {
+    return <span className="text-lg leading-none">↶</span>;
+  }
+
+  if (type === "roundabout" || type === "roundabout_exit") {
+    return <span className="text-base leading-none">↻</span>;
+  }
+
+  if (modifier.includes("left")) {
+    return <span className="text-lg leading-none">↰</span>;
+  }
+
+  if (modifier.includes("right")) {
+    return <span className="text-lg leading-none">↱</span>;
+  }
+
+  if (type === "depart" || type === "continue") {
+    return <span className="text-lg leading-none">↑</span>;
   }
 
   return <span className="text-xs">•</span>;
@@ -321,7 +348,7 @@ export default function RoutePanel({
               }`}
             >
               <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green text-white">
-                <StepIcon type={step.type} />
+                <StepIcon step={step} />
               </div>
 
               <div className="min-w-0 flex-1">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
@@ -29,10 +29,19 @@ function initialScheduledTime() {
   };
 }
 
+function coordinateString(location) {
+  if (!Array.isArray(location) || location.length < 2) {
+    return "";
+  }
+
+  return `${Number(location[0]).toFixed(7)}, ${Number(location[1]).toFixed(7)}`;
+}
+
 export default function App() {
   const initialSchedule = useMemo(() => initialScheduledTime(), []);
 
   const [start, setStart] = useState("");
+  const [startUsesCurrentLocation, setStartUsesCurrentLocation] = useState(false);
   const [destination, setDestination] = useState("");
   const [mode, setMode] = useState("driving");
   const [cyclingType, setCyclingType] = useState("regular");
@@ -92,9 +101,19 @@ export default function App() {
     requestedStart = start,
     requestedDestination = destination,
     requestedTimingMode = timingMode,
+    requestedUseCurrentLocation = startUsesCurrentLocation,
   } = {}) {
-    const cleanStart = requestedStart.trim();
+    const cleanStart =
+      requestedUseCurrentLocation && currentLocation
+        ? coordinateString(currentLocation)
+        : requestedStart.trim();
     const cleanDestination = requestedDestination.trim();
+
+    if (requestedUseCurrentLocation && !currentLocation) {
+      setError(true);
+      setStatus("Current location is not available yet.");
+      return;
+    }
 
     if (!cleanStart || !cleanDestination) {
       setError(true);
@@ -143,7 +162,18 @@ export default function App() {
         throw new Error(result.error || "Route could not be found.");
       }
 
-      setData(result);
+      const displayedResult =
+        requestedUseCurrentLocation && result.start
+          ? {
+              ...result,
+              start: {
+                ...result.start,
+                address: "Current location",
+              },
+            }
+          : result;
+
+      setData(displayedResult);
       setSelectedRouteNumber(result.fastest_route_number || 1);
       setRouteFocusKey(key => key + 1);
 
@@ -194,6 +224,11 @@ export default function App() {
     }
   }
 
+  function handleStartChange(nextStart) {
+    setStart(nextStart);
+    setStartUsesCurrentLocation(false);
+  }
+
   function changeMode(nextMode) {
     setMode(nextMode);
 
@@ -229,25 +264,42 @@ export default function App() {
 
   function swapLocations() {
     const nextStart = destination;
-    const nextDestination = start;
+    const nextDestination =
+      startUsesCurrentLocation && currentLocation
+        ? coordinateString(currentLocation)
+        : start;
 
     setStart(nextStart);
+    setStartUsesCurrentLocation(false);
     setDestination(nextDestination);
 
     if (nextStart.trim() && nextDestination.trim()) {
       searchRoutes({
         requestedStart: nextStart,
         requestedDestination: nextDestination,
+        requestedUseCurrentLocation: false,
       });
     }
   }
 
-  function findLocation({ focus = true, quiet = false } = {}) {
+  const findLocation = useCallback(({
+    focus = true,
+    quiet = false,
+    useAsStart = false,
+  } = {}) => {
     if (!navigator.geolocation) {
       if (!quiet) {
         setError(true);
         setStatus("Location is not supported by this browser.");
       }
+      return;
+    }
+
+    if (useAsStart && currentLocation) {
+      setStart("Current location");
+      setStartUsesCurrentLocation(true);
+      setError(false);
+      setStatus("Using your current location as the starting point.");
       return;
     }
 
@@ -264,12 +316,21 @@ export default function App() {
         ];
         setCurrentLocation(location);
 
+        if (useAsStart) {
+          setStart("Current location");
+          setStartUsesCurrentLocation(true);
+        }
+
         if (focus) {
           setLocationFocusKey(key => key + 1);
         }
 
         if (!quiet) {
-          setStatus("Current location found.");
+          setStatus(
+            useAsStart
+              ? "Using your current location as the starting point."
+              : "Current location found."
+          );
         }
       },
       locationError => {
@@ -286,7 +347,7 @@ export default function App() {
         maximumAge: 30000,
       }
     );
-  }
+  }, [currentLocation]);
 
   function selectRoute(routeNumber) {
     setSelectedRouteNumber(routeNumber);
@@ -300,7 +361,7 @@ export default function App() {
 
     initialLocationRequested.current = true;
     findLocation({ focus: false, quiet: true });
-  }, []);
+  }, [findLocation]);
 
   const displayedMode = data?.mode || mode;
   const controlSurface = darkMode
@@ -359,7 +420,7 @@ export default function App() {
         <SearchPanel
           start={start}
           destination={destination}
-          setStart={setStart}
+          setStart={handleStartChange}
           setDestination={setDestination}
           mode={mode}
           cyclingType={cyclingType}
@@ -375,6 +436,10 @@ export default function App() {
           departureTime={departureTime}
           onDepartureDateChange={setDepartureDate}
           onDepartureTimeChange={setDepartureTime}
+          usingCurrentLocation={startUsesCurrentLocation}
+          onUseCurrentLocation={() =>
+            findLocation({ focus: false, quiet: false, useAsStart: true })
+          }
         />
 
         <RoutePanel

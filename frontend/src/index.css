@@ -43,14 +43,42 @@ button {
   background: #e8edf2;
 }
 
-/* Dark mode only affects the raster basemap, not route lines or markers. */
-.dark-street-map .leaflet-tile {
-  filter: invert(0.92) hue-rotate(175deg) brightness(0.62) contrast(1.12)
-    saturate(0.65);
+.leaflet-tile {
+  transition: filter 0.2s ease, opacity 0.2s ease;
 }
 
+/* MapTiler provides the street-map dark style directly.
+   Satellite imagery is dimmed locally so it also matches the dark UI. */
 .dark-satellite-map .leaflet-tile {
-  filter: brightness(0.62) contrast(1.1) saturate(0.82);
+  filter: brightness(0.48) contrast(1.15) saturate(0.78);
+}
+
+.map-dark-ui {
+  background: #1f2a30;
+}
+
+.map-dark-ui .leaflet-control-zoom a {
+  background: #2f3e46 !important;
+  color: #d0d8d1 !important;
+}
+
+.map-dark-ui .leaflet-control-zoom a:hover {
+  background: #394b53 !important;
+}
+
+.map-dark-ui .leaflet-control-attribution {
+  background: rgba(47, 62, 70, 0.88) !important;
+  color: #d0d8d1 !important;
+}
+
+.map-dark-ui .leaflet-control-attribution a {
+  color: #a9c3ad !important;
+}
+
+.map-dark-ui .leaflet-popup-content-wrapper,
+.map-dark-ui .leaflet-popup-tip {
+  background: #2f3e46;
+  color: #d0d8d1;
 }
 
 .leaflet-control-zoom {

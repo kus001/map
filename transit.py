@@ -37,8 +37,29 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-MAX_NEARBY_STOPS = 70
-MAX_ACCESS_WALK_METERS = 2500
+MAX_NEARBY_STOPS = 12
+
+# Transit access-stop preference. The router searches the shorter-walk tiers first.
+# If a valid route exists from nearby stops, it will wait for that service instead of
+# walking a long distance just to catch an earlier bus. It only expands the walk
+# radius when no usable transit route exists in the smaller tier.
+TRANSIT_PREFERENCES = {
+    "balanced": {
+        "label": "Balanced",
+        "access_walk_tiers_m": (600, 900, 1200),
+        "max_nearby_stops": 12,
+    },
+    "less_walking": {
+        "label": "Less walking",
+        "access_walk_tiers_m": (350, 600, 900, 1200),
+        "max_nearby_stops": 14,
+    },
+    "fastest": {
+        "label": "Fastest",
+        "access_walk_tiers_m": (1600,),
+        "max_nearby_stops": 12,
+    },
+}
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
@@ -352,10 +373,23 @@ def trip_active(trip_id, date):
     return _data.is_trip_active(trip_id, date)
 
 
-def candidate_stops(options):
+def candidate_stops(options, max_distance_m, max_count=MAX_NEARBY_STOPS):
+    """Return nearby transit stops without silently expanding the walking radius.
+
+    The caller controls fallback/expansion by trying progressively larger distance
+    tiers. This is what lets a rider wait at a closer stop instead of the router
+    immediately choosing a much longer walk for a slightly earlier arrival.
+    """
     ordered = sorted((o for o in options if o[1] is not None), key=lambda o: o[0])
-    nearby = [o for o in ordered if o[0] <= MAX_ACCESS_WALK_METERS]
-    return (nearby or ordered)[:MAX_NEARBY_STOPS]
+    nearby = [o for o in ordered if o[0] <= max_distance_m]
+    return nearby[:max_count]
+
+
+def transit_preference_profile(value):
+    key = str(value or "balanced").strip().lower()
+    if key not in TRANSIT_PREFERENCES:
+        key = "balanced"
+    return key, TRANSIT_PREFERENCES[key]
 
 
 def _candidate_trip(
@@ -433,12 +467,14 @@ def search_transit(
     realtime,
     departure_datetime=None,
     safety_buffer=TRANSFER_BUFFER_MIN,
+    max_access_walk_m=1200,
+    max_nearby_stops=MAX_NEARBY_STOPS,
 ):
     departure_datetime = normalize_departure_datetime(departure_datetime)
     service_date, now_seconds = gtfs_service_clock(departure_datetime)
 
-    start_options = candidate_stops(start_options)
-    end_options = candidate_stops(end_options)
+    start_options = candidate_stops(start_options, max_access_walk_m, max_nearby_stops)
+    end_options = candidate_stops(end_options, max_access_walk_m, max_nearby_stops)
 
     if not start_options or not end_options:
         return None, float("inf"), None, None
@@ -788,6 +824,7 @@ def get_transit_route(
     end_address,
     departure_datetime=None,
     timing=None,
+    transit_preference="balanced",
 ):
     ensure_transit_loaded()
 
@@ -826,12 +863,30 @@ def get_transit_route(
     end_options = nearest_stops(stops, *end)
     mark("nearest_stops")
 
-    path, search_time, best_start, best_end = search_transit(
-        start_options,
-        end_options,
-        routing_realtime,
-        departure_datetime=requested_departure,
-    )
+    preference_key, preference = transit_preference_profile(transit_preference)
+
+    path = None
+    search_time = float("inf")
+    best_start = None
+    best_end = None
+    selected_access_limit = None
+
+    # Search close stops first. Waiting is already part of the transit cost, so if a
+    # nearby stop has a later bus we can simply wait there. Only expand the allowed
+    # walk when no valid route exists at the current tier.
+    for access_limit_m in preference["access_walk_tiers_m"]:
+        path, search_time, best_start, best_end = search_transit(
+            start_options,
+            end_options,
+            routing_realtime,
+            departure_datetime=requested_departure,
+            max_access_walk_m=access_limit_m,
+            max_nearby_stops=preference["max_nearby_stops"],
+        )
+        if path is not None and best_start is not None and best_end is not None:
+            selected_access_limit = access_limit_m
+            break
+
     mark("routing")
 
     if path is None or best_start is None or best_end is None:
@@ -1087,6 +1142,10 @@ def get_transit_route(
         "route_coordinates": route_coordinates,
         "realtime": realtime_info,
         "departure_datetime": requested_departure.isoformat(),
+        "transit_preference": preference_key,
+        "transit_preference_label": preference["label"],
+        "access_walk_limit_m": selected_access_limit,
+        "access_walk_limit_expanded": selected_access_limit != preference["access_walk_tiers_m"][0],
     }
 
     alerts = matching_alerts(realtime, route_ids, used_stop_ids)
@@ -1100,6 +1159,7 @@ def get_transit_route(
         "routes": [route],
         "alerts": alerts,
         "departure_datetime": requested_departure.isoformat(),
+        "transit_preference": preference_key,
         "fastest_route_number": 1,
         "shortest_route_number": 1,
     }
@@ -1172,6 +1232,14 @@ def _print_local_route_result(result, timing, graph_load_seconds):
     )
     print(f"Distance: {route.get('distance_km', 0):.2f} km")
     print(f"Departure: {route.get('departure_datetime', 'now')}")
+    print(f"Transit preference: {route.get('transit_preference_label', 'Balanced')}")
+    if route.get("access_walk_limit_expanded"):
+        print(
+            yellow(
+                f"Nearby-stop search expanded to {route.get('access_walk_limit_m', '?')} m "
+                "because no complete route was found in the smaller walking tier."
+            )
+        )
 
     realtime = route.get("realtime", {})
     if realtime.get("available"):
@@ -1218,6 +1286,14 @@ if __name__ == "__main__":
             print(red("Invalid date/time. Using current time instead."))
             departure_datetime = None
 
+    preference_text = input(
+        bold(
+            "Transit preference [Enter = balanced, less_walking, fastest]: "
+        )
+    ).strip().lower()
+    if preference_text not in TRANSIT_PREFERENCES:
+        preference_text = "balanced"
+
     print("\nFinding transit route...\n")
 
     timing = {"start": us()}
@@ -1226,6 +1302,7 @@ if __name__ == "__main__":
         end_address,
         departure_datetime=departure_datetime,
         timing=timing,
+        transit_preference=preference_text,
     )
 
     _print_local_route_result(result, timing, graph_load_seconds)

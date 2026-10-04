@@ -15,6 +15,7 @@ from walking import get_walking_route
 app = Flask(__name__)
 
 VALID_CYCLING_TYPES = {"regular", "road", "mountain", "electric"}
+VALID_TRANSIT_PREFERENCES = {"balanced", "less_walking", "fastest"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
 
 # Local-development mode brings back the convenient testing behaviour from the
@@ -111,6 +112,11 @@ def routes():
     start = str(payload.get("start", "")).strip()
     destination = str(payload.get("destination", "")).strip()
     mode = str(payload.get("mode", "driving")).strip().lower()
+    transit_preference = str(
+        payload.get("transit_preference", "balanced")
+    ).strip().lower()
+    if transit_preference not in VALID_TRANSIT_PREFERENCES:
+        transit_preference = "balanced"
 
     if not start:
         return jsonify({"success": False, "error": "Starting location is required."}), 400
@@ -150,6 +156,7 @@ def routes():
             destination,
             departure_datetime=departure_datetime,
             timing=timing,
+            transit_preference=transit_preference,
         )
 
     else:

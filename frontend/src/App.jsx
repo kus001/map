@@ -58,6 +58,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [mapStyle, setMapStyle] = useState("street");
   const [timingMode, setTimingMode] = useState("now");
+  const [transitPreference, setTransitPreference] = useState("balanced");
   const [departureDate, setDepartureDate] = useState(initialSchedule.date);
   const [departureTime, setDepartureTime] = useState(initialSchedule.time);
 
@@ -102,6 +103,7 @@ export default function App() {
     requestedDestination = destination,
     requestedTimingMode = timingMode,
     requestedUseCurrentLocation = startUsesCurrentLocation,
+    requestedTransitPreference = transitPreference,
   } = {}) {
     const cleanStart =
       requestedUseCurrentLocation && currentLocation
@@ -149,6 +151,7 @@ export default function App() {
           mode: requestedMode,
           route_type: requestedCyclingType,
           departure_datetime: departureDatetime,
+          transit_preference: requestedTransitPreference,
         }),
       });
 
@@ -244,6 +247,17 @@ export default function App() {
       searchRoutes({
         requestedMode: "cycling",
         requestedCyclingType: nextType,
+      });
+    }
+  }
+
+  function changeTransitPreference(nextPreference) {
+    setTransitPreference(nextPreference);
+
+    if (mode === "transit" && start.trim() && destination.trim()) {
+      searchRoutes({
+        requestedMode: "transit",
+        requestedTransitPreference: nextPreference,
       });
     }
   }
@@ -426,6 +440,8 @@ export default function App() {
           cyclingType={cyclingType}
           onModeChange={changeMode}
           onCyclingTypeChange={changeCyclingType}
+          transitPreference={transitPreference}
+          onTransitPreferenceChange={changeTransitPreference}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}

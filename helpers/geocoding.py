@@ -22,7 +22,7 @@ from pathlib import Path
 from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 
-from helpers.local_geocode import local_geocode, search_local
+from helpers.local_geocode import local_resolve, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 KNOWN_PLACES_PATH = PROJECT_ROOT / "helpers" / "known_places.json"
@@ -163,12 +163,20 @@ def get_coordinates(address):
         return _runtime_cache[key]
 
     # Civic addresses are resolved from address_points.csv via the generated
-    # address_index_cache_v2.pkl. We only keep the result in RAM here.
-    local_result = local_geocode(clean_address)
-    if local_result is not None:
-        coordinates = (float(local_result[0]), float(local_result[1]))
+    # address_index_cache_v3.pkl. We only keep the result in RAM here.
+    status, payload = local_resolve(clean_address)
+
+    if status == "ok":
+        coordinates = (float(payload[0]), float(payload[1]))
         _remember_runtime(key, coordinates)
         return coordinates
+
+    if status in ("ambiguous", "mismatch"):
+        # Never guess between "Chesapeake Dr" and "Chesapeake Cres" (or between two
+        # towns), and never hand an address the municipality knows is different to
+        # Nominatim. Returning None lets the caller report it; see
+        # explain_address_problem().
+        return None
 
     # Last resort for typed places that were not selected through autocomplete.
     location = _geocode(
@@ -185,6 +193,19 @@ def get_coordinates(address):
     coordinates = (float(location.latitude), float(location.longitude))
     _remember_runtime(key, coordinates)
     return coordinates
+
+
+def explain_address_problem(address, default="Address couldn't be found."):
+    """Human-readable reason get_coordinates() returned None, with suggestions."""
+    status, payload = local_resolve(str(address).strip())
+
+    if status == "ambiguous" and payload:
+        return "That address matches more than one place. Pick one: " + "; ".join(payload)
+
+    if status == "mismatch" and payload:
+        return "No address with that street type. Did you mean: " + "; ".join(payload)
+
+    return default
 
 
 @lru_cache(maxsize=256)

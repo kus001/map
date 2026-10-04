@@ -25,8 +25,8 @@ from helpers._transit.realtime import (
     vehicle_for_trip,
 )
 from helpers.coords import nearest_stops
-from helpers.geocoding import get_coordinates
-from helpers.time_management import seconds_to_time, time_to_seconds, us
+from helpers.geocoding import explain_address_problem, get_coordinates
+from helpers.time_management import seconds_to_time, us
 from walking import get_walking_route
 
 load_dotenv()
@@ -840,9 +840,19 @@ def get_transit_route(
     mark("geocode")
 
     if start is None:
-        return {"success": False, "error": "Starting address couldn't be found."}
+        return {
+            "success": False,
+            "error": explain_address_problem(
+                start_address, "Starting address couldn't be found."
+            ),
+        }
     if end is None:
-        return {"success": False, "error": "Destination couldn't be found."}
+        return {
+            "success": False,
+            "error": explain_address_problem(
+                end_address, "Destination couldn't be found."
+            ),
+        }
 
     start = coord(start)
     end = coord(end)
@@ -1306,4 +1316,3 @@ if __name__ == "__main__":
     )
 
     _print_local_route_result(result, timing, graph_load_seconds)
-

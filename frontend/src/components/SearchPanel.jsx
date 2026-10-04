@@ -232,12 +232,12 @@ function LocationInput({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
-        className={`h-12 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:border-green focus:ring-2 focus:ring-green/15 disabled:opacity-60 ${
+        className={`h-12 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:ring-2 disabled:opacity-60 ${
           endAction ? "pr-12" : ""
         } ${
           darkMode
-            ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55"
-            : "border-button-light bg-white text-charcoal"
+            ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
+            : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/15"
         }`}
       />
 
@@ -332,7 +332,7 @@ export default function SearchPanel({
           icon={
             <GoDot
               className={`text-xl ${
-                darkMode ? "text-green-light" : "text-charcoal"
+                darkMode ? "text-blue-light" : "text-charcoal"
               }`}
             />
           }
@@ -366,7 +366,7 @@ export default function SearchPanel({
           icon={
             <PiMapPinFill
               className={`text-xl ${
-                darkMode ? "text-green-light" : "text-green"
+                darkMode ? "text-blue-light" : "text-green"
               }`}
             />
           }
@@ -379,10 +379,10 @@ export default function SearchPanel({
           disabled={loading}
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition hover:bg-green hover:text-white disabled:opacity-50 ${
+          className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
             darkMode
-              ? "bg-charcoal-light text-green-light"
-              : "bg-green/10 text-green-dark"
+              ? "bg-charcoal-light hover:bg-blue text-darkmode-gray"
+              : "bg-green/10 hover:bg-green text-green-dark"
           }`}
         >
           <HiArrowsUpDown />
@@ -399,7 +399,7 @@ export default function SearchPanel({
             darkMode={darkMode}
             onClick={() => onModeChange(id)}
             title={label}
-            className="h-10 px-2 active:bg-green-dark"
+            className="h-10 px-2"
           >
             <Icon className="text-lg" />
           </Button>
@@ -416,10 +416,12 @@ export default function SearchPanel({
               onClick={() => onCyclingTypeChange(option.id)}
               className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
                 cyclingType === option.id
-                  ? "border-green bg-green/15 text-green"
+                  ? darkMode
+                    ? "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                    : "border-green bg-green/15 text-green active:bg-green/25"
                   : darkMode
-                    ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10"
-                    : "border-button-light bg-white text-charcoal hover:bg-green/10"
+                    ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                    : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
               }`}
             >
               {option.label}

@@ -402,7 +402,7 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:text-green ${
-                darkMode ? "text-green-light" : "text-green-dark"
+                darkMode ? "text-blue-light" : "text-green-dark"
               }`}
             >
               Map Router
@@ -414,7 +414,7 @@ export default function App() {
               title="Toggle dark mode"
               className={`rounded-xl border p-2 transition hover:-translate-y-px ${
                 darkMode
-                  ? "border-button bg-charcoal-light text-green-light"
+                  ? "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >

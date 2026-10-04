@@ -311,10 +311,10 @@ export default function SearchPanel({
   usingCurrentLocation,
   onUseCurrentLocation,
 }) {
-  const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition focus:border-green ${
+  const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
-      ? "border-button bg-charcoal-light text-darkmode-gray"
-      : "border-button-light bg-white text-charcoal"
+      ? "border-button bg-charcoal-light focus:border-blue text-darkmode-gray"
+      : "border-button-light focus:border-green bg-white text-charcoal"
   }`;
 
   return (
@@ -345,9 +345,11 @@ export default function SearchPanel({
               aria-label="Use current location as start"
               className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 ${
                 usingCurrentLocation
-                  ? "border-green bg-green text-white"
+                  ? darkMode
+                    ? "border-blue bg-blue text-white" 
+                    : "border-green bg-green text-white"
                   : darkMode
-                    ? "border-button bg-charcoal text-green-light hover:border-green hover:bg-green/15"
+                    ? "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
                     : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
               }`}
             >
@@ -477,9 +479,11 @@ export default function SearchPanel({
             onClick={() => onTimingModeChange("now")}
             className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
               timingMode === "now"
-                ? "bg-green text-white shadow-sm"
+                ? darkMode
+                  ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                  : "bg-green text-white shadow-sm active:bg-green-dark"
                 : darkMode
-                  ? "text-darkmode-gray hover:bg-white/5"
+                  ? "text-darkmode-gray hover:bg-blue/10"
                   : "text-button-darkest hover:bg-white"
             }`}
           >
@@ -492,9 +496,11 @@ export default function SearchPanel({
             onClick={() => onTimingModeChange("scheduled")}
             className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
               timingMode === "scheduled"
-                ? "bg-green text-white shadow-sm"
+                ? darkMode
+                  ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                  : "bg-green text-white shadow-sm active:bg-green-dark"
                 : darkMode
-                  ? "text-darkmode-gray hover:bg-white/5"
+                  ? "text-darkmode-gray hover:bg-blue/10"
                   : "text-button-darkest hover:bg-white"
             }`}
           >

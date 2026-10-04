@@ -20,11 +20,10 @@ from pathlib import Path
 from difflib import SequenceMatcher
 from pyproj import Transformer
 
-_CANDIDATE_PATHS = [
-    Path("transit_data") / "addresses.csv",
-    Path("transit_data") / "address_points.csv",
-]
-_INDEX_CACHE_PATH = Path("transit_data") / "address_index_cache.pkl"
+PROJECT_ROOT = (Path(__file__).resolve().parents[1])
+
+_CANDIDATE_PATHS = [PROJECT_ROOT / "transit_data" / "addresses.csv", PROJECT_ROOT / "transit_data" / "address_points.csv"]
+_INDEX_CACHE_PATH = (PROJECT_ROOT / "transit_data" / "address_index_cache_v2.pkl")
 
 # UTM Zone 17N (NAD83) -> WGS84 lat/lon. Covers the Waterloo Region open-data exports.
 _utm17n_to_latlon = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=True)
@@ -55,7 +54,7 @@ def _parse_address(address):
     """Splits an address into (civic_number, core_street_name, direction). core_street_name
     has the street-type suffix (St/Dr/Cres/...) stripped off, so it's optional on input.
     direction (n/s/e/w or None) is kept separate and must be preserved exactly."""
-    text = address.lower().strip()
+    text = (str(address).lower().strip())
     text = re.sub(r"[.,#]", " ", text)
     words = re.sub(r"\s+", " ", text).strip().split()
 
@@ -64,22 +63,22 @@ def _parse_address(address):
         civic_number = words[0]
         words = words[1:]
 
-    words = [_STREET_SUFFIX_MAP.get(w, w) for w in words if w not in _DROP_WORDS]
+    words = [_STREET_SUFFIX_MAP.get(word, word) for word in words if word not in _DROP_WORDS]
 
     direction = None
-    if words and (words[-1] in _DIRECTION_ABBREVIATIONS or words[-1] in _DIRECTION_MAP):
-        direction = _DIRECTION_MAP.get(words[-1], words[-1])
-        words = words[:-1]
+    if (words and (words[-1] in _DIRECTION_ABBREVIATIONS or words[-1] in _DIRECTION_MAP)):
+        direction = (_DIRECTION_MAP.get(words[-1], words[-1]))
+        words = (words[:-1])
 
-    if words and words[-1] in _SUFFIX_ABBREVIATIONS:
-        words = words[:-1]  # the street TYPE suffix is a true synonym - safe to drop
+    if (words and words[-1] in _SUFFIX_ABBREVIATIONS):
+        words = (words[:-1])  # the street TYPE suffix is a true synonym - safe to drop
 
-    return civic_number, " ".join(words).strip(), direction
+    return (civic_number, " ".join(words).strip(), direction)
 
 def _pick_field(fieldnames_lower, *candidates):
-    for c in candidates:
-        if c in fieldnames_lower:
-            return fieldnames_lower[c]
+    for candidate in candidates:
+        if candidate in fieldnames_lower:
+            return fieldnames_lower[candidate]
     return None
 
 def _resolve_csv_path():
@@ -99,33 +98,31 @@ def _load_index():
         return
 
     # Reuse a cached, pre-built index if it's at least as new as the source CSV
-    if _INDEX_CACHE_PATH.exists() and _INDEX_CACHE_PATH.stat().st_mtime >= csv_path.stat().st_mtime:
+    if (_INDEX_CACHE_PATH.exists() and (_INDEX_CACHE_PATH.stat().st_mtime >= csv_path.stat().st_mtime)):
         try:
-            with open(_INDEX_CACHE_PATH, "rb") as f:
-                _by_civic = pickle.load(f)
+            with open(_INDEX_CACHE_PATH, "rb") as file:
+                _by_civic = pickle.load(file)
             return
         except Exception:
             pass  # corrupt/incompatible cache - fall through and rebuild from the CSV
 
     _by_civic = {}
 
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
+    with open(csv_path, encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
         if not reader.fieldnames:
             return
 
-        fieldnames_lower = {fn.strip().lower(): fn for fn in reader.fieldnames}
+        fields = {name.strip().lower(): name for name in reader.fieldnames}
 
-        y_field = _pick_field(fieldnames_lower, "lat", "latitude", "y", "y_coord", "ycoord")
-        x_field = _pick_field(fieldnames_lower, "lon", "lng", "long", "longitude", "x", "vx", "x_coord", "xcoord")
-        full_field = _pick_field(fieldnames_lower, "fulladdress", "full_address", "address",
-                                  "address_label", "label", "address_full", "fulladdresswithsettlement")
-        civic_field = _pick_field(fieldnames_lower, "addressnumber", "civic_number", "address_number",
-                                   "house_number", "number", "civic_no")
-        street_field = _pick_field(fieldnames_lower, "fullstreetname", "street", "street_name",
-                                    "streetname", "full_street_name")
+        y_field = _pick_field(fields, "lat", "latitude", "y", "y_coord", "ycoord")
+        x_field = _pick_field(fields, "lon", "lng", "long", "longitude", "x", "vx", "x_coord", "xcoord")
+        full_field = _pick_field(fields, "fulladdress", "full_address", "address", "address_label", "label", "address_full", "fulladdresswithsettlement")
+        civic_field = _pick_field(fields, "addressnumber", "civic_number", "address_number", "house_number", "number", "civic_no")
+        street_field = _pick_field(fields, "fullstreetname", "street", "street_name", "streetname", "full_street_name")
+        settlement_field = _pick_field(fields, "settlement", "municipality", "city")
 
-        if not y_field or not x_field:
+        if (not y_field or not x_field):
             # Can't use this file without coordinate columns — leave the index empty
             # rather than raising, so a malformed CSV just disables this layer.
             return
@@ -133,43 +130,57 @@ def _load_index():
         is_utm = None  # decided from the first valid row, then assumed consistent for the rest
 
         for row in reader:
-            y_raw, x_raw = row.get(y_field), row.get(x_field)
-            if not y_raw or not x_raw:
+            x_raw = row.get(x_field)
+            y_raw = row.get(y_field)
+
+            if (not y_raw or not x_raw):
                 continue
             try:
-                y_val, x_val = float(y_raw), float(x_raw)
+                x_value = float(x_raw)
+                y_value = float(y_raw)
             except ValueError:
                 continue
 
             if is_utm is None:
                 # Plain lat/lon stays within +/-180; UTM eastings/northings run into the
                 # hundreds of thousands to millions — unambiguous at this scale.
-                is_utm = abs(x_val) > 180 or abs(y_val) > 90
+                is_utm = abs(x_value) > 180 or abs(y_value) > 90
 
             if is_utm:
-                lon, lat = _utm17n_to_latlon.transform(x_val, y_val)
+                lon, lat = _utm17n_to_latlon.transform(x_value, y_value)
             else:
-                lat, lon = y_val, x_val
+                lat, lon = y_value, x_value
 
-            if full_field and row.get(full_field):
-                address_text = row[full_field]
+            if (full_field and row.get(full_field)):
+                display_label = (row[full_field].strip())
             elif civic_field and street_field and row.get(civic_field) and row.get(street_field):
-                address_text = f"{row[civic_field]} {row[street_field]}"
+                display_label = (f"{row[civic_field].strip()} {row[street_field].strip()}")
+                if (settlement_field and row.get(settlement_field)):
+                    display_label += (f", " f"{row[settlement_field].strip()}")
             else:
                 continue
 
-            civic_number, core_street, direction = _parse_address(address_text)
+            (civic_number, core_street, direction) = _parse_address(display_label)
             if civic_number is None or not core_street:
                 continue
 
-            _by_civic.setdefault(civic_number, []).append((core_street, direction, (lat, lon)))
+            _by_civic.setdefault(civic_number, []).append((core_street, direction, (float(lat), float(lon)), display_label))
 
     try:
         _INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_INDEX_CACHE_PATH, "wb") as f:
-            pickle.dump(_by_civic, f)
+        with open(_INDEX_CACHE_PATH, "wb") as file:
+            pickle.dump(_by_civic, file, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception:
         pass  # caching is an optimization, not a requirement - a write failure shouldn't break geocoding
+
+def _candidate_score(query_street, candidate_street):
+    if not query_street:
+        return 1.0
+    if (candidate_street == query_street):
+        return 2.0
+    if candidate_street.startswith(query_street):
+        return (1.5 + min(len(query_street) / max(len(candidate_street), 1), 0.49))
+    return SequenceMatcher(None, query_street, candidate_street, candidate_street).ratio()
 
 def local_geocode(address, fuzzy_cutoff=0.6):
     """Look up an address in the local address-points index. Returns (lat, lon) or None
@@ -186,45 +197,70 @@ def local_geocode(address, fuzzy_cutoff=0.6):
     if not _by_civic:
         return None
 
-    civic_number, core_street, direction = _parse_address(address)
-    if civic_number is None: return None
+    (civic_number, core_street, direction) = _parse_address(address)
+    if (civic_number is None or not core_street):
+        return None
 
     candidates = _by_civic.get(civic_number)
-    if not candidates: return None
-
-    exact = [c for c in candidates if c[0] == core_street]
+    if not candidates:
+        return None
 
     if direction is not None:
-        direction_exact = [c for c in exact if c[1] == direction]
-        if direction_exact:
-            return direction_exact[0][2]
-        # A direction was given but no exact match carries it — fuzzy-match the street
-        # name, but ONLY among candidates tagged with that same direction, so e.g. a
-        # typo'd "Kign St N" can never resolve to the St S side of town. <<<-----------
-        pool = [c for c in candidates if c[1] == direction] or candidates
-    else:
-        if len(exact) == 1:
+        candidates = [candidate for candidate in candidates if (candidate[1] == direction)]
+        if not candidates:
+            return None
+
+    exact = [candidate for candidate in candidates if candidate[0] == core_street]
+
+    if len(exact) == 1:
+        return exact[0][2]
+    if len(exact) > 1:
+        directions = {candidate[1] for candidate in exact}
+        if (len(directions) <= 1):
             return exact[0][2]
-        if len(exact) > 1:
-            distinct_directions = {c[1] for c in exact}
-            if len(distinct_directions) <= 1:
-                return exact[0][2]  # same (or no) direction repeated - not actually ambiguous
-            return None  # this civic number genuinely exists on more than one direction - don't guess
-        pool = candidates
+        return None
+    best = max(candidates, key=lambda candidate: _candidate_score(core_street, candidate[0]))
+    score = _candidate_score(core_street, best[0])
+    return (best[2] if score >= fuzzy_cutoff else None)
 
-    best_coords, best_ratio = None, 0.0
-    for cand_street, cand_direction, coords in pool:
-        ratio = SequenceMatcher(None, core_street, cand_street).ratio()
-        if ratio > best_ratio:
-            best_ratio, best_coords = ratio, coords
+def search_local(query, limit=6):
+    _load_index()
 
-    return best_coords if best_ratio >= fuzzy_cutoff else None
+    if not _by_civic:
+        return []
+    (civic_number, core_street, direction) = _parse_address(query)
+    candidates = list(_by_civic.get(civic_number, []))
+    if direction is not None:
+        candidates = [candidate for candidate in candidates if (candidate[1] == direction)]
 
-def is_available():
-    """Whether the local address-points dataset is actually loaded and usable."""
+    ranked = sorted(candidates, key=lambda candidate: (-_candidate_score(core_street, candidate[0]), candidate[3].lower()))
+    results = []
+    seen = set()
+
+    for (core, _candidate_direction, coordinates, label) in ranked:
+        score = _candidate_score(core_street, core)
+        if (core_street and score < 0.45):
+            continue
+        dedupe_key = (label.lower())
+
+        if dedupe_key in seen:
+            continue
+
+        seen.add(dedupe_key)
+
+        results.append({
+            "label": label,
+            "lat": float(coordinates[0]),
+            "lon": float(coordinates[1]),
+            "source": "local"
+        })
+
+        if (len(results) >= max(1, int(limit))):
+            break
+    return results
+
+def is_avaliable():
     _load_index()
     return bool(_by_civic)
 
-_load_index() # basically load the index when this file is imported 
-# as to make sure that you only really have to import it once ... it doesn't reaaalllly do much,
-# as after the first routing request it will be anyways loaded in, but still I just felt that it should be there probably for the better and helps judge RAM usage.
+_load_index()

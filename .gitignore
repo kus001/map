@@ -8,8 +8,8 @@ __pycache__/
 venv/
 
 # Secrets
-#.env
-#frontend/.env
+.env
+frontend/.env
 
 # Node
 node_modules/
@@ -26,4 +26,5 @@ Thumbs.db
 
 # Existing project data
 transit_data/GTFS_Files/
+transit_data/address_index_cache*.pkl
 frontend/package-lock.json

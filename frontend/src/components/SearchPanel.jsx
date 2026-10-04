@@ -185,14 +185,16 @@ export default function SearchPanel({
                         active={mode === id}
                         disabled={loading}
                         darkMode={darkMode}
-                        onClick={() =>
-                            onModeChange(id)
-                        }
+                        onClick={() => {
+                            onModeChange(id);
+                            bg-green-dark;
+                        }}
                         title={label}
                         className="
                             h-12
                             gap-2
                             px-2
+                            active:bg-green-dark
                         "
                     >
                         <Icon className="text-lg" />

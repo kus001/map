@@ -201,8 +201,13 @@ export default function MapView({
   const otherRoutes = routes.filter(
     item => item.route_number !== route?.route_number
   );
-  const selectedColor = MODE_COLORS[mode] || MODE_COLORS.driving;
-  const baseLayer = getBaseLayer(mapStyle, darkMode);
+  const selectedColor =
+    mode === "walking"
+      ? darkMode || mapStyle === "satellite"
+        ? "#FFFFFF"
+        : "#2F3E46"
+      : MODE_COLORS[mode] || MODE_COLORS.driving;
+    const baseLayer = getBaseLayer(mapStyle, darkMode);
 
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]

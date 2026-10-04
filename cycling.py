@@ -5,7 +5,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from helpers.geocoding import get_coordinates
+from helpers.geocoding import explain_address_problem, get_coordinates
 
 load_dotenv()
 
@@ -64,13 +64,17 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
     if start is None:
         return {
             "success": False,
-            "error": "Starting address couldn't be found.",
+            "error": explain_address_problem(
+                start_address, "Starting address couldn't be found."
+            ),
         }
 
     if end is None:
         return {
             "success": False,
-            "error": "Destination couldn't be found.",
+            "error": explain_address_problem(
+                end_address, "Destination couldn't be found."
+            ),
         }
 
     start_lat, start_lon = start

@@ -352,7 +352,7 @@ export default function App() {
               darkMode ? "text-darkmode-gray" : "text-button-darkest"
             }`}
           >
-            Drive. Walk. Bike. Transit.
+            Drive. Walk. Bike. Transit. Sleep.
           </div>
         </header>
 

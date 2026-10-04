@@ -252,13 +252,13 @@ def _candidate_score(query_street, candidate_street):
 
 def local_geocode(address, fuzzy_cutoff=0.6):
     """Look up an address locally and return (lat, lon), or None."""
-    _load_index()
-
-    if not _by_civic:
-        return None
-
+    # Parse first. POI/name searches do not need the 50+ MB civic-address index.
     civic_number, core_street, direction = _parse_address(address)
     if civic_number is None or not core_street:
+        return None
+
+    _load_index()
+    if not _by_civic:
         return None
 
     candidates = _by_civic.get(civic_number)
@@ -287,13 +287,13 @@ def local_geocode(address, fuzzy_cutoff=0.6):
 
 def search_local(query, limit=6):
     """Return fast local autocomplete suggestions for civic-number queries."""
-    _load_index()
-
-    if not _by_civic:
-        return []
-
+    # Avoid loading the large address index for ordinary POI/name searches.
     civic_number, core_street, direction = _parse_address(query)
     if civic_number is None:
+        return []
+
+    _load_index()
+    if not _by_civic:
         return []
 
     candidates = list(_by_civic.get(civic_number, []))
@@ -337,8 +337,6 @@ def search_local(query, limit=6):
 
 
 def is_available():
-    _load_index()
-    return bool(_by_civic)
-
-
-_load_index()
+    # Availability only means the source data exists; checking it should not load
+    # the entire address index into RAM.
+    return _resolve_csv_path() is not None

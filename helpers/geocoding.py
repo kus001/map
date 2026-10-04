@@ -15,6 +15,7 @@ autocomplete selections never get written into it.
 
 import json
 import re
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 
@@ -88,8 +89,19 @@ _saved_aliases = _load_coordinate_map(GEOCODE_CACHE_PATH)
 
 # This is deliberately RAM-only. It speeds up repeated lookups during the current
 # Flask session without polluting geocode_cache.json or creating a search-history
-# file in the repository.
-_runtime_cache = {}
+# file in the repository. Keep it bounded for low-memory servers.
+_RUNTIME_CACHE_MAX = 512
+_runtime_cache = OrderedDict()
+
+
+def _remember_runtime(key, coordinates):
+    if key in _runtime_cache:
+        _runtime_cache.move_to_end(key)
+
+    _runtime_cache[key] = coordinates
+
+    while len(_runtime_cache) > _RUNTIME_CACHE_MAX:
+        _runtime_cache.popitem(last=False)
 
 
 def _coordinates_from_text(value):
@@ -124,7 +136,7 @@ def remember_place(label, lat, lon):
     if not (-90 <= coordinates[0] <= 90 and -180 <= coordinates[1] <= 180):
         return
 
-    _runtime_cache[key] = coordinates
+    _remember_runtime(key, coordinates)
 
 
 def get_coordinates(address):
@@ -147,6 +159,7 @@ def get_coordinates(address):
 
     # Exact coordinates remembered from an autocomplete selection this session.
     if key in _runtime_cache:
+        _runtime_cache.move_to_end(key)
         return _runtime_cache[key]
 
     # Civic addresses are resolved from address_points.csv via the generated
@@ -154,7 +167,7 @@ def get_coordinates(address):
     local_result = local_geocode(clean_address)
     if local_result is not None:
         coordinates = (float(local_result[0]), float(local_result[1]))
-        _runtime_cache[key] = coordinates
+        _remember_runtime(key, coordinates)
         return coordinates
 
     # Last resort for typed places that were not selected through autocomplete.
@@ -170,7 +183,7 @@ def get_coordinates(address):
         return None
 
     coordinates = (float(location.latitude), float(location.longitude))
-    _runtime_cache[key] = coordinates
+    _remember_runtime(key, coordinates)
     return coordinates
 
 

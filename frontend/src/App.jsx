@@ -512,8 +512,8 @@ export default function App() {
               href="https://github.com/kus001/map"
               target="_blank"
               rel="noreferrer"
-              className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:text-green ${
-                darkMode ? "text-blue-light" : "text-green-dark"
+              className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
+                darkMode ? "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
               Map Router
@@ -523,7 +523,7 @@ export default function App() {
               type="button"
               onClick={() => setDarkMode(value => !value)}
               title="Toggle dark mode"
-              className={`rounded-xl border p-2 transition hover:-translate-y-px ${
+              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
                 darkMode
                   ? "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
@@ -592,7 +592,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className="hover:text-green hover:underline"
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -601,7 +601,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className="hover:text-green hover:underline"
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -610,7 +610,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className="hover:text-green hover:underline"
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Madhav
           </a>

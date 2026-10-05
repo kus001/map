@@ -641,8 +641,12 @@ export default function App() {
               title="Street map"
               className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition ${
                 mapStyle === "street"
-                  ? "bg-green text-white"
-                  : "hover:bg-green/10"
+                  ? darkMode
+                    ? "bg-blue text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-charcoal hover:bg-green/10"
               }`}
             >
               <MdMap className="text-lg" />
@@ -657,8 +661,12 @@ export default function App() {
                 darkMode ? "border-button" : "border-button-light"
               } ${
                 mapStyle === "satellite"
-                  ? "bg-green text-white"
-                  : "hover:bg-green/10"
+                  ? darkMode
+                    ? "bg-blue text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-charcoal hover:bg-green/10"
               }`}
             >
               <MdSatelliteAlt className="text-lg" />

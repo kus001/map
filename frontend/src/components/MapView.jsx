@@ -107,7 +107,7 @@ function MapEffects({
   return null;
 }
 
-function TransitSegments({ route }) {
+function TransitSegments({ route, darkMode }) {
   return (route?.segments ?? []).map((segment, index) => {
     const walking = segment.type === "walking";
 
@@ -117,7 +117,9 @@ function TransitSegments({ route }) {
         positions={segment.coordinates || []}
         pathOptions={{
           color: walking
-            ? MODE_COLORS.walking
+            ? darkMode
+              ? "#FFFFFF"
+              : MODE_COLORS.walking
             : segment.color || MODE_COLORS.transit,
           weight: walking ? 5 : 7,
           opacity: 1,
@@ -250,7 +252,7 @@ export default function MapView({
       ))}
 
       {route && mode === "transit" && route.segments?.length ? (
-        <TransitSegments route={route} />
+        <TransitSegments route={route} darkMode={darkMode}/>
       ) : route?.route_coordinates?.length ? (
         <>
           {mode !== "walking" && (

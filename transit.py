@@ -61,7 +61,7 @@ TRANSIT_PREFERENCES = {
     },
 }
 TRANSFER_BUFFER_MIN = 4
-HEURISTIC_SPEED_KMH = 200.0
+HEURISTIC_SPEED_KMH = 120.0
 ACCESS_WALK_SPEED_MPS = 1.35
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
@@ -1181,8 +1181,6 @@ def _local_test_color_helpers():
         from helpers.print_color import bold, blue, green, magenta, red, yellow
         return bold, blue, green, magenta, red, yellow
     except Exception:
-        # The web server never needs the color helper. If its optional console
-        # dependency is unavailable, keep the local tester usable without color.
         identity = lambda value, *args, **kwargs: str(value)
         return identity, identity, identity, identity, identity, identity
 
@@ -1261,13 +1259,7 @@ def _print_local_route_result(result, timing, graph_load_seconds):
 
 
 if __name__ == "__main__":
-    # Restore the old standalone local transit tester while keeping production
-    # imports quiet and memory-efficient.
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
-
-    print(bold("=" * 64))
-    print(bold("Map Router - LOCAL TRANSIT TEST"))
-    print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)
 
@@ -1275,9 +1267,7 @@ if __name__ == "__main__":
     end_address = input(bold("End Address: ")).strip()
 
     departure_text = input(
-        bold(
-            "Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
-        )
+        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: ")
     ).strip()
 
     departure_datetime = None

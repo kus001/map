@@ -8,7 +8,7 @@ else
     echo "No main.py process found."
 fi
 
-git restore transit_data/geocode_cache.json
+git restore *
 git pull
 
 cd frontend/

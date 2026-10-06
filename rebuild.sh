@@ -1,12 +1,11 @@
-PID=$(ps -eo pid=,%mem=,args= --sort=-%mem |
-    awk '$3 == "python3" {print $1; exit}')
+PID=$(pgrep -f "python3 main.py" | head -n 1)
 
 if [ -n "$PID" ]; then
-    echo "Killing:"
+    echo "Killing main.py:"
     ps -p "$PID" -o pid,%mem,args
     kill "$PID"
 else
-    echo "No python3 process found."
+    echo "No main.py process found."
 fi
 
 git restore transit_data/geocode_cache.json

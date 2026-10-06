@@ -375,13 +375,21 @@ export default function SearchPanel({
         />
       </div>
 
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <span
+          className={`text-[10px] ${
+            darkMode ? "text-darkmode-gray/70" : "text-button-darkest"
+          }`}
+        >
+          Tip: click the map to choose A or B.
+        </span>
+
         <button
           type="button"
           disabled={loading}
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
             darkMode
               ? "bg-charcoal-light hover:bg-blue text-darkmode-gray"
               : "bg-green/10 hover:bg-green text-green-dark"
@@ -466,72 +474,74 @@ export default function SearchPanel({
         </div>
       )}
 
+      {mode === "transit" && (
       <div
-        className={`mt-4 rounded-xl border p-2.5 ${
-          darkMode
-            ? "border-button bg-charcoal-light/60"
-            : "border-button-light bg-green/5"
-        }`}
-      >
-        <div className="grid grid-cols-2 gap-1 rounded-lg p-0.5">
-          <button
-            type="button"
-            onClick={() => onTimingModeChange("now")}
-            className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
-              timingMode === "now"
-                ? darkMode
-                  ? "bg-blue text-white shadow-sm active:bg-blue-dark"
-                  : "bg-green text-white shadow-sm active:bg-green-dark"
-                : darkMode
-                  ? "text-darkmode-gray hover:bg-blue/10"
-                  : "text-button-darkest hover:bg-white"
-            }`}
-          >
-            <MdAccessTime />
-            Leave now
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onTimingModeChange("scheduled")}
-            className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
-              timingMode === "scheduled"
-                ? darkMode
-                  ? "bg-blue text-white shadow-sm active:bg-blue-dark"
-                  : "bg-green text-white shadow-sm active:bg-green-dark"
-                : darkMode
-                  ? "text-darkmode-gray hover:bg-blue/10"
-                  : "text-button-darkest hover:bg-white"
-            }`}
-          >
-            <MdCalendarMonth />
-            Schedule
-          </button>
-        </div>
-
-        {timingMode === "scheduled" && (
-          <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
-            <input
-              type="date"
-              value={departureDate}
-              min={todayInputValue()}
-              disabled={loading}
-              onChange={event => onDepartureDateChange(event.target.value)}
-              className={fieldClass}
-              aria-label="Departure date"
-            />
-
-            <input
-              type="time"
-              value={departureTime}
-              disabled={loading}
-              onChange={event => onDepartureTimeChange(event.target.value)}
-              className={fieldClass}
-              aria-label="Departure time"
-            />
+          className={`mt-4 rounded-xl border p-2.5 ${
+            darkMode
+              ? "border-button bg-charcoal-light/60"
+              : "border-button-light bg-green/5"
+          }`}
+        >
+          <div className="grid grid-cols-2 gap-1 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => onTimingModeChange("now")}
+              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+                timingMode === "now"
+                  ? darkMode
+                    ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                    : "bg-green text-white shadow-sm active:bg-green-dark"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-button-darkest hover:bg-white"
+              }`}
+            >
+              <MdAccessTime />
+              Leave now
+            </button>
+  
+            <button
+              type="button"
+              onClick={() => onTimingModeChange("scheduled")}
+              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+                timingMode === "scheduled"
+                  ? darkMode
+                    ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                    : "bg-green text-white shadow-sm active:bg-green-dark"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-button-darkest hover:bg-white"
+              }`}
+            >
+              <MdCalendarMonth />
+              Schedule
+            </button>
           </div>
-        )}
-      </div>
+  
+          {timingMode === "scheduled" && (
+            <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={departureDate}
+                min={todayInputValue()}
+                disabled={loading}
+                onChange={event => onDepartureDateChange(event.target.value)}
+                className={fieldClass}
+                aria-label="Departure date"
+              />
+  
+              <input
+                type="time"
+                value={departureTime}
+                disabled={loading}
+                onChange={event => onDepartureTimeChange(event.target.value)}
+                className={fieldClass}
+                aria-label="Departure time"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <Button
         type="button"
@@ -541,7 +551,7 @@ export default function SearchPanel({
         className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] ${darkMode? "border-blue bg-blue active:bg-blue-dark": "border-green bg-green active:bg-green-dark"}`}>
         {loading
           ? "Finding route..."
-          : timingMode === "scheduled"
+          : mode === "transit" && timingMode === "scheduled"
             ? "Find Scheduled Route"
             : "Find Route"}
       </Button>

@@ -106,13 +106,22 @@ def get_driving_route(start_address, end_address, alternatives=3):
             for step in leg.get("steps", []):
                 maneuver = step.get("maneuver", {})
 
+                location = maneuver.get("location") or []
+                step_coordinate = (
+                    [float(location[1]), float(location[0])]
+                    if len(location) >= 2
+                    else None
+                )
+
                 steps.append({
                     "instruction": "",
                     "type": maneuver.get("type", ""),
                     "modifier": maneuver.get("modifier", ""),
                     "road": step.get("name", ""),
                     "name": step.get("name", ""),
-                    "distance_m": step.get("distance", 0)
+                    "distance_m": step.get("distance", 0),
+                    "duration_min": float(step.get("duration", 0) or 0) / 60,
+                    "coordinates": step_coordinate,
                 })
 
         routes.append({

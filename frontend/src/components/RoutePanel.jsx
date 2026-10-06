@@ -1,7 +1,7 @@
 import { BsPersonWalking } from "react-icons/bs";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline, IoTimeOutline } from "react-icons/io5";
-import { MdCalendarMonth, MdDirectionsTransit } from "react-icons/md";
+import { MdCalendarMonth, MdDirectionsTransit, MdShare } from "react-icons/md";
 
 import {
   directionText,
@@ -123,6 +123,9 @@ export default function RoutePanel({
   selectedRoute,
   selectedRouteNumber = 1,
   onSelectRoute = () => {},
+  onRouteHover = () => {},
+  onStepSelect = () => {},
+  onShareRoute = () => {},
   displayedMode,
   status,
   error,
@@ -250,6 +253,8 @@ export default function RoutePanel({
               type="button"
               key={route.route_number}
               onClick={() => onSelectRoute(route.route_number)}
+              onMouseEnter={() => onRouteHover(route.route_number)}
+              onMouseLeave={() => onRouteHover(null)}
               className={`w-full rounded-xl border p-3.5 text-left transition-all ${
                 selected
                   ? "border-green bg-green/10 shadow-sm"
@@ -305,7 +310,7 @@ export default function RoutePanel({
 
       <div className="my-4 border-t border-button-light/60" />
 
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h2
           className={`text-base font-bold ${
             darkMode ? "text-darkmode-gray" : "text-charcoal"
@@ -313,13 +318,29 @@ export default function RoutePanel({
         >
           Directions
         </h2>
-        <span
-          className={`text-xs ${
-            darkMode ? "text-darkmode-gray" : "text-button-darkest"
-          }`}
-        >
-          {steps.length} {steps.length === 1 ? "step" : "steps"}
-        </span>
+
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-xs ${
+              darkMode ? "text-darkmode-gray" : "text-button-darkest"
+            }`}
+          >
+            {steps.length} {steps.length === 1 ? "step" : "steps"}
+          </span>
+          <button
+            type="button"
+            onClick={onShareRoute}
+            title="Copy shareable route link"
+            aria-label="Copy shareable route link"
+            className={`flex size-8 items-center justify-center rounded-lg border text-sm transition ${
+              darkMode
+                ? "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
+            }`}
+          >
+            <MdShare />
+          </button>
+        </div>
       </div>
 
       {steps.length === 0 ? (
@@ -340,48 +361,63 @@ export default function RoutePanel({
               : "border-button-light bg-white"
           }`}
         >
-          {steps.map((step, index) => (
-            <div
-              key={`${step.type || "step"}-${index}`}
-              className={`flex gap-3 border-b p-3 last:border-b-0 ${
-                darkMode ? "border-button/50" : "border-button-light/60"
-              }`}
-            >
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green text-white">
-                <StepIcon step={step} />
-              </div>
+          {steps.map((step, index) => {
+            const canFocus =
+              Array.isArray(step?.coordinates) && step.coordinates.length >= 2;
 
-              <div className="min-w-0 flex-1">
-                <div
-                  className={`text-sm font-medium leading-5 ${
-                    darkMode ? "text-darkmode-gray" : "text-charcoal"
-                  }`}
-                >
-                  {directionText(step)}
+            return (
+              <button
+                type="button"
+                key={`${step.type || "step"}-${index}`}
+                onClick={() => canFocus && onStepSelect(step, index)}
+                disabled={!canFocus}
+                title={canFocus ? "Show this step on the map" : undefined}
+                className={`flex w-full gap-3 border-b p-3 text-left last:border-b-0 ${
+                  darkMode ? "border-button/50" : "border-button-light/60"
+                } ${
+                  canFocus
+                    ? darkMode
+                      ? "transition hover:bg-blue/10"
+                      : "transition hover:bg-green/10"
+                    : "cursor-default"
+                }`}
+              >
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green text-white">
+                  <StepIcon step={step} />
                 </div>
 
-                {step.type === "transit" ? (
-                  <TransitMeta step={step} darkMode={darkMode} />
-                ) : (
+                <div className="min-w-0 flex-1">
                   <div
-                    className={`mt-1 flex flex-wrap items-center gap-x-2 text-xs ${
-                      darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                    className={`text-sm font-medium leading-5 ${
+                      darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
-                    {step.duration_min >= 0.5 && (
-                      <span className="flex items-center gap-1">
-                        <IoTimeOutline />
-                        {formatDuration(step.duration_min)}
-                      </span>
-                    )}
-                    {step.distance_m > 0 && (
-                      <span>{formatDistance(step.distance_m)}</span>
-                    )}
+                    {directionText(step)}
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
+
+                  {step.type === "transit" ? (
+                    <TransitMeta step={step} darkMode={darkMode} />
+                  ) : (
+                    <div
+                      className={`mt-1 flex flex-wrap items-center gap-x-2 text-xs ${
+                        darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                      }`}
+                    >
+                      {step.duration_min >= 0.5 && (
+                        <span className="flex items-center gap-1">
+                          <IoTimeOutline />
+                          {formatDuration(step.duration_min)}
+                        </span>
+                      )}
+                      {step.distance_m > 0 && (
+                        <span>{formatDistance(step.distance_m)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

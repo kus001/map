@@ -87,6 +87,16 @@ def get_walking_route(start_address, end_address):
     steps = []
     for segment in properties.get("segments", []):
         for step in segment.get("steps", []):
+            way_points = step.get("way_points") or []
+            step_coordinate = None
+            if way_points:
+                try:
+                    point_index = int(way_points[0])
+                    if 0 <= point_index < len(route_coordinates):
+                        step_coordinate = route_coordinates[point_index]
+                except (TypeError, ValueError):
+                    pass
+
             steps.append(
                 {
                     "instruction": step.get("instruction", ""),
@@ -96,6 +106,7 @@ def get_walking_route(start_address, end_address):
                     "name": step.get("name", ""),
                     "distance_m": step.get("distance", 0),
                     "duration_min": float(step.get("duration", 0)) / 60,
+                    "coordinates": step_coordinate,
                 }
             )
 

@@ -37,7 +37,7 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-MAX_NEARBY_STOPS = 12
+MAX_NEARBY_STOPS = 250
 
 # Transit access-stop preference. The router searches the shorter-walk tiers first.
 # If a valid route exists from nearby stops, it will wait for that service instead of

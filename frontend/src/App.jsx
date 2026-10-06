@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
+import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 
@@ -22,6 +22,32 @@ const VALID_TRANSIT_PREFERENCES = new Set([
 // Capture the page-load time outside React rendering. React's purity lint rule
 // correctly rejects Date.now() when it is called during a component render.
 const PAGE_LOAD_TIME = Date.now();
+
+function readSharedRoute() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const sharedMode = params.get("mode");
+    const sharedBike = params.get("bike");
+    const sharedTransit = params.get("transit");
+    const sharedTiming = params.get("timing");
+
+    return {
+      start: params.get("start") || "",
+      destination: params.get("destination") || "",
+      mode: VALID_MODES.has(sharedMode) ? sharedMode : null,
+      cyclingType: VALID_CYCLING_TYPES.has(sharedBike) ? sharedBike : null,
+      transitPreference: VALID_TRANSIT_PREFERENCES.has(sharedTransit)
+        ? sharedTransit
+        : null,
+      timingMode: VALID_TIMING_MODES.has(sharedTiming) ? sharedTiming : null,
+      departureDate: params.get("date") || "",
+      departureTime: params.get("time") || "",
+    };
+  } catch (error) {
+    console.warn("Could not read shared route URL:", error);
+    return {};
+  }
+}
 
 function loadPreferences() {
   try {
@@ -76,10 +102,11 @@ function coordinateString(location) {
 
 export default function App() {
   const savedPreferences = useMemo(() => loadPreferences(), []);
+  const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
     const fallback = DEFAULT_INITIAL_SCHEDULE;
-    const savedDate = savedPreferences.departureDate;
-    const savedTime = savedPreferences.departureTime;
+    const savedDate = sharedRoute.departureDate || savedPreferences.departureDate;
+    const savedTime = sharedRoute.departureTime || savedPreferences.departureTime;
 
     if (!savedDate || !savedTime) {
       return fallback;
@@ -94,19 +121,25 @@ export default function App() {
     }
 
     return { date: savedDate, time: savedTime };
-  }, [savedPreferences]);
+  }, [savedPreferences, sharedRoute]);
 
+  const sharedUsesCurrentLocation = sharedRoute.start === "Current location";
   const [start, setStart] = useState(() =>
-    savedPreferences.startUsesCurrentLocation ? "Current location" : ""
+    sharedRoute.start ||
+    (savedPreferences.startUsesCurrentLocation ? "Current location" : "")
   );
   const [startUsesCurrentLocation, setStartUsesCurrentLocation] = useState(() =>
-    savedPreferences.startUsesCurrentLocation === true
+    sharedRoute.start
+      ? sharedUsesCurrentLocation
+      : savedPreferences.startUsesCurrentLocation === true
   );
-  const [destination, setDestination] = useState("");
+  const [destination, setDestination] = useState(() => sharedRoute.destination || "");
   const [mode, setMode] = useState(() =>
+    sharedRoute.mode ||
     validSavedValue(savedPreferences.mode, VALID_MODES, "driving")
   );
   const [cyclingType, setCyclingType] = useState(() =>
+    sharedRoute.cyclingType ||
     validSavedValue(
       savedPreferences.cyclingType,
       VALID_CYCLING_TYPES,
@@ -114,6 +147,7 @@ export default function App() {
     )
   );
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
+  const [hoveredRouteNumber, setHoveredRouteNumber] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [status, setStatus] = useState(
@@ -122,6 +156,10 @@ export default function App() {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [locationFocusKey, setLocationFocusKey] = useState(0);
   const [routeFocusKey, setRouteFocusKey] = useState(0);
+  const [stepFocusKey, setStepFocusKey] = useState(0);
+  const [stepFocusCoordinate, setStepFocusCoordinate] = useState(null);
+  const [startMapCoordinate, setStartMapCoordinate] = useState(null);
+  const [destinationMapCoordinate, setDestinationMapCoordinate] = useState(null);
   const [data, setData] = useState(null);
   const [darkMode, setDarkMode] = useState(
     () => savedPreferences.darkMode === true
@@ -130,9 +168,11 @@ export default function App() {
     validSavedValue(savedPreferences.mapStyle, VALID_MAP_STYLES, "street")
   );
   const [timingMode, setTimingMode] = useState(() =>
+    sharedRoute.timingMode ||
     validSavedValue(savedPreferences.timingMode, VALID_TIMING_MODES, "now")
   );
   const [transitPreference, setTransitPreference] = useState(() =>
+    sharedRoute.transitPreference ||
     validSavedValue(
       savedPreferences.transitPreference,
       VALID_TRANSIT_PREFERENCES,
@@ -234,9 +274,12 @@ export default function App() {
       return;
     }
 
+    const effectiveTimingMode =
+      requestedMode === "transit" ? requestedTimingMode : "now";
+
     let departureDatetime;
     try {
-      departureDatetime = getDepartureDateTime(requestedTimingMode);
+      departureDatetime = getDepartureDateTime(effectiveTimingMode);
     } catch (scheduleError) {
       setError(true);
       setStatus(scheduleError.message);
@@ -247,7 +290,7 @@ export default function App() {
     setLoading(true);
     setError(false);
     setStatus(
-      requestedTimingMode === "scheduled"
+      effectiveTimingMode === "scheduled"
         ? "Finding your scheduled route..."
         : "Finding route..."
     );
@@ -288,11 +331,13 @@ export default function App() {
           : result;
 
       setData(displayedResult);
+      setStartMapCoordinate(result.start?.coordinates || null);
+      setDestinationMapCoordinate(result.end?.coordinates || null);
       setSelectedRouteNumber(result.fastest_route_number || 1);
       setRouteFocusKey(key => key + 1);
 
       const scheduledSuffix =
-        requestedTimingMode === "scheduled" ? " • scheduled" : "";
+        effectiveTimingMode === "scheduled" ? " • scheduled" : "";
 
       if (requestedMode === "driving") {
         const routeCount = result.routes.length;
@@ -311,7 +356,7 @@ export default function App() {
       } else if (requestedMode === "transit") {
         const realtime = result.routes?.[0]?.realtime;
 
-        if (requestedTimingMode === "scheduled") {
+        if (effectiveTimingMode === "scheduled") {
           setStatus("Scheduled transit route found");
         } else if (realtime?.available && realtime?.used_live_updates) {
           setStatus("Transit route found • live predictions used");
@@ -341,6 +386,52 @@ export default function App() {
   function handleStartChange(nextStart) {
     setStart(nextStart);
     setStartUsesCurrentLocation(false);
+    setStartMapCoordinate(null);
+  }
+
+  function handleDestinationChange(nextDestination) {
+    setDestination(nextDestination);
+    setDestinationMapCoordinate(null);
+  }
+
+  function setStartFromMap(coordinate, { reroute = true } = {}) {
+    const value = coordinateString(coordinate);
+    if (!value) {
+      return;
+    }
+
+    setStart(value);
+    setStartUsesCurrentLocation(false);
+    setStartMapCoordinate(coordinate);
+    setError(false);
+    setStatus("Starting point set from the map.");
+
+    if (reroute && destination.trim()) {
+      searchRoutes({
+        requestedStart: value,
+        requestedDestination: destination,
+        requestedUseCurrentLocation: false,
+      });
+    }
+  }
+
+  function setDestinationFromMap(coordinate, { reroute = true } = {}) {
+    const value = coordinateString(coordinate);
+    if (!value) {
+      return;
+    }
+
+    setDestination(value);
+    setDestinationMapCoordinate(coordinate);
+    setError(false);
+    setStatus("Destination set from the map.");
+
+    const canRoute = startUsesCurrentLocation ? Boolean(currentLocation) : start.trim();
+    if (reroute && canRoute) {
+      searchRoutes({
+        requestedDestination: value,
+      });
+    }
   }
 
   function changeMode(nextMode) {
@@ -378,7 +469,7 @@ export default function App() {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
 
       if (Number.isNaN(selected.getTime()) || selected.getTime() < Date.now()) {
-        const next = initialScheduledTime();
+        const next = initialScheduledTime(Date.now());
         setDepartureDate(next.date);
         setDepartureTime(next.time);
       }
@@ -396,7 +487,9 @@ export default function App() {
 
     setStart(nextStart);
     setStartUsesCurrentLocation(false);
+    setStartMapCoordinate(null);
     setDestination(nextDestination);
+    setDestinationMapCoordinate(null);
 
     if (nextStart.trim() && nextDestination.trim()) {
       searchRoutes({
@@ -423,6 +516,7 @@ export default function App() {
     if (useAsStart && currentLocation) {
       setStart("Current location");
       setStartUsesCurrentLocation(true);
+      setStartMapCoordinate(currentLocation);
       setError(false);
       setStatus("Using your current location as the starting point.");
       return;
@@ -444,6 +538,7 @@ export default function App() {
         if (useAsStart) {
           setStart("Current location");
           setStartUsesCurrentLocation(true);
+          setStartMapCoordinate(location);
         }
 
         if (focus) {
@@ -476,7 +571,59 @@ export default function App() {
 
   function selectRoute(routeNumber) {
     setSelectedRouteNumber(routeNumber);
+    setHoveredRouteNumber(null);
     setRouteFocusKey(key => key + 1);
+  }
+
+  function focusStep(step) {
+    if (!Array.isArray(step?.coordinates) || step.coordinates.length < 2) {
+      return;
+    }
+
+    setStepFocusCoordinate(step.coordinates);
+    setStepFocusKey(key => key + 1);
+  }
+
+  async function shareRoute() {
+    if (!start.trim() || !destination.trim()) {
+      setError(true);
+      setStatus("Choose a start and destination before sharing.");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set(
+      "start",
+      startUsesCurrentLocation ? "Current location" : start.trim()
+    );
+    params.set("destination", destination.trim());
+    params.set("mode", mode);
+
+    if (mode === "cycling") {
+      params.set("bike", cyclingType);
+    }
+
+    if (mode === "transit") {
+      params.set("transit", transitPreference);
+      params.set("timing", timingMode);
+
+      if (timingMode === "scheduled") {
+        params.set("date", departureDate);
+        params.set("time", departureTime);
+      }
+    }
+
+    const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, "", url);
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setError(false);
+      setStatus("Route link copied to clipboard.");
+    } catch (clipboardError) {
+      console.warn("Clipboard copy failed:", clipboardError);
+      window.prompt("Copy this route link:", url);
+    }
   }
 
   useEffect(() => {
@@ -546,7 +693,7 @@ export default function App() {
           start={start}
           destination={destination}
           setStart={handleStartChange}
-          setDestination={setDestination}
+          setDestination={handleDestinationChange}
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}
@@ -574,6 +721,9 @@ export default function App() {
           selectedRoute={selectedRoute}
           selectedRouteNumber={selectedRouteNumber}
           onSelectRoute={selectRoute}
+          onRouteHover={setHoveredRouteNumber}
+          onStepSelect={focusStep}
+          onShareRoute={shareRoute}
           displayedMode={displayedMode}
           status={status}
           error={error}
@@ -622,11 +772,26 @@ export default function App() {
           data={data}
           selectedRoute={selectedRoute}
           selectedRouteNumber={selectedRouteNumber}
+          hoveredRouteNumber={hoveredRouteNumber}
           displayedMode={displayedMode}
           onSelectRoute={selectRoute}
+          onHoverRoute={setHoveredRouteNumber}
           currentLocation={currentLocation}
+          startCoordinate={
+            startUsesCurrentLocation ? currentLocation : startMapCoordinate
+          }
+          destinationCoordinate={destinationMapCoordinate}
+          startLabel={start}
+          destinationLabel={destination}
+          startDraggable={!startUsesCurrentLocation}
+          onSetMapStart={coordinate => setStartFromMap(coordinate)}
+          onSetMapDestination={coordinate => setDestinationFromMap(coordinate)}
+          onMoveStart={coordinate => setStartFromMap(coordinate)}
+          onMoveDestination={coordinate => setDestinationFromMap(coordinate)}
           locationFocusKey={locationFocusKey}
           routeFocusKey={routeFocusKey}
+          stepFocusCoordinate={stepFocusCoordinate}
+          stepFocusKey={stepFocusKey}
           darkMode={darkMode}
           mapStyle={mapStyle}
         />
@@ -673,6 +838,17 @@ export default function App() {
               <span className="max-[900px]:hidden">Satellite</span>
             </button>
           </div>
+
+          {selectedRoute?.route_coordinates?.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setRouteFocusKey(key => key + 1)}
+              title="Fit route"
+              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white ${controlSurface}`}
+            >
+              <MdCenterFocusStrong />
+            </button>
+          )}
 
           <button
             type="button"

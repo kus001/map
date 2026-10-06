@@ -141,3 +141,36 @@ button {
 .leaflet-interactive {
   transition: stroke 0.2s ease, fill 0.2s ease, opacity 0.2s ease;
 }
+
+.map-route-marker-shell {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.map-route-marker {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.28);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  user-select: none;
+}
+
+.map-route-marker-start {
+  background: #111111;
+}
+
+.map-route-marker-end {
+  background: #66856b;
+}
+
+.map-picker-popup .leaflet-popup-content {
+  margin: 12px 14px;
+}

@@ -957,6 +957,7 @@ def get_transit_route(
                 "to": first_name,
                 "duration_min": start_walk["duration_min"],
                 "distance_m": start_walk["distance_m"],
+                "coordinates": start_walk["coordinates"][0] if start_walk.get("coordinates") else list(start),
             }
         )
         total_distance += start_walk["distance_m"]
@@ -986,6 +987,7 @@ def get_transit_route(
                     "to": group["to_name"],
                     "duration_min": duration,
                     "distance_m": distance,
+                    "coordinates": walk["coordinates"][0] if walk.get("coordinates") else list(group["from_coords"]),
                 }
             )
             total_distance += distance
@@ -1062,6 +1064,7 @@ def get_transit_route(
                 "arrival_time": time_label(group["arrival_time"]),
                 "realtime": group["realtime"],
                 "delay_min": group["delay_seconds"] / 60,
+                "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
             }
         )
 
@@ -1106,6 +1109,7 @@ def get_transit_route(
                 "to": end_address,
                 "duration_min": end_walk["duration_min"],
                 "distance_m": end_walk["distance_m"],
+                "coordinates": end_walk["coordinates"][0] if end_walk.get("coordinates") else stop_coords(last),
             }
         )
         total_distance += end_walk["distance_m"]

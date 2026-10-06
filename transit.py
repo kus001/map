@@ -39,25 +39,21 @@ ORS_WALKING_URL = (
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 MAX_NEARBY_STOPS = 250
 
-# Transit access-stop preference. The router searches the shorter-walk tiers first.
-# If a valid route exists from nearby stops, it will wait for that service instead of
-# walking a long distance just to catch an earlier bus. It only expands the walk
-# radius when no usable transit route exists in the smaller tier.
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (600, 900, 1200),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (600, 1300, 1800),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
         "access_walk_tiers_m": (350, 600, 900, 1200),
-        "max_nearby_stops": 14,
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
-        "access_walk_tiers_m": (1600,),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (2100,),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
 }
 TRANSFER_BUFFER_MIN = 4

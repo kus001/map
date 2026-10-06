@@ -1268,7 +1268,8 @@ if __name__ == "__main__":
     end_address = input(bold("End Address: ")).strip()
 
     departure_text = input(
-        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: ")
+        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
+)
     ).strip()
 
     departure_datetime = None

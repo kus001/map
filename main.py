@@ -1,8 +1,6 @@
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -71,35 +69,6 @@ def health():
     return jsonify({"success": True, "message": "Map routing API is running."})
 
 
-@app.route("/api/rebuild", methods=["POST"])
-def rebuild():
-    """Forward the temporary rebuild request to webhook.py on port 9000."""
-    payload = json.dumps({"ref": "refs/heads/main"}).encode("utf-8")
-    webhook_request = urllib.request.Request(
-        "http://127.0.0.1:9000/webhook",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(webhook_request, timeout=3) as response:
-            message = response.read().decode("utf-8", errors="replace").strip()
-            return jsonify({
-                "success": True,
-                "message": message or "Rebuilding",
-            })
-    except urllib.error.URLError as error:
-        return jsonify({
-            "success": False,
-            "error": (
-                "Could not reach webhook.py on port 9000. "
-                "Make sure `python webhook.py` is running."
-            ),
-            "details": str(error),
-        }), 503
-
-
 @app.route("/api/search", methods=["GET"])
 def search():
     query = request.args.get("q", "").strip()
@@ -134,6 +103,34 @@ def remember():
 
     remember_place(label, lat, lon)
     return jsonify({"success": True})
+
+
+@app.route("/api/transit/live-departures", methods=["GET"])
+def live_transit_departures():
+    agency = str(request.args.get("agency", "go")).strip().lower()
+    stop_id = str(request.args.get("stop_id", "")).strip()
+
+    try:
+        limit = max(1, min(int(request.args.get("limit", 6)), 12))
+    except (TypeError, ValueError):
+        limit = 6
+
+    if agency != "go":
+        return jsonify({
+            "success": False,
+            "error": "Live stop boards are currently available for GO Transit only.",
+        }), 400
+
+    if not stop_id:
+        return jsonify({"success": False, "error": "stop_id is required."}), 400
+
+    from helpers._transit.go_realtime import live_departures
+
+    result = live_departures(stop_id, limit=limit)
+    return jsonify({
+        "success": bool(result.get("connected")),
+        **result,
+    })
 
 
 @app.route("/api/routes", methods=["POST"])

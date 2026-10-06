@@ -39,29 +39,25 @@ ORS_WALKING_URL = (
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 MAX_NEARBY_STOPS = 2500
 
-# Transit access-stop preference. The router searches the shorter-walk tiers first.
-# If a valid route exists from nearby stops, it will wait for that service instead of
-# walking a long distance just to catch an earlier bus. It only expands the walk
-# radius when no usable transit route exists in the smaller tier.
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (600, 900, 1200),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (600, 1300, 1800),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
         "access_walk_tiers_m": (350, 600, 900, 1200),
-        "max_nearby_stops": 14,
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
-        "access_walk_tiers_m": (1600,),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (2100,),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
 }
 TRANSFER_BUFFER_MIN = 4
-HEURISTIC_SPEED_KMH = 200.0
+HEURISTIC_SPEED_KMH = 120.0
 ACCESS_WALK_SPEED_MPS = 1.35
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
@@ -1185,8 +1181,6 @@ def _local_test_color_helpers():
         from helpers.print_color import bold, blue, green, magenta, red, yellow
         return bold, blue, green, magenta, red, yellow
     except Exception:
-        # The web server never needs the color helper. If its optional console
-        # dependency is unavailable, keep the local tester usable without color.
         identity = lambda value, *args, **kwargs: str(value)
         return identity, identity, identity, identity, identity, identity
 
@@ -1265,13 +1259,7 @@ def _print_local_route_result(result, timing, graph_load_seconds):
 
 
 if __name__ == "__main__":
-    # Restore the old standalone local transit tester while keeping production
-    # imports quiet and memory-efficient.
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
-
-    print(bold("=" * 64))
-    print(bold("Map Router - LOCAL TRANSIT TEST"))
-    print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)
 
@@ -1279,9 +1267,7 @@ if __name__ == "__main__":
     end_address = input(bold("End Address: ")).strip()
 
     departure_text = input(
-        bold(
-            "Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
-        )
+        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: ")
     ).strip()
 
     departure_datetime = None

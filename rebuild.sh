@@ -8,7 +8,7 @@ else
     echo "No main.py process found."
 fi
 
-git restore *
+git restore .
 git pull
 
 cd frontend/

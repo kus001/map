@@ -42,20 +42,21 @@ MAX_NEARBY_STOPS = 2500
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (600, 1300, 1800),
+        "access_walk_tiers_m": (800, 1200, 1800, 2400, 4800),
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "access_walk_tiers_m": (350, 600, 900, 1200),
+        "access_walk_tiers_m": (400, 600, 900, 1200, 1500),
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
-        "access_walk_tiers_m": (2100,),
+        "access_walk_tiers_m": (2400, 3000, 3600, 4800),
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
 }
+
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 120.0
 ACCESS_WALK_SPEED_MPS = 1.35

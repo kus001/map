@@ -1,5 +1,6 @@
 import csv
 import pickle
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,7 @@ trip_to_service = {}
 calendar = {}
 calendar_dates = {}
 _seen_trip_hops = set()
+_route_info_cache = {}  # (route_id, headsign) (this is a shared dict, so every trip sharing the same route+headsign reuses only one dict)
 
 
 def service_active(service_id, check_date):
@@ -55,6 +57,11 @@ def add_neighbor(
     departure_time=None,
     arrival_time=None,
 ):
+    stop_id = sys.intern(stop_id)
+    neighbor_stop_id = sys.intern(neighbor_stop_id)
+    if trip_id is not None:
+        trip_id = sys.intern(trip_id)
+
     if departure_time:
         departure_time = time_to_seconds(departure_time)
         arrival_time = time_to_seconds(arrival_time)
@@ -101,11 +108,18 @@ def add_agency_to_graph(agency, force_download=False):
         download_gtfs(agency)
 
     for row in _read_rows(gtfs_folder / "trips.txt"):
-        trip_to_route[row["trip_id"]] = {
-            "headsign": row.get("trip_headsign", ""),
-            "route": row["route_id"],
-        }
-        trip_to_service[row["trip_id"]] = row["service_id"]
+        trip_id = sys.intern(row["trip_id"])
+        route_id = sys.intern(row["route_id"])
+        headsign = row.get("trip_headsign", "")
+
+        route_info_key = (route_id, headsign)
+        route_info = _route_info_cache.get(route_info_key)
+        if route_info is None:
+            route_info = {"headsign": headsign, "route": route_id}
+            _route_info_cache[route_info_key] = route_info
+
+        trip_to_route[trip_id] = route_info
+        trip_to_service[trip_id] = sys.intern(row["service_id"])
 
     calendar_path = gtfs_folder / "calendar.txt"
     if calendar_path.exists():
@@ -228,6 +242,11 @@ def add_multiple_agencies_to_graph(
 
     for agency in agencies:
         add_agency_to_graph(agency, force_download=force_download)
+
+    # Get rid of useless thingy magigs so they don't eat up all my precious RAM.
+    _seen_trip_hops.clear()
+    all_stops.clear()
+    _route_info_cache.clear()
 
     for stop_neighbors in graph.values():
         for route_options in stop_neighbors.values():

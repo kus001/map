@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
+import { MdCenterFocusStrong, MdMap, MdMyLocation, MdRefresh, MdSatelliteAlt } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 
@@ -181,6 +181,7 @@ export default function App() {
   );
   const [departureDate, setDepartureDate] = useState(initialSchedule.date);
   const [departureTime, setDepartureTime] = useState(initialSchedule.time);
+  const [rebuildLoading, setRebuildLoading] = useState(false);
 
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
@@ -584,6 +585,35 @@ export default function App() {
     setStepFocusKey(key => key + 1);
   }
 
+  async function triggerRebuild() {
+    if (rebuildLoading) {
+      return;
+    }
+
+    setRebuildLoading(true);
+    setError(false);
+    setStatus("Starting rebuild...");
+
+    try {
+      const response = await fetch("/api/rebuild", {
+        method: "POST",
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Could not start rebuild.");
+      }
+
+      setStatus(result.message || "Rebuild started.");
+    } catch (rebuildError) {
+      console.error("Rebuild error:", rebuildError);
+      setError(true);
+      setStatus(rebuildError.message || "Could not start rebuild.");
+    } finally {
+      setRebuildLoading(false);
+    }
+  }
+
   async function shareRoute() {
     if (!start.trim() || !destination.trim()) {
       setError(true);
@@ -797,6 +827,19 @@ export default function App() {
         />
 
         <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[62vh]">
+          <button
+            type="button"
+            onClick={triggerRebuild}
+            disabled={rebuildLoading}
+            title="Run rebuild.sh through webhook.py"
+            className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white disabled:cursor-wait disabled:opacity-60 ${controlSurface}`}
+          >
+            <MdRefresh className={`text-lg ${rebuildLoading ? "animate-spin" : ""}`} />
+            <span className="max-[900px]:hidden">
+              {rebuildLoading ? "Starting..." : "Rebuild"}
+            </span>
+          </button>
+
           <div
             className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
           >

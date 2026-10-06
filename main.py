@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -67,6 +69,35 @@ def print_timing_report(mode, timing, total_microseconds):
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"success": True, "message": "Map routing API is running."})
+
+
+@app.route("/api/rebuild", methods=["POST"])
+def rebuild():
+    """Forward the temporary rebuild request to webhook.py on port 9000."""
+    payload = json.dumps({"ref": "refs/heads/main"}).encode("utf-8")
+    webhook_request = urllib.request.Request(
+        "http://127.0.0.1:9000/webhook",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(webhook_request, timeout=3) as response:
+            message = response.read().decode("utf-8", errors="replace").strip()
+            return jsonify({
+                "success": True,
+                "message": message or "Rebuilding",
+            })
+    except urllib.error.URLError as error:
+        return jsonify({
+            "success": False,
+            "error": (
+                "Could not reach webhook.py on port 9000. "
+                "Make sure `python webhook.py` is running."
+            ),
+            "details": str(error),
+        }), 503
 
 
 @app.route("/api/search", methods=["GET"])

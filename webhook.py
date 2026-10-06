@@ -3,6 +3,7 @@ import subprocess
 
 app = Flask(__name__)
 
+
 @app.post("/webhook")
 def webhook():
     data = request.get_json(silent=True)
@@ -15,7 +16,7 @@ def webhook():
         return "Ignored", 200
 
     subprocess.Popen(["./rebuild.sh"])
-
     return "Rebuilding", 200
+
 
 app.run(host="0.0.0.0", port=9000)

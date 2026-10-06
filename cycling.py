@@ -149,6 +149,16 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
             road_name = str(step.get("name", "") or "").strip()
             instruction = str(step.get("instruction", "") or "").strip()
 
+            way_points = step.get("way_points") or []
+            step_coordinate = None
+            if way_points:
+                try:
+                    point_index = int(way_points[0])
+                    if 0 <= point_index < len(route_coordinates):
+                        step_coordinate = route_coordinates[point_index]
+                except (TypeError, ValueError):
+                    pass
+
             steps.append({
                 # This was previously blank, which is why the UI could only say
                 # things such as "Cycling onto Wissler Road".
@@ -160,7 +170,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
                 "distance_m": float(step.get("distance", 0) or 0),
                 "duration_min": float(step.get("duration", 0) or 0) / 60,
                 "maneuver_type": step.get("type"),
-                "way_points": step.get("way_points", []),
+                "way_points": way_points,
+                "coordinates": step_coordinate,
             })
 
     average_speed = (

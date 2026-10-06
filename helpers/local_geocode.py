@@ -7,6 +7,7 @@ matches and callers can fall back to another geocoder.
 import csv
 import pickle
 import re
+import sys
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -253,19 +254,25 @@ def _load_index():
             core, direction, suffix = _parse_street(_tokens(street_raw))
             if not core:
                 continue
+            core = sys.intern(core)
+            if direction is not None:
+                direction = sys.intern(direction)
+            if suffix is not None:
+                suffix = sys.intern(suffix)
 
             settlement = (
                 row.get(settlement_field, "").strip() if settlement_field else ""
             )
+            settlement_key = sys.intern(settlement.lower())
             label = f"{civic_raw.upper()} {street_raw}"
             if settlement:
                 label += f", {settlement}"
 
             entry = (
                 core, direction, float(lat), float(lon), label, suffix,
-                settlement.lower(),
+                settlement_key,
             )
-            key = (civic_raw, core, direction, suffix, settlement.lower())
+            key = (civic_raw, core, direction, suffix, settlement_key)
             is_primary = (
                 primary_field is None
                 or str(row.get(primary_field, "")).strip().lower() == "yes"
@@ -276,6 +283,8 @@ def _load_index():
     result = {}
     for (civic_raw, *_), (entry, _primary) in built.items():
         result.setdefault(civic_raw, []).append(entry)
+    built.clear()  # done with the dedup scratch structure - free it before pickling
+
     _by_civic = result
     _collect_settlements()
 
@@ -408,6 +417,4 @@ def search_local(query, limit=6):
 
 
 def is_available():
-    # Availability only means the source data exists; checking it should not load
-    # the entire address index into RAM.
     return _resolve_csv_path() is not None

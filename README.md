@@ -2,17 +2,24 @@
 
 <div align="center">
 
-#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app).
+#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app)
 
+Street view: 
 ![Example run!](assets/lightmode.png)
 
 ^^ Light Mode ^^ | | | vv Dark Mode vv
 
 ![Dark mode example](assets/darkmode.png)
 
-^^ Dark Mode ^^ | | | vv Light Mode (Satellite) vv
+Satellite: 
 
-![Satelite Mode Example](assets/light_sat.png)
+![Satellite Dark Mode Example](assets/dark_sat.png)
+
+^^ Dark Mode (Satellite) ^^ | | | vv Light Mode (Satellite) vv
+
+![Satelite Light Mode Example](assets/light_sat.png)
+
+#### more views incoming...
 
 ## Running / Using [MAP](https://map.host-transit-page.hackclub.app/)
 

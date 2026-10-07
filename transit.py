@@ -37,7 +37,7 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-MAX_NEARBY_STOPS = 2500
+MAX_NEARBY_STOPS = 250
 
 TRANSIT_PREFERENCES = {
     "balanced": {

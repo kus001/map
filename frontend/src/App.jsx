@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MdCenterFocusStrong, MdMap, MdMyLocation, MdRefresh, MdSatelliteAlt } from "react-icons/md";
+import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 
 import MapView from "./components/MapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
+import { navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
 
@@ -181,10 +182,17 @@ export default function App() {
   );
   const [departureDate, setDepartureDate] = useState(initialSchedule.date);
   const [departureTime, setDepartureTime] = useState(initialSchedule.time);
-  const [rebuildLoading, setRebuildLoading] = useState(false);
+  const [navigationActive, setNavigationActive] = useState(false);
+  const [navigationAccuracy, setNavigationAccuracy] = useState(null);
+  const [navigationHeading, setNavigationHeading] = useState(null);
+  const [navigationSpeedMps, setNavigationSpeedMps] = useState(null);
 
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
+  const navigationWatchId = useRef(null);
+  const navigationOffRouteSamples = useRef(0);
+  const navigationLastRerouteAt = useRef(0);
+  const searchRoutesRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -223,6 +231,14 @@ export default function App() {
         route => route.route_number === selectedRouteNumber
       ) || data?.routes?.[0] || null,
     [data, selectedRouteNumber]
+  );
+  const displayedMode = data?.mode || mode;
+  const navigationInfo = useMemo(
+    () =>
+      navigationActive && currentLocation && selectedRoute
+        ? buildNavigationSnapshot(currentLocation, selectedRoute)
+        : null,
+    [navigationActive, currentLocation, selectedRoute]
   );
 
   function getDepartureDateTime(requestedTimingMode = timingMode) {
@@ -384,13 +400,71 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    searchRoutesRef.current = searchRoutes;
+  });
+
+  useEffect(() => {
+    if (!navigationActive || !navigationInfo || displayedMode === "transit") {
+      navigationOffRouteSamples.current = 0;
+      return undefined;
+    }
+
+    const offRouteThreshold = Math.max(70, Number(navigationAccuracy || 0) * 2);
+    if (navigationInfo.off_route_m > offRouteThreshold) {
+      navigationOffRouteSamples.current += 1;
+    } else {
+      navigationOffRouteSamples.current = 0;
+    }
+
+    const enoughSamples = navigationOffRouteSamples.current >= 3;
+    const rerouteCooldownPassed = Date.now() - navigationLastRerouteAt.current > 15000;
+
+    if (
+      !enoughSamples ||
+      !rerouteCooldownPassed ||
+      !destination.trim() ||
+      !searchRoutesRef.current
+    ) {
+      return undefined;
+    }
+
+    navigationLastRerouteAt.current = Date.now();
+    navigationOffRouteSamples.current = 0;
+
+    const timer = window.setTimeout(() => {
+      setStatus("Off route • rerouting from your current location...");
+      searchRoutesRef.current?.({
+        requestedMode: displayedMode,
+        requestedCyclingType: cyclingType,
+        requestedUseCurrentLocation: true,
+        requestedTimingMode: "now",
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    navigationActive,
+    navigationInfo,
+    displayedMode,
+    navigationAccuracy,
+    destination,
+    cyclingType,
+  ]);
+
   function handleStartChange(nextStart) {
+    if (navigationActive) {
+      stopNavigation({ quiet: true });
+    }
     setStart(nextStart);
     setStartUsesCurrentLocation(false);
     setStartMapCoordinate(null);
   }
 
   function handleDestinationChange(nextDestination) {
+    if (navigationActive) {
+      stopNavigation({ quiet: true });
+    }
     setDestination(nextDestination);
     setDestinationMapCoordinate(null);
   }
@@ -436,6 +510,9 @@ export default function App() {
   }
 
   function changeMode(nextMode) {
+    if (navigationActive) {
+      stopNavigation({ quiet: true });
+    }
     setMode(nextMode);
 
     if (start.trim() && destination.trim()) {
@@ -480,6 +557,10 @@ export default function App() {
   }
 
   function swapLocations() {
+    if (navigationActive) {
+      stopNavigation({ quiet: true });
+    }
+
     const nextStart = destination;
     const nextDestination =
       startUsesCurrentLocation && currentLocation
@@ -570,6 +651,86 @@ export default function App() {
     );
   }, [currentLocation]);
 
+  function stopNavigation({ quiet = false } = {}) {
+    if (navigationWatchId.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(navigationWatchId.current);
+      navigationWatchId.current = null;
+    }
+
+    setNavigationActive(false);
+    setNavigationAccuracy(null);
+    setNavigationHeading(null);
+    setNavigationSpeedMps(null);
+    navigationOffRouteSamples.current = 0;
+
+    if (!quiet) {
+      setError(false);
+      setStatus("Navigation stopped.");
+    }
+  }
+
+  function startNavigation() {
+    if (!selectedRoute?.route_coordinates?.length) {
+      setError(true);
+      setStatus("Find a route before starting navigation.");
+      return;
+    }
+
+    if (displayedMode === "transit") {
+      setError(true);
+      setStatus("Turn-by-turn navigation currently supports driving, walking, and cycling routes.");
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setError(true);
+      setStatus("Live navigation is not supported by this browser.");
+      return;
+    }
+
+    if (navigationWatchId.current != null) {
+      navigator.geolocation.clearWatch(navigationWatchId.current);
+    }
+
+    setNavigationActive(true);
+    setStart("Current location");
+    setStartUsesCurrentLocation(true);
+    setError(false);
+    setStatus("Navigation started • waiting for a high-accuracy GPS fix...");
+
+    navigationWatchId.current = navigator.geolocation.watchPosition(
+      position => {
+        const location = [position.coords.latitude, position.coords.longitude];
+        setCurrentLocation(location);
+        setStartMapCoordinate(location);
+        setNavigationAccuracy(
+          Number.isFinite(position.coords.accuracy)
+            ? position.coords.accuracy
+            : null
+        );
+        setNavigationHeading(
+          Number.isFinite(position.coords.heading)
+            ? position.coords.heading
+            : null
+        );
+        setNavigationSpeedMps(
+          Number.isFinite(position.coords.speed) ? position.coords.speed : null
+        );
+        setStatus("Navigation active");
+      },
+      locationError => {
+        console.error("Navigation GPS error:", locationError);
+        setError(true);
+        setStatus("Navigation lost access to your location.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 1000,
+      }
+    );
+  }
+
   function selectRoute(routeNumber) {
     setSelectedRouteNumber(routeNumber);
     setHoveredRouteNumber(null);
@@ -583,35 +744,6 @@ export default function App() {
 
     setStepFocusCoordinate(step.coordinates);
     setStepFocusKey(key => key + 1);
-  }
-
-  async function triggerRebuild() {
-    if (rebuildLoading) {
-      return;
-    }
-
-    setRebuildLoading(true);
-    setError(false);
-    setStatus("Starting rebuild...");
-
-    try {
-      const response = await fetch("/api/rebuild", {
-        method: "POST",
-      });
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "Could not start rebuild.");
-      }
-
-      setStatus(result.message || "Rebuild started.");
-    } catch (rebuildError) {
-      console.error("Rebuild error:", rebuildError);
-      setError(true);
-      setStatus(rebuildError.message || "Could not start rebuild.");
-    } finally {
-      setRebuildLoading(false);
-    }
   }
 
   async function shareRoute() {
@@ -665,7 +797,14 @@ export default function App() {
     findLocation({ focus: false, quiet: true });
   }, [findLocation]);
 
-  const displayedMode = data?.mode || mode;
+  useEffect(() => {
+    return () => {
+      if (navigationWatchId.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(navigationWatchId.current);
+      }
+    };
+  }, []);
+
   const controlSurface = darkMode
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
@@ -755,6 +894,12 @@ export default function App() {
           onStepSelect={focusStep}
           onShareRoute={shareRoute}
           displayedMode={displayedMode}
+          navigationActive={navigationActive}
+          navigationInfo={navigationInfo}
+          navigationAccuracy={navigationAccuracy}
+          navigationSpeedMps={navigationSpeedMps}
+          onStartNavigation={startNavigation}
+          onStopNavigation={() => stopNavigation()}
           status={status}
           error={error}
           darkMode={darkMode}
@@ -807,6 +952,9 @@ export default function App() {
           onSelectRoute={selectRoute}
           onHoverRoute={setHoveredRouteNumber}
           currentLocation={currentLocation}
+          navigationActive={navigationActive}
+          navigationAccuracy={navigationAccuracy}
+          navigationHeading={navigationHeading}
           startCoordinate={
             startUsesCurrentLocation ? currentLocation : startMapCoordinate
           }
@@ -827,19 +975,6 @@ export default function App() {
         />
 
         <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[62vh]">
-          <button
-            type="button"
-            onClick={triggerRebuild}
-            disabled={rebuildLoading}
-            title="Run rebuild.sh through webhook.py"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white disabled:cursor-wait disabled:opacity-60 ${controlSurface}`}
-          >
-            <MdRefresh className={`text-lg ${rebuildLoading ? "animate-spin" : ""}`} />
-            <span className="max-[900px]:hidden">
-              {rebuildLoading ? "Starting..." : "Rebuild"}
-            </span>
-          </button>
-
           <div
             className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
           >

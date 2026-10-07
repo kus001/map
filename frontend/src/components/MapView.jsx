@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Circle,
   CircleMarker,
   MapContainer,
   Marker,
@@ -149,6 +150,36 @@ function MapEffects({
   return null;
 }
 
+function NavigationFollow({ active, location }) {
+  const map = useMap();
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!active) {
+      started.current = false;
+      return;
+    }
+
+    if (!validCoordinate(location)) {
+      return;
+    }
+
+    const target = [Number(location[0]), Number(location[1])];
+    if (!started.current) {
+      started.current = true;
+      map.flyTo(target, Math.max(map.getZoom(), 17), {
+        animate: true,
+        duration: 0.8,
+      });
+      return;
+    }
+
+    map.panTo(target, { animate: true, duration: 0.45 });
+  }, [map, active, location]);
+
+  return null;
+}
+
 function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   const [point, setPoint] = useState(null);
 
@@ -209,6 +240,119 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
         </div>
       </div>
     </Popup>
+  );
+}
+
+function TransitStopMarker({ stop, darkMode }) {
+  const [board, setBoard] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [boardLoadedAt, setBoardLoadedAt] = useState(0);
+
+  async function loadBoard() {
+    const freshEnough = board && Date.now() - boardLoadedAt < 30000;
+    if (stop.agency !== "go" || loading || freshEnough) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `/api/transit/live-departures?agency=go&stop_id=${encodeURIComponent(
+          stop.raw_id || stop.id
+        )}&limit=4`
+      );
+      const result = await response.json();
+      setBoard(result);
+      setBoardLoadedAt(Date.now());
+    } catch (error) {
+      console.warn("Could not load GO live departures:", error);
+      setBoard({ success: false, connected: false, error: "request_failed" });
+      setBoardLoadedAt(Date.now());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const goStop = stop.agency === "go";
+  const departures = board?.departures ?? [];
+
+  return (
+    <CircleMarker
+      center={stop.coordinates}
+      radius={goStop ? 5 : 4}
+      pathOptions={{
+        color: "#FFFFFF",
+        weight: 2,
+        fillColor: goStop ? "#007A53" : MODE_COLORS.transit,
+        fillOpacity: 1,
+      }}
+      eventHandlers={{ popupopen: loadBoard }}
+    >
+      <Popup minWidth={goStop ? 250 : 120}>
+        <div className={darkMode ? "text-charcoal" : ""}>
+          <div className="font-semibold">{stop.name}</div>
+          {goStop && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                  GO live departures
+                </div>
+                {boardLoadedAt > 0 && !loading && (
+                  <div className="text-[9px] text-slate-500">30 s refresh</div>
+                )}
+              </div>
+
+              {loading && <div className="mt-1 text-xs">Loading live times…</div>}
+
+              {!loading && board && !board.connected && (
+                <div className="mt-1 text-xs leading-4 text-slate-600">
+                  {board.configured === false
+                    ? "Add METROLINX_API_KEY on the server to enable GO live times."
+                    : "GO live times are temporarily unavailable."}
+                </div>
+              )}
+
+              {!loading && departures.length > 0 && (
+                <div className="mt-1.5 space-y-1.5">
+                  {departures.map((departure, index) => (
+                    <div
+                      key={`${departure.trip_number || departure.line_code}-${index}`}
+                      className="rounded-md bg-slate-100 px-2 py-1.5 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-3 font-semibold">
+                        <span>
+                          {departure.line_code || departure.line_name || "GO"}
+                          {departure.direction ? ` → ${departure.direction}` : ""}
+                        </span>
+                        <span>{departure.computed_time || departure.scheduled_time}</span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-slate-600">
+                        <span>{departure.status || "Scheduled"}</span>
+                        {Math.abs(departure.delay_min || 0) >= 1 && (
+                          <span>
+                            {departure.delay_min > 0 ? "+" : ""}
+                            {Math.round(departure.delay_min)} min
+                          </span>
+                        )}
+                        {(departure.actual_platform || departure.scheduled_platform) && (
+                          <span>
+                            Platform {departure.actual_platform || departure.scheduled_platform}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!loading && board?.connected && departures.length === 0 && (
+                <div className="mt-1 text-xs text-slate-600">No upcoming GO service returned.</div>
+              )}
+            </div>
+          )}
+        </div>
+      </Popup>
+    </CircleMarker>
   );
 }
 
@@ -286,6 +430,9 @@ export default function MapView({
   onHoverRoute = () => {},
   displayedMode,
   currentLocation,
+  navigationActive = false,
+  navigationAccuracy = null,
+  navigationHeading = null,
   startCoordinate,
   destinationCoordinate,
   startLabel = "Start",
@@ -349,6 +496,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+      <NavigationFollow active={navigationActive} location={currentLocation} />
 
       <TileLayer
         key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
@@ -428,19 +576,7 @@ export default function MapView({
       {(route?.transit_stops ?? [])
         .filter(stop => validCoordinate(stop.coordinates))
         .map(stop => (
-          <CircleMarker
-            key={stop.id}
-            center={stop.coordinates}
-            radius={4}
-            pathOptions={{
-              color: "#FFFFFF",
-              weight: 2,
-              fillColor: MODE_COLORS.transit,
-              fillOpacity: 1,
-            }}
-          >
-            <Popup>{stop.name}</Popup>
-          </CircleMarker>
+          <TransitStopMarker key={stop.id} stop={stop} darkMode={darkMode} />
         ))}
 
       {(route?.live_vehicles ?? [])
@@ -466,7 +602,7 @@ export default function MapView({
           </CircleMarker>
         ))}
 
-      {validCoordinate(visibleStart) && (
+      {!navigationActive && validCoordinate(visibleStart) && (
         <Marker
           position={visibleStart}
           icon={START_ICON}
@@ -506,6 +642,23 @@ export default function MapView({
         </Marker>
       )}
 
+      {navigationActive &&
+        validCoordinate(currentLocation) &&
+        Number.isFinite(Number(navigationAccuracy)) &&
+        Number(navigationAccuracy) > 0 && (
+          <Circle
+            center={currentLocation}
+            radius={Number(navigationAccuracy)}
+            pathOptions={{
+              color: "#4E7CA8",
+              weight: 1,
+              opacity: 0.35,
+              fillColor: "#4E7CA8",
+              fillOpacity: 0.08,
+            }}
+          />
+        )}
+
       {validCoordinate(currentLocation) && (
         <CircleMarker
           center={currentLocation}
@@ -517,15 +670,27 @@ export default function MapView({
             fillOpacity: 1,
           }}
         >
-          <Popup>Your current location</Popup>
+          <Popup>
+            {navigationActive ? "Live navigation position" : "Your current location"}
+            {navigationActive && Number.isFinite(Number(navigationAccuracy)) && (
+              <div className="mt-1 text-[10px] opacity-60">
+                GPS ±{Math.round(Number(navigationAccuracy))} m
+                {Number.isFinite(Number(navigationHeading))
+                  ? ` • heading ${Math.round(Number(navigationHeading))}°`
+                  : ""}
+              </div>
+            )}
+          </Popup>
         </CircleMarker>
       )}
 
-      <MapPointPicker
-        darkMode={darkMode}
-        onSetStart={onSetMapStart}
-        onSetDestination={onSetMapDestination}
-      />
+      {!navigationActive && (
+        <MapPointPicker
+          darkMode={darkMode}
+          onSetStart={onSetMapStart}
+          onSetDestination={onSetMapDestination}
+        />
+      )}
 
       <MapEffects
         routeCoordinates={routeCoordinates}

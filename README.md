@@ -4,22 +4,22 @@
 
 #### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app)
 
-Street view: 
+#### Street view: 
 ![Example run!](assets/lightmode.png)
 
-^^ Light Mode ^^ | | | vv Dark Mode vv
+↑↑ Light Mode ↑↑ | | | ↓↓ Dark Mode ↓↓
 
 ![Dark mode example](assets/darkmode.png)
 
-Satellite: 
+#### Satellite: 
 
 ![Satellite Dark Mode Example](assets/dark_sat.png)
 
-^^ Dark Mode (Satellite) ^^ | | | vv Light Mode (Satellite) vv
+↑↑ Dark Mode (Satellite) ↑↑ | | | ↓↓ Light Mode (Satellite) ↓↓
 
 ![Satelite Light Mode Example](assets/light_sat.png)
 
-#### more views incoming...
+##### more views incoming...
 
 ## Running / Using [MAP](https://map.host-transit-page.hackclub.app/)
 
@@ -27,6 +27,8 @@ Satellite:
 
 If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
 (A new URL may be incoming!)
+
+MAP is now back on Vercel! It can be accessed with [here](https://map-thirdspace.vercel.app/).
 
 </div>
 

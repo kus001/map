@@ -235,6 +235,7 @@ def normalize_color(value):
 
 
 def vehicle_label(agency, route_type=None):
+    print(route_type)
     labels = {
         "0": "tram",
         "1": "subway",

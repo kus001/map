@@ -1,7 +1,6 @@
 #code from https://github.com/CyrilSLi/transit-trackers/blob/main/ontario/grt-electric.py
 
 from google.transit import gtfs_realtime_pb2
-import os
 
 # From https://stackoverflow.com/a/76217135
 from urllib3.util import create_urllib3_context

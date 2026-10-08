@@ -44,31 +44,29 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
+MAX_NEARBY_STOPS = 12
 
-MAX_NEARBY_STOPS = 250
-FASTEST_NEARBY_STOPS = 600
-
+# Transit access-stop preference. The router searches the shorter-walk tiers first.
+# If a valid route exists from nearby stops, it will wait for that service instead of
+# walking a long distance just to catch an earlier bus. It only expands the walk
+# radius when no usable transit route exists in the smaller tier.
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "soft_walk_m": 700,
-        "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (600, 900, 1200),
+        "max_nearby_stops": 12,
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 300,
-        "walk_penalty": 2.0,   # each minute past soft_walk_m counts triple
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (350, 600, 900, 1200),
+        "max_nearby_stops": 14,
     },
     "fastest": {
         "label": "Fastest",
-        "soft_walk_m": 0,
-        "walk_penalty": 0.0,   # no limiter: pure time
-        "max_nearby_stops": FASTEST_NEARBY_STOPS,
+        "access_walk_tiers_m": (1600,),
+        "max_nearby_stops": 12,
     },
 }
-
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
@@ -77,12 +75,16 @@ REALTIME_SCHEDULE_WINDOW_HOURS = 3
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "0") == "1"
 MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "3")), 4))
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
+LIVE_VEHICLE_MAX_AGE_SECONDS = max(30, int(os.getenv("LIVE_VEHICLE_MAX_AGE_SECONDS", "180")))
 
 _data = None
 graph = None
 stops = None
 _transit_load_lock = threading.Lock()
 _realtime_started = False
+_scheduled_trip_cache = OrderedDict()
+_scheduled_trip_cache_lock = threading.Lock()
+MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 
 
 def ensure_transit_loaded(verbose=False):
@@ -179,6 +181,233 @@ def polyline_distance_m(points):
     return sum(haversine_m(points[i - 1], points[i]) for i in range(1, len(points)))
 
 
+def point_along_polyline(points, fraction):
+    """Return a distance-weighted point along a polyline."""
+    if not points:
+        return None
+    if len(points) == 1:
+        return [float(points[0][0]), float(points[0][1])]
+
+    fraction = max(0.0, min(1.0, float(fraction)))
+    lengths = [
+        haversine_m(points[index - 1], points[index])
+        for index in range(1, len(points))
+    ]
+    total = sum(lengths)
+    if total <= 0:
+        return [float(points[0][0]), float(points[0][1])]
+
+    target = total * fraction
+    travelled = 0.0
+    for index, segment_length in enumerate(lengths, start=1):
+        if travelled + segment_length >= target:
+            local = 0.0 if segment_length <= 0 else (target - travelled) / segment_length
+            start = points[index - 1]
+            end = points[index]
+            return [
+                float(start[0]) + (float(end[0]) - float(start[0])) * local,
+                float(start[1]) + (float(end[1]) - float(start[1])) * local,
+            ]
+        travelled += segment_length
+
+    return [float(points[-1][0]), float(points[-1][1])]
+
+
+def live_vehicle_is_usable(vehicle, now=None):
+    """Reject stale GPS fixes so the UI can fall back to a schedule estimate."""
+    if not vehicle:
+        return False
+
+    timestamp = vehicle.get("timestamp")
+    if timestamp in (None, ""):
+        # Some valid feeds omit timestamps on individual vehicle entities.
+        return True
+
+    try:
+        timestamp = float(timestamp)
+    except (TypeError, ValueError):
+        return True
+
+    now_timestamp = (now or datetime.now(TRANSIT_TIMEZONE)).timestamp()
+    age = now_timestamp - timestamp
+    return -60 <= age <= LIVE_VEHICLE_MAX_AGE_SECONDS
+
+
+def _load_scheduled_trip_hops(trip_keys):
+    """Load static hop schedules for only the requested trips, then cache them.
+
+    The transit graph already contains every GTFS stop-to-stop hop. A selected route
+    only needs a handful of trip IDs, so scan once for any uncached IDs and retain
+    those timelines for future 15-second refreshes without building another large
+    global index in memory.
+    """
+    ensure_transit_loaded()
+    normalized = {(str(agency), str(trip_id)) for agency, trip_id in trip_keys if trip_id}
+    if not normalized:
+        return {}
+
+    with _scheduled_trip_cache_lock:
+        missing = {key for key in normalized if key not in _scheduled_trip_cache}
+
+    if missing:
+        wanted_by_agency = {}
+        for agency, trip_id in missing:
+            wanted_by_agency.setdefault(agency, set()).add(trip_id)
+
+        found = {key: [] for key in missing}
+        for from_stop, neighbors in graph.items():
+            agency = stop_agency(from_stop)
+            wanted = wanted_by_agency.get(agency)
+            if not wanted:
+                continue
+
+            for to_stop, route_options in neighbors.items():
+                for trips in route_options.values():
+                    for edge in trips:
+                        trip_id = str(edge.get("trip_id") or "")
+                        if trip_id not in wanted:
+                            continue
+                        departure = edge.get("departure_time")
+                        arrival = edge.get("arrival_time")
+                        if departure is None or arrival is None:
+                            continue
+                        found[(agency, trip_id)].append(
+                            {
+                                **edge,
+                                "from_stop": from_stop,
+                                "to_stop": to_stop,
+                            }
+                        )
+
+        with _scheduled_trip_cache_lock:
+            for key, hops in found.items():
+                hops.sort(key=lambda hop: float(hop.get("departure_time") or 0))
+                _scheduled_trip_cache[key] = hops
+                _scheduled_trip_cache.move_to_end(key)
+
+            while len(_scheduled_trip_cache) > MAX_SCHEDULED_TRIP_CACHE_ENTRIES:
+                _scheduled_trip_cache.popitem(last=False)
+
+    with _scheduled_trip_cache_lock:
+        return {key: list(_scheduled_trip_cache.get(key, [])) for key in normalized}
+
+
+def scheduled_vehicle_positions(steps, realtime=None, now=None):
+    """Estimate selected vehicles from GTFS when a usable live GPS fix is absent.
+
+    Estimates use the complete trip timeline stored in the transit graph, select the
+    stop-to-stop hop the vehicle should currently occupy, and interpolate along the
+    GTFS shape for that hop. When TripUpdates still work but VehiclePositions do not,
+    their delay is applied to the estimate.
+    """
+    now = normalize_departure_datetime(now or datetime.now(TRANSIT_TIMEZONE))
+    service_date, now_seconds = gtfs_service_clock(now)
+    realtime = realtime or {}
+
+    valid_steps = [
+        step
+        for step in (steps or [])
+        if isinstance(step, dict)
+        and step.get("agency")
+        and step.get("trip_id")
+    ]
+    keys = {(str(step["agency"]), str(step["trip_id"])) for step in valid_steps}
+    timelines = _load_scheduled_trip_hops(keys)
+    estimates = []
+    seen = set()
+
+    for step in valid_steps:
+        agency = str(step.get("agency") or "")
+        trip_id = str(step.get("trip_id") or "")
+        key = (agency, trip_id)
+        if key in seen or not trip_active(trip_id, service_date):
+            continue
+
+        hops = timelines.get(key) or []
+        if not hops:
+            continue
+
+        active = None
+        active_departure = None
+        active_arrival = None
+        delay_adjusted = False
+        at_stop = False
+
+        for index, hop in enumerate(hops):
+            departure, _, live_departure = adjusted_departure(
+                realtime, agency, hop, raw_stop_id(hop["from_stop"])
+            )
+            arrival, _, live_arrival = adjusted_arrival(
+                realtime, agency, hop, raw_stop_id(hop["to_stop"])
+            )
+            if departure is None or arrival is None:
+                continue
+
+            delay_adjusted = delay_adjusted or live_departure or live_arrival
+            if departure <= now_seconds <= arrival:
+                active = hop
+                active_departure = float(departure)
+                active_arrival = float(arrival)
+                break
+
+            # During a scheduled dwell, keep the estimate at the stop instead of
+            # making the vehicle jump immediately onto the next segment.
+            if now_seconds < departure and index > 0:
+                previous = hops[index - 1]
+                previous_arrival, _, previous_live = adjusted_arrival(
+                    realtime, agency, previous, raw_stop_id(previous["to_stop"])
+                )
+                delay_adjusted = delay_adjusted or previous_live
+                if previous_arrival is not None and previous_arrival <= now_seconds:
+                    active = hop
+                    active_departure = float(departure)
+                    active_arrival = float(departure)
+                    at_stop = True
+                break
+
+        if active is None:
+            continue
+
+        from_coordinates = stop_coords((active["from_stop"], stops[active["from_stop"]]))
+        to_coordinates = stop_coords((active["to_stop"], stops[active["to_stop"]]))
+        if at_stop or active_arrival <= active_departure:
+            fraction = 0.0
+        else:
+            fraction = (now_seconds - active_departure) / (active_arrival - active_departure)
+
+        geometry, _ = shape_for_trip(
+            agency,
+            trip_id,
+            from_coordinates,
+            to_coordinates,
+            step.get("route") or "",
+            step.get("headsign") or "",
+        )
+        geometry = geometry or [from_coordinates, to_coordinates]
+        position = point_along_polyline(geometry, fraction)
+        if not position:
+            continue
+
+        estimates.append(
+            {
+                "agency": agency,
+                "trip_id": trip_id,
+                "route": step.get("route"),
+                "headsign": step.get("headsign"),
+                "lat": float(position[0]),
+                "lon": float(position[1]),
+                "timestamp": int(now.timestamp()),
+                "position_source": "schedule_adjusted" if delay_adjusted else "scheduled",
+                "estimated": True,
+                "from_stop_id": raw_stop_id(active["from_stop"]),
+                "to_stop_id": raw_stop_id(active["to_stop"]),
+            }
+        )
+        seen.add(key)
+
+    return estimates
+
+
 def time_label(value):
     if value is None:
         return None
@@ -264,7 +493,6 @@ def normalize_color(value):
 
 
 def vehicle_label(agency, route_type=None):
-    print(route_type)
     labels = {
         "0": "tram",
         "1": "subway",
@@ -400,24 +628,16 @@ def trip_active(trip_id, date):
     return _data.is_trip_active(trip_id, date)
 
 
-def access_walk_cost(distance_m, soft_walk_m, walk_penalty):
-    """Return (real_minutes, penalty_minutes) for walking distance_m to/from a stop.
+def candidate_stops(options, max_distance_m, max_count=MAX_NEARBY_STOPS):
+    """Return nearby transit stops without silently expanding the walking radius.
 
-    Only the real minutes advance the clock. The penalty is added to a route's
-    ranking score so long walks get steadily less attractive instead of being
-    cut off at a fixed distance.
+    The caller controls fallback/expansion by trying progressively larger distance
+    tiers. This is what lets a rider wait at a closer stop instead of the router
+    immediately choosing a much longer walk for a slightly earlier arrival.
     """
-    real = access_walk_minutes(distance_m)
-    excess_m = max(0.0, float(distance_m) - float(soft_walk_m))
-    return real, access_walk_minutes(excess_m) * float(walk_penalty)
-
-
-def candidate_stops(options, max_distance_m=None, max_count=MAX_NEARBY_STOPS):
-    """Nearest stops first. A distance cap is now optional (None = no hard limit)."""
     ordered = sorted((o for o in options if o[1] is not None), key=lambda o: o[0])
-    if max_distance_m is not None:
-        ordered = [o for o in ordered if o[0] <= max_distance_m]
-    return ordered[:max_count]
+    nearby = [o for o in ordered if o[0] <= max_distance_m]
+    return nearby[:max_count]
 
 
 def transit_preference_profile(value):
@@ -502,24 +722,18 @@ def search_transit(
     realtime,
     departure_datetime=None,
     safety_buffer=TRANSFER_BUFFER_MIN,
-    soft_walk_m=1000,
-    walk_penalty=1.0,
+    max_access_walk_m=1200,
     max_nearby_stops=MAX_NEARBY_STOPS,
     excluded_route_keys=None,
 ):
-    """Returns (path, real_minutes, start_option, end_option).
-
-    real_minutes is true door-to-door time (walk + wait + ride + walk), with no
-    penalty included, so callers can compare it against other modes.
-    """
     departure_datetime = normalize_departure_datetime(departure_datetime)
     service_date, now_seconds = gtfs_service_clock(departure_datetime)
     excluded_route_keys = {
         (str(agency), str(route)) for agency, route in (excluded_route_keys or set())
     }
 
-    start_options = candidate_stops(start_options, None, max_nearby_stops)
-    end_options = candidate_stops(end_options, None, max_nearby_stops)
+    start_options = candidate_stops(start_options, max_access_walk_m, max_nearby_stops)
+    end_options = candidate_stops(end_options, max_access_walk_m, max_nearby_stops)
 
     if not start_options or not end_options:
         return None, float("inf"), None, None
@@ -543,37 +757,37 @@ def search_transit(
         cached = heuristic_cache.get(stop_id)
         if cached is not None:
             return cached
+
         here = coord(stops[stop_id])
         best = float("inf")
+
         for goal_id, option in ends.items():
             target = coord(stops[goal_id])
             straight_km = haversine_m(here, target) / 1000
-            end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
-            # Still admissible: ride time is a lower bound, penalties are >= 0.
-            optimistic = straight_km / HEURISTIC_SPEED_KMH * 60 + end_real + end_pen
+            optimistic = (
+                straight_km / HEURISTIC_SPEED_KMH * 60
+                + access_walk_minutes(option[0])
+            )
             best = min(best, optimistic)
+
         heuristic_cache[stop_id] = best
         return best
 
     queue = []
-    costs = {}        # state -> (true minutes g, boardings)
-    scores = {}       # state -> (g + penalty, boardings)  used for pruning
-    penalty_of = {}   # state -> accumulated soft penalty (minutes)
+    costs = {}
     parent = {}
     seed_costs = {}
     tie = count()
 
     for stop_id, option in starts.items():
-        access_min, start_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
+        access_min = access_walk_minutes(option[0])
         state = (stop_id, None)
         costs[state] = (access_min, 0)
-        scores[state] = (round(access_min + start_pen, 6), 0)
-        penalty_of[state] = start_pen
         seed_costs[state] = access_min
         heappush(
             queue,
             (
-                access_min + start_pen + heuristic(stop_id),
+                access_min + heuristic(stop_id),
                 access_min,
                 0,
                 next(tie),
@@ -582,8 +796,7 @@ def search_transit(
             ),
         )
 
-    best_total = float("inf")   # ranking score (includes penalties)
-    best_real = float("inf")    # true minutes of the best-ranked route
+    best_total = float("inf")
     best_state = None
     best_end = None
 
@@ -599,16 +812,10 @@ def search_transit(
         if abs(current_g - popped_g) > 1e-9 or boardings != popped_boardings:
             continue
 
-        current_pen = penalty_of.get(state, 0.0)
-
         if stop_id in ends:
-            end_real, end_pen = access_walk_cost(
-                ends[stop_id][0], soft_walk_m, walk_penalty
-            )
-            total = current_g + current_pen + end_real + end_pen
+            total = current_g + access_walk_minutes(ends[stop_id][0])
             if total < best_total:
                 best_total = total
-                best_real = current_g + end_real
                 best_state = state
                 best_end = ends[stop_id]
 
@@ -620,11 +827,13 @@ def search_transit(
             for route_key, trips in route_options.items():
                 choices = []
 
-                # ---- unchanged: build `choices` for __walk__ edges, continuing
-                # ---- trips, and new boardings exactly as in the original ----
+                if route_key != "__walk__" and (agency, str(route_key)) in excluded_route_keys:
+                    continue
+
                 if route_key == "__walk__":
                     if not trips:
                         continue
+
                     edge = dict(trips[0])
                     edge["_wait_minutes"] = 0.0
                     edge["_realtime"] = False
@@ -637,20 +846,30 @@ def search_transit(
                         if current_trip is not None
                         else None
                     )
+
                     if continuing is not None:
                         departure, dep_delay, live_dep = adjusted_departure(
-                            realtime, agency, continuing, raw_stop_id(stop_id)
+                            realtime,
+                            agency,
+                            continuing,
+                            raw_stop_id(stop_id),
                         )
                         arrival, arr_delay, live_arr = adjusted_arrival(
-                            realtime, agency, continuing, raw_stop_id(neighbor_id)
+                            realtime,
+                            agency,
+                            continuing,
+                            raw_stop_id(neighbor_id),
                         )
+
                         if departure is None:
                             continue
+
                         static_duration = float(continuing.get("distance", 0))
                         if arrival is not None:
                             ride_min = max(0.0, (arrival - current_arrival) / 60)
                         else:
                             ride_min = static_duration
+
                         edge = dict(continuing)
                         edge["_wait_minutes"] = 0.0
                         edge["_realtime"] = bool(live_dep or live_arr)
@@ -658,17 +877,25 @@ def search_transit(
                         edge["_actual_departure_time"] = departure
                         edge["_actual_arrival_time"] = arrival
                         edge["_ride_minutes"] = ride_min
+
                         choices.append((ride_min, str(current_trip), edge, boardings))
                     else:
                         earliest = current_arrival
                         if not is_seed:
                             earliest += safety_buffer * 60
+
                         selected = _candidate_trip(
-                            schedule, agency, stop_id, neighbor_id,
-                            earliest, service_date, realtime,
+                            schedule,
+                            agency,
+                            stop_id,
+                            neighbor_id,
+                            earliest,
+                            service_date,
+                            realtime,
                         )
                         if selected is None:
                             continue
+
                         trip, departure, arrival, dep_delay, has_live, arr_delay = selected
                         wait_min = max(0.0, (departure - current_arrival) / 60)
                         static_duration = float(trip.get("distance", 0))
@@ -677,6 +904,7 @@ def search_transit(
                             if arrival is not None
                             else static_duration
                         )
+
                         edge = dict(trip)
                         edge["_wait_minutes"] = wait_min
                         edge["_realtime"] = bool(has_live)
@@ -684,33 +912,37 @@ def search_transit(
                         edge["_actual_departure_time"] = departure
                         edge["_actual_arrival_time"] = arrival
                         edge["_ride_minutes"] = ride_min
+
                         choices.append(
-                            (wait_min + ride_min, str(trip.get("trip_id")), edge, boardings + 1)
+                            (
+                                wait_min + ride_min,
+                                str(trip.get("trip_id")),
+                                edge,
+                                boardings + 1,
+                            )
                         )
-                # ---- end unchanged block ----
 
                 for extra, trip_id, edge, new_boardings in choices:
                     new_g = current_g + extra
-                    new_pen = current_pen
                     next_state = (neighbor_id, trip_id)
-                    new_score = (round(new_g + new_pen, 6), new_boardings)
+                    new_key = (round(new_g, 6), new_boardings)
 
-                    if new_score >= scores.get(next_state, (float("inf"), float("inf"))):
+                    if new_key >= costs.get(
+                        next_state, (float("inf"), float("inf"))
+                    ):
                         continue
 
-                    lower_bound = new_g + new_pen + heuristic(neighbor_id)
+                    lower_bound = new_g + heuristic(neighbor_id)
                     if lower_bound >= best_total:
                         continue
 
-                    costs[next_state] = (new_g, new_boardings)
-                    scores[next_state] = new_score
-                    penalty_of[next_state] = new_pen
+                    costs[next_state] = new_key
                     parent[next_state] = (state, edge)
                     heappush(
                         queue,
                         (
                             lower_bound,
-                            new_g,
+                            new_key[0],
                             new_boardings,
                             next(tie),
                             neighbor_id,
@@ -723,6 +955,7 @@ def search_transit(
 
     path = []
     state = best_state
+
     while state in parent:
         previous, edge = parent[state]
         path.append((state[0], stops[state[0]], edge))
@@ -732,7 +965,7 @@ def search_transit(
     path.append((start_stop_id, stops[start_stop_id], None))
     path.reverse()
 
-    return path, best_real, starts[start_stop_id], best_end
+    return path, best_total, starts[start_stop_id], best_end
 
 
 def is_transit_edge(edge):
@@ -971,15 +1204,28 @@ def get_transit_route(
 
     preference_key, preference = transit_preference_profile(transit_preference)
 
-    path, search_time, best_start, best_end = search_transit(
-        start_options,
-        end_options,
-        routing_realtime,
-        departure_datetime=requested_departure,
-        soft_walk_m=preference["soft_walk_m"],
-        walk_penalty=preference["walk_penalty"],
-        max_nearby_stops=preference["max_nearby_stops"],
-    )
+    path = None
+    search_time = float("inf")
+    best_start = None
+    best_end = None
+    selected_access_limit = None
+
+    # Search close stops first. Waiting is already part of the transit cost, so if a
+    # nearby stop has a later bus we can simply wait there. Only expand the allowed
+    # walk when no valid route exists at the current tier.
+    for access_limit_m in preference["access_walk_tiers_m"]:
+        path, search_time, best_start, best_end = search_transit(
+            start_options,
+            end_options,
+            routing_realtime,
+            departure_datetime=requested_departure,
+            max_access_walk_m=access_limit_m,
+            max_nearby_stops=preference["max_nearby_stops"],
+            excluded_route_keys=excluded_route_keys,
+        )
+        if path is not None and best_start is not None and best_end is not None:
+            selected_access_limit = access_limit_m
+            break
 
     mark("routing")
 
@@ -1235,16 +1481,25 @@ def get_transit_route(
             route_ids.add(str(meta["route_id"]))
 
         live_vehicle = vehicle_for_trip(routing_realtime, agency, trip_id)
-        if live_vehicle:
-            vehicle_key = (agency, trip_id)
+        vehicle_key = (agency, trip_id)
+        if live_vehicle_is_usable(live_vehicle, current_time):
             if vehicle_key not in used_vehicle_keys:
                 live_vehicles.append(
                     {
                         **live_vehicle,
                         "route": route_name,
                         "headsign": headsign,
+                        "position_source": "live",
+                        "estimated": False,
                     }
                 )
+                used_vehicle_keys.add(vehicle_key)
+        elif realtime_allowed and vehicle_key not in used_vehicle_keys:
+            scheduled = scheduled_vehicle_positions(
+                [step], realtime=routing_realtime, now=current_time
+            )
+            if scheduled:
+                live_vehicles.append(scheduled[0])
                 used_vehicle_keys.add(vehicle_key)
 
         for stop in group["stops"]:
@@ -1286,13 +1541,6 @@ def get_transit_route(
                 route_coordinates.append(point)
 
     total_time = max(0.0, float(search_time) + walk_adjustment)
-
-    if preference_key == "fastest":
-        if access_walk_minutes(haversine_m(start, end)) <= total_time:
-            direct_walk = walking_geometry(start, end)
-            if direct_walk["duration_min"] <= total_time:
-                return get_walking_route(start_address, end_address)
-
     distance_km = total_distance / 1000
 
     feed_timestamp = grt_realtime.get("feed_timestamp")
@@ -1329,6 +1577,9 @@ def get_transit_route(
         "feed_connected": any_live_feed_connected,
         "feed_age_seconds": feed_age if grt_connected_for_route else None,
         "used_live_updates": any(step.get("realtime") for step in steps),
+        "scheduled_vehicle_fallback": any(
+            bool(vehicle.get("estimated")) for vehicle in live_vehicles
+        ),
         "live_sources": live_sources,
         "grt_connected": grt_connected_for_route,
         "go_configured": go_realtime_configured(),
@@ -1361,8 +1612,8 @@ def get_transit_route(
         "departure_datetime": requested_departure.isoformat(),
         "transit_preference": preference_key,
         "transit_preference_label": preference["label"],
-        "access_walk_limit_m": preference["soft_walk_m"] or None,
-        "access_walk_limit_expanded": False,  # kept so older frontend code doesn't break
+        "access_walk_limit_m": selected_access_limit,
+        "access_walk_limit_expanded": selected_access_limit != preference["access_walk_tiers_m"][0],
     }
 
     alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)

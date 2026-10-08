@@ -161,7 +161,11 @@ def live_transit_state():
         snapshot as grt_snapshot,
         vehicle_for_trip,
     )
-    from transit import combine_realtime
+    from transit import (
+        combine_realtime,
+        live_vehicle_is_usable,
+        scheduled_vehicle_positions,
+    )
 
     grt = grt_snapshot()
     go = go_gtfs_snapshot()
@@ -211,17 +215,42 @@ def live_transit_state():
             "trip_id": trip_id,
             "delay_seconds": delay_seconds,
             "cancelled": cancelled,
+            "realtime": bool(update),
         })
 
         vehicle = vehicle_for_trip(realtime, agency, trip_id)
         vehicle_key = (agency, trip_id)
-        if vehicle and vehicle_key not in seen_vehicles:
+        if live_vehicle_is_usable(vehicle) and vehicle_key not in seen_vehicles:
             vehicles.append({
                 **vehicle,
                 "route": route,
                 "headsign": step.get("headsign"),
+                "position_source": "live",
+                "estimated": False,
             })
             seen_vehicles.add(vehicle_key)
+
+    # If a selected GRT/GO vehicle has no current GPS fix (feed outage, missing
+    # entity, or a stale position), keep the map useful by estimating where the
+    # scheduled trip should be from static GTFS. TripUpdate delays are still
+    # applied when that realtime feed remains available.
+    missing_vehicle_steps = [
+        step
+        for step in raw_steps
+        if isinstance(step, dict)
+        and step.get("type") == "transit"
+        and (str(step.get("agency") or ""), str(step.get("trip_id") or ""))
+        not in seen_vehicles
+    ]
+    scheduled_vehicles = scheduled_vehicle_positions(
+        missing_vehicle_steps, realtime=realtime
+    )
+    for vehicle in scheduled_vehicles:
+        vehicle_key = (str(vehicle.get("agency") or ""), str(vehicle.get("trip_id") or ""))
+        if vehicle_key in seen_vehicles:
+            continue
+        vehicles.append(vehicle)
+        seen_vehicles.add(vehicle_key)
 
     alerts = matching_alerts(
         realtime,
@@ -236,6 +265,9 @@ def live_transit_state():
         "trip_states": trip_states,
         "live_vehicles": vehicles,
         "alerts": alerts,
+        "scheduled_vehicle_fallback": any(
+            bool(vehicle.get("estimated")) for vehicle in vehicles
+        ),
         "sources": {
             "grt": {
                 "trip_updates": bool(grt.get("available")),

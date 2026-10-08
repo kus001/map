@@ -45,7 +45,6 @@ TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 
 MAX_NEARBY_STOPS = 250
 FASTEST_NEARBY_STOPS = 600
-
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
@@ -69,7 +68,7 @@ TRANSIT_PREFERENCES = {
 
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
-ACCESS_WALK_SPEED_MPS = 1.35
+ACCESS_WALK_SPEED_MPS = 1
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 
@@ -80,7 +79,7 @@ _transit_load_lock = threading.Lock()
 _realtime_started = False
 
 
-def ensure_transit_loaded(verbose=False):
+def ensure_transit_loaded(verbose=False) -> float:
     """Load the heavy transit graph only when transit is actually needed.
 
     `verbose=True` is used by the standalone local transit tester so the old
@@ -127,25 +126,25 @@ def stop_coords(entry) -> list[float, float]:
     return coord(entry[1])
 
 
-def stop_name(entry):
+def stop_name(entry) -> str:
     info = entry[1]
     return str(info[2]) if len(info) > 2 and info[2] else str(entry[0])
 
 
-def stop_agency(stop_id):
+def stop_agency(stop_id) -> str:
     return str(stop_id).split(":", 1)[0]
 
 
-def raw_stop_id(stop_id):
+def raw_stop_id(stop_id) -> str:
     text = str(stop_id)
     return text.split(":", 1)[1] if ":" in text else text
 
 
-def access_walk_minutes(distance_m):
+def access_walk_minutes(distance_m) -> float:
     return float(distance_m) / ACCESS_WALK_SPEED_MPS / 60
 
 
-def haversine_m(a, b):
+def haversine_m(a, b) -> float:
     lat1, lon1 = map(float, a[:2])
     lat2, lon2 = map(float, b[:2])
     radius = 6_371_000.0
@@ -162,13 +161,13 @@ def haversine_m(a, b):
     return 2 * radius * math.asin(math.sqrt(h))
 
 
-def polyline_distance_m(points):
+def polyline_distance_m(points) -> float:
     if not points or len(points) < 2:
         return 0.0
     return sum(haversine_m(points[i - 1], points[i]) for i in range(1, len(points)))
 
 
-def time_label(value):
+def time_label(value)-> str:
     if value is None:
         return None
 
@@ -227,7 +226,7 @@ def gtfs_service_clock(departure_datetime):
     return service_date, seconds
 
 
-def route_details(edge):
+def route_details(edge) -> tuple[str|None, str|None]:
     route_info = edge.get("route")
     headsign = edge.get("headsign")
 
@@ -245,7 +244,7 @@ def route_details(edge):
     return route_name, str(headsign) if headsign is not None else None
 
 
-def normalize_color(value):
+def normalize_color(value) -> str|None:
     value = str(value or "").strip().lstrip("#")
     if len(value) == 6 and all(c in "0123456789abcdefABCDEF" for c in value):
         return f"#{value}"
@@ -270,7 +269,7 @@ def vehicle_label(agency, route_type=None):
     if route_type is not None and str(route_type) in labels:
         return labels[str(route_type)]
     if agency == "grt_trains":
-        return "train"
+        return "tram"
     if agency == "grt_busses":
         return "bus"
     if agency == "go":
@@ -312,8 +311,7 @@ def _walking_route_cached(start_lat, start_lon, end_lat, end_lon):
     except Exception:
         return None
 
-
-def walking_geometry(start, end, fallback_min=None):
+def walking_geometry(start, end, fallback_min=None) -> dict:
     start = coord(start)
     end = coord(end)
     straight_distance = haversine_m(start, end)

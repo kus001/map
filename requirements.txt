@@ -6,3 +6,4 @@ pyproj
 aioconsole
 gtfs-realtime-bindings
 tzdata
+httpx

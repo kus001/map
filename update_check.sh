@@ -9,6 +9,7 @@ REMOTE=$(git rev-parse origin/main)
 
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "New update found: $LOCAL -> $REMOTE"
+    chmod +x rebuild.sh
     ./rebuild.sh
 else
     echo "No update."

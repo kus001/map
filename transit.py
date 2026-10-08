@@ -894,24 +894,15 @@ def get_transit_route(
 
     preference_key, preference = transit_preference_profile(transit_preference)
 
-    path = None
-    search_time = float("inf")
-    best_start = None
-    best_end = None
-    selected_access_limit = None
-    
-    for access_limit_m in preference["access_walk_tiers_m"]:
-        path, search_time, best_start, best_end = search_transit(
-            start_options,
-            end_options,
-            routing_realtime,
-            departure_datetime=requested_departure,
-            max_access_walk_m=access_limit_m,
-            max_nearby_stops=preference["max_nearby_stops"],
-        )
-        if path is not None and best_start is not None and best_end is not None:
-            selected_access_limit = access_limit_m
-            break
+    path, search_time, best_start, best_end = search_transit(
+        start_options,
+        end_options,
+        routing_realtime,
+        departure_datetime=requested_departure,
+        soft_walk_m=preference["soft_walk_m"],
+        walk_penalty=preference["walk_penalty"],
+        max_nearby_stops=preference["max_nearby_stops"],
+    )
 
     mark("routing")
 
@@ -1211,11 +1202,7 @@ def get_transit_route(
 
     total_time = max(0.0, float(search_time) + walk_adjustment)
 
-    # "Fastest" means fastest: if walking the whole way beats the real transit
-    # time (with ORS walking legs already folded in), return the walking route.
     if preference_key == "fastest":
-        # Straight-line walking is a lower bound, so only pay for a real walking
-        # route when walking could actually win.
         if access_walk_minutes(haversine_m(start, end)) <= total_time:
             direct_walk = walking_geometry(start, end)
             if direct_walk["duration_min"] <= total_time:

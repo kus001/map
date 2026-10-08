@@ -297,7 +297,9 @@ export default function RoutePanel({
               }${realtime.used_live_updates ? " • live prediction used" : ""}`
             : realtime.suppressed_for_scheduled_trip
               ? "Future trip — using the scheduled timetable until closer to departure"
-              : "Realtime unavailable — using scheduled transit data"}
+              : realtime.scheduled_vehicle_fallback
+                ? "Realtime vehicle GPS unavailable — showing scheduled vehicle estimates"
+                : "Realtime unavailable — using scheduled transit data"}
         </div>
       )}
 

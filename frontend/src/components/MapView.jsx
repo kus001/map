@@ -581,34 +581,47 @@ export default function MapView({
 
       {(route?.live_vehicles ?? [])
         .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]))
-        .map(vehicle => (
-          <CircleMarker
-            key={`${vehicle.agency}-${vehicle.trip_id}-${
-              vehicle.vehicle_id || "vehicle"
-            }`}
-            center={[vehicle.lat, vehicle.lon]}
-            radius={7}
-            pathOptions={{
-              color: "#FFFFFF",
-              weight: 3,
-              fillColor: "#D97706",
-              fillOpacity: 1,
-            }}
-          >
-            <Popup>
-              <div className="font-semibold">
-                {vehicle.agency === "go" ? "GO Transit" : "GRT"} • Live {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
-              </div>
-              {vehicle.headsign ? <div>toward {vehicle.headsign}</div> : null}
-              {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
-              {vehicle.timestamp ? (
-                <div className="mt-1 text-[10px] opacity-60">
-                  Position update {new Date(Number(vehicle.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+        .map(vehicle => {
+          const estimated = Boolean(vehicle.estimated);
+          const delayAdjusted = vehicle.position_source === "schedule_adjusted";
+          return (
+            <CircleMarker
+              key={`${vehicle.agency}-${vehicle.trip_id}-${
+                vehicle.vehicle_id || (estimated ? "scheduled" : "vehicle")
+              }`}
+              center={[vehicle.lat, vehicle.lon]}
+              radius={estimated ? 6 : 7}
+              pathOptions={{
+                color: "#FFFFFF",
+                weight: estimated ? 2 : 3,
+                fillColor: estimated ? "#64748B" : "#D97706",
+                fillOpacity: estimated ? 0.85 : 1,
+                dashArray: estimated ? "4 3" : undefined,
+              }}
+            >
+              <Popup>
+                <div className="font-semibold">
+                  {vehicle.agency === "go" ? "GO Transit" : "GRT"} • {
+                    estimated ? "Scheduled estimate" : "Live"
+                  } {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
                 </div>
-              ) : null}
-            </Popup>
-          </CircleMarker>
-        ))}
+                {vehicle.headsign ? <div>toward {vehicle.headsign}</div> : null}
+                {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
+                {estimated ? (
+                  <div className="mt-1 text-[10px] opacity-70">
+                    {delayAdjusted
+                      ? "Estimated from the timetable with the latest known delay."
+                      : "Estimated from the scheduled timetable; not a GPS position."}
+                  </div>
+                ) : vehicle.timestamp ? (
+                  <div className="mt-1 text-[10px] opacity-60">
+                    Position update {new Date(Number(vehicle.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+                  </div>
+                ) : null}
+              </Popup>
+            </CircleMarker>
+          );
+        })}
 
       {!navigationActive && validCoordinate(visibleStart) && (
         <Marker

@@ -1,17 +1,17 @@
+import asyncio
 import math
 import os
 import time
 import threading
 from collections import OrderedDict
 from bisect import bisect_left
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
 
-import requests
+import httpx
 from dotenv import load_dotenv
 
 from helpers._transit.go_realtime import (
@@ -508,30 +508,73 @@ def vehicle_label(agency, route_type=None):
     return "transit"
 
 
-@lru_cache(maxsize=64)
-def _walking_route_cached(start_lat, start_lon, end_lat, end_lon):
+_WALK_CACHE = OrderedDict()
+MAX_WALK_CACHE_ENTRIES = 512
+MAX_CONCURRENT_WALK_REQUESTS = 8
+
+
+def run_async(coro):
+    """Run a coroutine from synchronous code and return its result.
+
+    Normal case: no event loop is running in this thread, so asyncio.run() is used.
+    If this is called from inside a running loop (for example an `async def` web
+    handler), asyncio.run() would raise, so the coroutine is run on a fresh loop in a
+    short-lived helper thread instead.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    box = {}
+
+    def runner():
+        try:
+            box["value"] = asyncio.run(coro)
+        except BaseException as exc:  # re-raised in the caller below
+            box["error"] = exc
+
+    worker = threading.Thread(target=runner)
+    worker.start()
+    worker.join()
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def _walk_client():
+    return httpx.AsyncClient(
+        headers={
+            "Authorization": ORS_API_KEY or "",
+            "Accept": "application/json, application/geo+json",
+        },
+        timeout=12,
+    )
+
+
+async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
     if not ORS_API_KEY:
         return None
 
+    key = (start_lat, start_lon, end_lat, end_lon)
+    cached = _WALK_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     try:
-        response = requests.get(
+        response = await client.get(
             ORS_WALKING_URL,
-            headers={
-                "Authorization": ORS_API_KEY,
-                "Accept": "application/json, application/geo+json",
-            },
             params={
                 "start": f"{start_lon},{start_lat}",
                 "end": f"{end_lon},{end_lat}",
             },
-            timeout=12,
         )
         response.raise_for_status()
 
         feature = response.json()["features"][0]
         summary = feature.get("properties", {}).get("summary", {})
 
-        return {
+        result = {
             "coordinates": [
                 [float(lat), float(lon)]
                 for lon, lat in feature["geometry"]["coordinates"]
@@ -542,7 +585,25 @@ def _walking_route_cached(start_lat, start_lon, end_lat, end_lon):
     except Exception:
         return None
 
-def walking_geometry(start, end, fallback_min=None) -> dict:
+    # Failures are not cached, so a temporary ORS error doesn't stick.
+    _WALK_CACHE[key] = result
+    while len(_WALK_CACHE) > MAX_WALK_CACHE_ENTRIES:
+        try:
+            _WALK_CACHE.popitem(last=False)
+        except KeyError:
+            break
+    return result
+
+
+def _straight_walk(start, end, straight_distance, fallback_min):
+    return {
+        "coordinates": [start, end],
+        "distance_m": straight_distance,
+        "duration_min": float(fallback_min),
+    }
+
+
+async def walking_geometry_async(client, start, end, fallback_min=None) -> dict:
     start = coord(start)
     end = coord(end)
     straight_distance = haversine_m(start, end)
@@ -551,27 +612,35 @@ def walking_geometry(start, end, fallback_min=None) -> dict:
         fallback_min = access_walk_minutes(straight_distance)
 
     if straight_distance <= 35 or not TRANSIT_DETAILED_WALKS:
-        return {
-            "coordinates": [start, end],
-            "distance_m": straight_distance,
-            "duration_min": float(fallback_min),
-        }
+        return _straight_walk(start, end, straight_distance, fallback_min)
 
-    result = _walking_route_cached(
+    result = await _fetch_walking_route(
+        client,
         round(start[0], 6),
         round(start[1], 6),
         round(end[0], 6),
         round(end[1], 6),
     )
+    return result or _straight_walk(start, end, straight_distance, fallback_min)
 
-    if result:
-        return result
 
-    return {
-        "coordinates": [start, end],
-        "distance_m": straight_distance,
-        "duration_min": float(fallback_min),
-    }
+def walking_geometry(start, end, fallback_min=None) -> dict:
+    """Synchronous wrapper kept for existing callers."""
+    start = coord(start)
+    end = coord(end)
+    straight_distance = haversine_m(start, end)
+
+    if fallback_min is None:
+        fallback_min = access_walk_minutes(straight_distance)
+
+    if straight_distance <= 35 or not TRANSIT_DETAILED_WALKS:
+        return _straight_walk(start, end, straight_distance, fallback_min)
+
+    async def one():
+        async with _walk_client() as client:
+            return await walking_geometry_async(client, start, end, fallback_min)
+
+    return run_async(one())
 
 
 _SCHEDULE_CACHE = OrderedDict()
@@ -1091,31 +1160,41 @@ def group_path(path):
     return groups
 
 
+async def _fetch_walks_async(jobs):
+    gate = asyncio.Semaphore(MAX_CONCURRENT_WALK_REQUESTS)
+
+    async with _walk_client() as client:
+
+        async def one(key, start, end, fallback):
+            async with gate:
+                try:
+                    return key, await walking_geometry_async(client, start, end, fallback)
+                except Exception:
+                    return key, {
+                        "coordinates": [list(start), list(end)],
+                        "distance_m": haversine_m(start, end),
+                        "duration_min": fallback,
+                    }
+
+        pairs = await asyncio.gather(
+            *(one(key, *job) for key, job in jobs.items())
+        )
+
+    return dict(pairs)
+
+
 def fetch_walks(jobs):
     if not jobs:
         return {}
 
-    results = {}
-
-    with ThreadPoolExecutor(max_workers=min(3, len(jobs))) as pool:
-        futures = {
-            pool.submit(walking_geometry, start, end, fallback): key
+    if not TRANSIT_DETAILED_WALKS:
+        # No network involved (straight-line estimates), so skip the event loop.
+        return {
+            key: walking_geometry(start, end, fallback)
             for key, (start, end, fallback) in jobs.items()
         }
 
-        for future in as_completed(futures):
-            key = futures[future]
-            try:
-                results[key] = future.result()
-            except Exception:
-                start, end, fallback = jobs[key]
-                results[key] = {
-                    "coordinates": [list(start), list(end)],
-                    "distance_m": haversine_m(start, end),
-                    "duration_min": fallback,
-                }
-
-    return results
+    return run_async(_fetch_walks_async(jobs))
 
 
 def get_transit_route(

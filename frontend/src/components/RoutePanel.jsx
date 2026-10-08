@@ -1,7 +1,12 @@
 import { BsPersonWalking } from "react-icons/bs";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline, IoTimeOutline } from "react-icons/io5";
-import { MdCalendarMonth, MdDirectionsTransit, MdShare } from "react-icons/md";
+import {
+  MdCalendarMonth,
+  MdDirectionsTransit,
+  MdNavigation,
+  MdShare,
+} from "react-icons/md";
 
 import {
   directionText,
@@ -59,7 +64,15 @@ function TransitMeta({ step, darkMode }) {
   const pieces = [];
 
   if (step.realtime) {
-    pieces.push("LIVE");
+    pieces.push(step.live_source === "GO Transit" ? "LIVE GO" : "LIVE");
+  }
+
+  if (step.live_status && step.live_status !== "On time") {
+    pieces.push(step.live_status);
+  }
+
+  if (step.platform) {
+    pieces.push(`platform ${step.platform}`);
   }
 
   if (step.stops) {
@@ -91,7 +104,11 @@ function TransitMeta({ step, darkMode }) {
   return (
     <div
       className={`mt-1 text-xs ${
-        darkMode ? "text-darkmode-gray" : "text-button-darkest"
+        step.cancelled
+          ? "font-semibold text-red-600"
+          : darkMode
+            ? "text-darkmode-gray"
+            : "text-button-darkest"
       }`}
     >
       {pieces.join(" • ")}
@@ -127,6 +144,12 @@ export default function RoutePanel({
   onStepSelect = () => {},
   onShareRoute = () => {},
   displayedMode,
+  navigationActive = false,
+  navigationInfo = null,
+  navigationAccuracy = null,
+  navigationSpeedMps = null,
+  onStartNavigation = () => {},
+  onStopNavigation = () => {},
   status,
   error,
   darkMode,
@@ -163,6 +186,14 @@ export default function RoutePanel({
   const scheduledDeparture = formatScheduledDeparture(
     data.requested_departure_datetime || data.departure_datetime
   );
+  const hasGoStep = steps.some(step => step?.agency === "go");
+  const navigationOffRouteThreshold = Math.max(
+    70,
+    Number(navigationAccuracy || 0) * 2
+  );
+  const navigationOffRoute =
+    navigationActive &&
+    navigationInfo?.off_route_m > navigationOffRouteThreshold;
 
   return (
     <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4">
@@ -177,6 +208,59 @@ export default function RoutePanel({
       >
         {status}
       </div>
+
+      {navigationActive && mode !== "transit" && (
+        <div
+          className={`mb-3 rounded-2xl border p-3.5 ${
+            navigationOffRoute
+              ? "border-amber-400 bg-amber-50 text-amber-950"
+              : darkMode
+                ? "border-blue/50 bg-blue/10 text-darkmode-gray"
+                : "border-green/40 bg-green/10 text-charcoal"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em]">
+              <MdNavigation className="text-base" />
+              {navigationOffRoute ? "Off route" : "Navigating"}
+            </div>
+            <button
+              type="button"
+              onClick={onStopNavigation}
+              className="rounded-lg border border-current/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition hover:bg-black/5"
+            >
+              Stop
+            </button>
+          </div>
+
+          <div className="mt-2 text-base font-bold leading-5">
+            {navigationInfo?.next_step
+              ? directionText(navigationInfo.next_step)
+              : "Following route…"}
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs opacity-80">
+            {Number.isFinite(navigationInfo?.distance_to_next_m) && (
+              <span>{formatDistance(navigationInfo.distance_to_next_m)} to turn</span>
+            )}
+            {Number.isFinite(navigationInfo?.remaining_m) && (
+              <span>• {formatDistance(navigationInfo.remaining_m)} remaining</span>
+            )}
+            {Number.isFinite(Number(navigationAccuracy)) && (
+              <span>• GPS ±{Math.round(Number(navigationAccuracy))} m</span>
+            )}
+            {Number.isFinite(Number(navigationSpeedMps)) && navigationSpeedMps > 0.3 && (
+              <span>• {Math.round(navigationSpeedMps * 3.6)} km/h</span>
+            )}
+          </div>
+
+          {navigationOffRoute && (
+            <div className="mt-2 text-xs font-semibold">
+              About {Math.round(navigationInfo.off_route_m)} m from the route. MAP will reroute automatically after repeated GPS fixes.
+            </div>
+          )}
+        </div>
+      )}
 
       {scheduledDeparture && (
         <div
@@ -202,14 +286,32 @@ export default function RoutePanel({
           }`}
         >
           {realtime.available
-            ? `Live transit feed connected${
-                realtime.feed_age_seconds != null
-                  ? ` • ${realtime.feed_age_seconds}s old`
+            ? `Live ${
+                realtime.live_sources?.length
+                  ? realtime.live_sources.join(" + ")
+                  : "transit"
+              } connected${
+                realtime.grt_connected && realtime.feed_age_seconds != null
+                  ? ` • GRT ${realtime.feed_age_seconds}s old`
                   : ""
               }${realtime.used_live_updates ? " • live prediction used" : ""}`
             : realtime.suppressed_for_scheduled_trip
               ? "Future trip — using the scheduled timetable until closer to departure"
               : "Realtime unavailable — using scheduled transit data"}
+        </div>
+      )}
+
+      {mode === "transit" && hasGoStep && realtime?.go_configured === false && (
+        <div
+          className={`mb-3 rounded-xl border px-3 py-2 text-xs ${
+            darkMode
+              ? "border-button bg-charcoal-light text-darkmode-gray"
+              : "border-button-light bg-white text-button-darkest"
+          }`}
+        >
+          GO routing is working from the timetable. Add a server-side
+          <span className="font-mono font-semibold"> METROLINX_API_KEY </span>
+          to enable live GO departures, delay status, and platforms.
         </div>
       )}
 
@@ -327,6 +429,24 @@ export default function RoutePanel({
           >
             {steps.length} {steps.length === 1 ? "step" : "steps"}
           </span>
+          {mode !== "transit" && (
+            <button
+              type="button"
+              onClick={navigationActive ? onStopNavigation : onStartNavigation}
+              title={navigationActive ? "Stop navigation" : "Start navigation"}
+              aria-label={navigationActive ? "Stop navigation" : "Start navigation"}
+              className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+                navigationActive
+                  ? "border-green bg-green text-white"
+                  : darkMode
+                    ? "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                    : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
+              }`}
+            >
+              <MdNavigation />
+              {navigationActive ? "Stop" : "Navigate"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onShareRoute}

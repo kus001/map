@@ -14,6 +14,11 @@ from zoneinfo import ZoneInfo
 import requests
 from dotenv import load_dotenv
 
+from helpers._transit.go_realtime import (
+    configured as go_realtime_configured,
+    live_departures as go_live_departures,
+    match_departure as match_go_departure,
+)
 from helpers._transit.gtfs_metadata import shape_for_trip
 from helpers._transit.make_graph import make_graph
 from helpers._transit.realtime import (
@@ -39,26 +44,29 @@ ORS_WALKING_URL = (
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 MAX_NEARBY_STOPS = 250
 
+# Transit access-stop preference. The router searches the shorter-walk tiers first.
+# If a valid route exists from nearby stops, it will wait for that service instead of
+# walking a long distance just to catch an earlier bus. It only expands the walk
+# radius when no usable transit route exists in the smaller tier.
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (800, 1200, 1800, 2400, 4800),
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (600, 900, 1200),
+        "max_nearby_stops": 12,
     },
     "less_walking": {
         "label": "Less walking",
-        "access_walk_tiers_m": (400, 600, 900, 1200, 1500),
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (350, 600, 900, 1200),
+        "max_nearby_stops": 14,
     },
     "fastest": {
         "label": "Fastest",
-        "access_walk_tiers_m": (2400, 3000, 3600, 4800),
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (1600,),
+        "max_nearby_stops": 12,
     },
 }
-
 TRANSFER_BUFFER_MIN = 4
-HEURISTIC_SPEED_KMH = 120.0
+HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
@@ -174,6 +182,19 @@ def time_label(value):
         return seconds_to_time(seconds)[:5]
     except Exception:
         return None
+
+
+def shifted_time_label(value, minutes):
+    label = value if isinstance(value, str) else time_label(value)
+    if not label:
+        return None
+
+    try:
+        hour, minute = [int(part) for part in str(label).split(":")[:2]]
+        total = (hour * 60 + minute + int(round(float(minutes or 0)))) % (24 * 60)
+        return f"{total // 60:02d}:{total % 60:02d}"
+    except (TypeError, ValueError):
+        return label
 
 
 def normalize_departure_datetime(value):
@@ -937,6 +958,9 @@ def get_transit_route(
     live_vehicles = []
     used_vehicle_keys = set()
     route_ids = set()
+    go_departure_boards = {}
+    go_realtime_connected = False
+    go_realtime_used = False
     used_stop_ids = set()
     total_distance = 0.0
     walk_adjustment = 0.0
@@ -1027,6 +1051,47 @@ def get_transit_route(
         vehicle = vehicle_label(agency, route_type)
         distance = polyline_distance_m(geometry)
 
+        scheduled_departure = time_label(group["departure_time"])
+        scheduled_arrival = time_label(group["arrival_time"])
+        displayed_departure = scheduled_departure
+        displayed_arrival = scheduled_arrival
+        step_realtime = bool(group["realtime"])
+        step_delay_min = float(group["delay_seconds"] / 60)
+        go_live = None
+
+        # GRT exposes public GTFS-RT feeds, while GO's useful live departure board
+        # is provided through the key-protected OpenMetrolinx NextService API.
+        # Query only the final chosen GO leg so route searches do not hammer the API.
+        if agency == "go" and realtime_allowed and go_realtime_configured():
+            boarding_stop_code = raw_stop_id(group["stops"][0][0])
+            board = go_departure_boards.get(boarding_stop_code)
+            if board is None:
+                board = go_live_departures(boarding_stop_code, limit=16)
+                go_departure_boards[boarding_stop_code] = board
+
+            if board.get("connected"):
+                go_realtime_connected = True
+                go_live = match_go_departure(
+                    board.get("departures", []),
+                    trip_id=trip_id,
+                    route_name=route_name,
+                    scheduled_time=scheduled_departure,
+                    headsign=headsign,
+                )
+
+            if go_live is not None:
+                go_realtime_used = True
+                step_realtime = True
+                step_delay_min = float(go_live.get("delay_min") or 0)
+                displayed_departure = (
+                    go_live.get("computed_time")
+                    or go_live.get("scheduled_time")
+                    or scheduled_departure
+                )
+                displayed_arrival = shifted_time_label(
+                    scheduled_arrival, step_delay_min
+                )
+
         segments.append(
             {
                 "type": "transit",
@@ -1034,6 +1099,7 @@ def get_transit_route(
                 "route": route_name,
                 "headsign": headsign,
                 "trip_id": trip_id,
+                "agency": agency,
                 "color": route_color,
                 "coordinates": geometry,
             }
@@ -1044,27 +1110,51 @@ def get_transit_route(
             instruction += f" toward {headsign}"
         instruction += f" from {group['from_name']} to {group['to_name']}"
 
-        steps.append(
-            {
-                "type": "transit",
-                "instruction": instruction,
-                "vehicle": vehicle,
-                "route": route_name,
-                "headsign": headsign,
-                "from": group["from_name"],
-                "to": group["to_name"],
-                "stops": group["stop_count"],
-                "wait_min": group["wait_min"],
-                "ride_duration_min": group["ride_min"],
-                "duration_min": group["wait_min"] + group["ride_min"],
-                "distance_m": distance,
-                "departure_time": time_label(group["departure_time"]),
-                "arrival_time": time_label(group["arrival_time"]),
-                "realtime": group["realtime"],
-                "delay_min": group["delay_seconds"] / 60,
-                "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
-            }
-        )
+        step = {
+            "type": "transit",
+            "instruction": instruction,
+            "vehicle": vehicle,
+            "agency": agency,
+            "route": route_name,
+            "headsign": headsign,
+            "trip_id": trip_id,
+            "from": group["from_name"],
+            "to": group["to_name"],
+            "from_stop_id": raw_stop_id(group["stops"][0][0]),
+            "to_stop_id": raw_stop_id(group["stops"][-1][0]),
+            "stops": group["stop_count"],
+            "wait_min": group["wait_min"],
+            "ride_duration_min": group["ride_min"],
+            "duration_min": group["wait_min"] + group["ride_min"],
+            "distance_m": distance,
+            "departure_time": displayed_departure,
+            "arrival_time": displayed_arrival,
+            "scheduled_departure_time": scheduled_departure,
+            "scheduled_arrival_time": scheduled_arrival,
+            "realtime": step_realtime,
+            "delay_min": step_delay_min,
+            "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
+        }
+
+        if go_live is not None:
+            step.update(
+                {
+                    "live_source": "GO Transit",
+                    "live_status": go_live.get("status"),
+                    "cancelled": bool(go_live.get("cancelled")),
+                    "trip_number": go_live.get("trip_number"),
+                    "scheduled_platform": go_live.get("scheduled_platform") or None,
+                    "platform": (
+                        go_live.get("actual_platform")
+                        or go_live.get("scheduled_platform")
+                        or None
+                    ),
+                    "platform_live": bool(go_live.get("actual_platform")),
+                    "live_update_time": go_live.get("update_time"),
+                }
+            )
+
+        steps.append(step)
 
         total_distance += distance
         route_ids.add(str(route_name))
@@ -1089,6 +1179,8 @@ def get_transit_route(
             used_stop_ids.add(raw_stop_id(stop_id))
             item = {
                 "id": stop_id,
+                "raw_id": raw_stop_id(stop_id),
+                "agency": stop_agency(stop_id),
                 "name": stop_name(stop),
                 "coordinates": stop_coords(stop),
             }
@@ -1128,13 +1220,44 @@ def get_transit_route(
         max(0, int(time.time() - feed_timestamp)) if feed_timestamp else None
     )
 
+    used_agencies = {
+        str(step.get("agency") or "")
+        for step in steps
+        if step.get("type") == "transit"
+    }
+    uses_grt = bool({"grt_busses", "grt_trains"} & used_agencies)
+    uses_go = "go" in used_agencies
+    grt_connected_for_route = bool(uses_grt and realtime.get("available"))
+    go_connected_for_route = bool(uses_go and go_realtime_connected)
+
+    live_sources = []
+    if grt_connected_for_route:
+        live_sources.append("GRT")
+    if go_connected_for_route:
+        live_sources.append("GO Transit")
+
+    any_live_feed_connected = bool(
+        grt_connected_for_route or go_connected_for_route
+    )
     realtime_info = {
-        "available": bool(routing_realtime.get("available")),
-        "feed_connected": bool(realtime.get("available")),
-        "feed_age_seconds": feed_age,
+        "available": bool(
+            realtime_allowed
+            and (grt_connected_for_route or go_connected_for_route)
+        ),
+        "feed_connected": any_live_feed_connected,
+        "feed_age_seconds": feed_age if grt_connected_for_route else None,
         "used_live_updates": any(step.get("realtime") for step in steps),
+        "live_sources": live_sources,
+        "grt_connected": grt_connected_for_route,
+        "go_configured": go_realtime_configured(),
+        "go_connected": go_connected_for_route,
+        "go_used_live_updates": bool(go_realtime_used),
         "suppressed_for_scheduled_trip": bool(
-            realtime.get("available") and not realtime_allowed
+            not realtime_allowed
+            and (
+                (uses_grt and realtime.get("available"))
+                or (uses_go and go_realtime_configured())
+            )
         ),
     }
 
@@ -1183,6 +1306,8 @@ def _local_test_color_helpers():
         from helpers.print_color import bold, blue, green, magenta, red, yellow
         return bold, blue, green, magenta, red, yellow
     except Exception:
+        # The web server never needs the color helper. If its optional console
+        # dependency is unavailable, keep the local tester usable without color.
         identity = lambda value, *args, **kwargs: str(value)
         return identity, identity, identity, identity, identity, identity
 
@@ -1261,7 +1386,13 @@ def _print_local_route_result(result, timing, graph_load_seconds):
 
 
 if __name__ == "__main__":
+    # Restore the old standalone local transit tester while keeping production
+    # imports quiet and memory-efficient.
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
+
+    print(bold("=" * 64))
+    print(bold("Map Router - LOCAL TRANSIT TEST"))
+    print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)
 
@@ -1269,7 +1400,9 @@ if __name__ == "__main__":
     end_address = input(bold("End Address: ")).strip()
 
     departure_text = input(
-        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: ")
+        bold(
+            "Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
+        )
     ).strip()
 
     departure_datetime = None

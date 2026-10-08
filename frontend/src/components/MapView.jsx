@@ -400,7 +400,7 @@ function getBaseLayer(mapStyle, darkMode) {
     };
   }
 
-  if (MAPTILER_KEY) {
+  if (mapStyle === "street" && MAPTILER_KEY) {
     const styleId = darkMode ? "streets-v4-dark" : "streets-v4";
 
     return {
@@ -411,7 +411,7 @@ function getBaseLayer(mapStyle, darkMode) {
     };
   }
 
-  if (MAPTILER_KEY) {
+  if (mapStyle === "hybrid" && MAPTILER_KEY) {
     const styleId = darkMode ? "hybrid-v4-dark" : "hybrid-v4";
 
     return {

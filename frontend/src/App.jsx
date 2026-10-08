@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
+import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt, MdOutlineSatellite } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
+import { IoLayers } from "react-icons/io5";
 
 import MapView from "./components/MapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
@@ -1414,6 +1415,26 @@ export default function App() {
               <MdSatelliteAlt className="text-lg" />
               <span className="max-[900px]:hidden">Satellite</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setMapStyle("hybrid")}
+              title="Hybrid map"
+              className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
+                darkMode ? "border-button" : "border-button-light"
+              } ${
+                mapStyle === "hybrid"
+                  ? darkMode
+                    ? "bg-blue text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-charcoal hover:bg-green/10"
+              }`}
+            >
+              <IoLayers className="text-lg" />
+              <span className="max-[900px]:hidden">Hybrid</span>
+            </button>           
           </div>
 
           {selectedRoute?.route_coordinates?.length > 1 && (

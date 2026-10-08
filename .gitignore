@@ -1,28 +1,84 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# MAP — Python / Flask + React / Vite
 
+# Secrets and local configuration (keep .env.example/.env.sample in Git)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.sample
+!**/.env.example
+!**/.env.sample
+*.pem
+*.key
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Python virtual environments and packaging
 .venv/
 venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+build/
+dist/
 
-# Secrets
-#.env
-#frontend/.env
-
-# Node
+# Node / Vite
 node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+.vite/
+.npm/
+.pnpm-store/
+.yarn/cache/
+*.tsbuildinfo
 
-# Editors
+# Logs, temporary files, and local process state
+*.log
+logs/
+*.pid
+*.pid.lock
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.cache/
+tmp/
+temp/
+
+# Generated geocoding caches
+transit_data/address_index_cache_*.pkl
+transit_data/geocode_cache.json
+
+# Large, frequently updated GTFS stop time feeds
+# Keep other static GTFS resources and the transit graph available to deployments.
+transit_data/GTFS_Files/*/stop_times.txt
+
+# Local databases (if added later)
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# IDEs and OS files
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
-# Existing project data
-frontend/package-lock.json
+# Keep frontend/package-lock.json tracked for reproducible installs.

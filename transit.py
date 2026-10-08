@@ -16,8 +16,10 @@ from dotenv import load_dotenv
 
 from helpers._transit.go_realtime import (
     configured as go_realtime_configured,
+    gtfs_snapshot as go_gtfs_snapshot,
     live_departures as go_live_departures,
     match_departure as match_go_departure,
+    start_gtfs_background_refresh,
 )
 from helpers._transit.gtfs_metadata import shape_for_trip
 from helpers._transit.make_graph import make_graph
@@ -70,6 +72,9 @@ HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
+TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "0") == "1"
+MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "3")), 4))
+TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
 
 _data = None
 graph = None
@@ -111,6 +116,7 @@ def ensure_transit_loaded(verbose=False):
 
         if not _realtime_started:
             start_background_refresh()
+            start_gtfs_background_refresh()
             _realtime_started = True
 
         if verbose:
@@ -323,7 +329,7 @@ def walking_geometry(start, end, fallback_min=None):
     if fallback_min is None:
         fallback_min = access_walk_minutes(straight_distance)
 
-    if straight_distance <= 35:
+    if straight_distance <= 35 or not TRANSIT_DETAILED_WALKS:
         return {
             "coordinates": [start, end],
             "distance_m": straight_distance,
@@ -421,7 +427,7 @@ def _candidate_trip(
 ):
     times = schedule["times"]
 
-    if realtime.get("available") and agency in {"grt_busses", "grt_trains"}:
+    if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:
         # Search a little before the scheduled time because a late vehicle may have had
         # an earlier static departure while still being catchable now.
         index = bisect_left(times, earliest - 2 * 3600)
@@ -487,9 +493,13 @@ def search_transit(
     safety_buffer=TRANSFER_BUFFER_MIN,
     max_access_walk_m=1200,
     max_nearby_stops=MAX_NEARBY_STOPS,
+    excluded_route_keys=None,
 ):
     departure_datetime = normalize_departure_datetime(departure_datetime)
     service_date, now_seconds = gtfs_service_clock(departure_datetime)
+    excluded_route_keys = {
+        (str(agency), str(route)) for agency, route in (excluded_route_keys or set())
+    }
 
     start_options = candidate_stops(start_options, max_access_walk_m, max_nearby_stops)
     end_options = candidate_stops(end_options, max_access_walk_m, max_nearby_stops)
@@ -585,6 +595,9 @@ def search_transit(
         for neighbor_id, route_options in graph.get(stop_id, {}).items():
             for route_key, trips in route_options.items():
                 choices = []
+
+                if route_key != "__walk__" and (agency, str(route_key)) in excluded_route_keys:
+                    continue
 
                 if route_key == "__walk__":
                     if not trips:
@@ -728,6 +741,62 @@ def is_transit_edge(edge):
     return bool(edge.get("trip_id") or edge.get("route"))
 
 
+def route_keys_for_path(path):
+    keys = []
+    seen = set()
+    for index in range(1, len(path)):
+        previous_stop = path[index - 1]
+        edge = path[index][2] or {}
+        if not is_transit_edge(edge):
+            continue
+        route_name, _ = route_details(edge)
+        key = (stop_agency(previous_stop[0]), str(route_name or edge.get("route") or ""))
+        if key[1] and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def route_signature(route):
+    signature = []
+    for step in route.get("steps", []):
+        if step.get("type") == "transit":
+            signature.append((
+                str(step.get("agency") or ""),
+                str(step.get("route") or ""),
+                str(step.get("from_stop_id") or ""),
+                str(step.get("to_stop_id") or ""),
+            ))
+    return tuple(signature)
+
+
+def combine_realtime(grt, go):
+    # Do not let a healthy feed from one agency make stale TripUpdates from the
+    # other agency look valid. Each source must be fresh before its delays and
+    # cancellations are allowed to affect A* routing.
+    trip_updates = (
+        dict(grt.get("trip_updates", {})) if grt.get("available") else {}
+    )
+    if go.get("available"):
+        trip_updates.update(go.get("trip_updates", {}))
+
+    # Position feeds are independent of TripUpdates and are replaced on every
+    # refresh, so valid positions can still be displayed during a delay-feed
+    # outage.
+    vehicles = dict(grt.get("vehicles", {}))
+    vehicles.update(go.get("vehicles", {}))
+    timestamps = [v for v in (grt.get("feed_timestamp"), go.get("feed_timestamp")) if v]
+    return {
+        "loaded_at": max(float(grt.get("loaded_at") or 0), float(go.get("loaded_at") or 0)),
+        "trip_updates": trip_updates,
+        "vehicles": vehicles,
+        "alerts": list(grt.get("alerts", [])) + list(go.get("alerts", [])),
+        "available": bool(grt.get("available") or go.get("available")),
+        "alerts_available": bool(grt.get("alerts_available") or go.get("alerts_available")),
+        "feed_timestamp": max(timestamps) if timestamps else None,
+    }
+
+
 def group_path(path):
     groups = []
     current = None
@@ -775,6 +844,8 @@ def group_path(path):
                 "arrival_time": edge.get(
                     "_actual_arrival_time", edge.get("arrival_time")
                 ),
+                "scheduled_departure_time": edge.get("departure_time"),
+                "scheduled_arrival_time": edge.get("arrival_time"),
                 "realtime": bool(edge.get("_realtime", False)),
                 "delay_seconds": float(edge.get("_delay_seconds", 0) or 0),
             }
@@ -803,6 +874,9 @@ def group_path(path):
         arrival = edge.get("_actual_arrival_time", edge.get("arrival_time"))
         if arrival is not None:
             current["arrival_time"] = arrival
+        scheduled_arrival = edge.get("arrival_time")
+        if scheduled_arrival is not None:
+            current["scheduled_arrival_time"] = scheduled_arrival
 
     if current is not None:
         groups.append(current)
@@ -843,6 +917,10 @@ def get_transit_route(
     departure_datetime=None,
     timing=None,
     transit_preference="balanced",
+    start_coordinates=None,
+    end_coordinates=None,
+    excluded_route_keys=None,
+    include_alternatives=True,
 ):
     ensure_transit_loaded()
 
@@ -853,8 +931,8 @@ def get_transit_route(
         if timing is not None:
             timing[name] = us() - timing_start
 
-    start = get_coordinates(start_address)
-    end = get_coordinates(end_address)
+    start = coord(start_coordinates) if isinstance(start_coordinates, (list, tuple)) and len(start_coordinates) >= 2 else get_coordinates(start_address)
+    end = coord(end_coordinates) if isinstance(end_coordinates, (list, tuple)) and len(end_coordinates) >= 2 else get_coordinates(end_address)
     mark("geocode")
 
     if start is None:
@@ -875,7 +953,9 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
-    realtime = realtime_snapshot()
+    grt_realtime = realtime_snapshot()
+    go_realtime = go_gtfs_snapshot()
+    realtime = combine_realtime(grt_realtime, go_realtime)
     current_time = datetime.now(TRANSIT_TIMEZONE)
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
@@ -910,6 +990,7 @@ def get_transit_route(
             departure_datetime=requested_departure,
             max_access_walk_m=access_limit_m,
             max_nearby_stops=preference["max_nearby_stops"],
+            excluded_route_keys=excluded_route_keys,
         )
         if path is not None and best_start is not None and best_end is not None:
             selected_access_limit = access_limit_m
@@ -921,7 +1002,7 @@ def get_transit_route(
         return {"success": False, "error": "No transit route found."}
 
     if not any(is_transit_edge(path[i][2] or {}) for i in range(1, len(path))):
-        return get_walking_route(start_address, end_address)
+        return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
 
     groups = group_path(path)
     first = path[0]
@@ -958,9 +1039,10 @@ def get_transit_route(
     used_vehicle_keys = set()
     route_ids = set()
     go_departure_boards = {}
-    go_realtime_connected = False
+    go_realtime_connected = bool(go_realtime.get("available") or go_realtime.get("vehicles_available") or go_realtime.get("alerts_available"))
     go_realtime_used = False
     used_stop_ids = set()
+    used_trip_ids = set()
     total_distance = 0.0
     walk_adjustment = 0.0
 
@@ -1050,10 +1132,10 @@ def get_transit_route(
         vehicle = vehicle_label(agency, route_type)
         distance = polyline_distance_m(geometry)
 
-        scheduled_departure = time_label(group["departure_time"])
-        scheduled_arrival = time_label(group["arrival_time"])
-        displayed_departure = scheduled_departure
-        displayed_arrival = scheduled_arrival
+        scheduled_departure = time_label(group.get("scheduled_departure_time"))
+        scheduled_arrival = time_label(group.get("scheduled_arrival_time"))
+        displayed_departure = time_label(group["departure_time"])
+        displayed_arrival = time_label(group["arrival_time"])
         step_realtime = bool(group["realtime"])
         step_delay_min = float(group["delay_seconds"] / 60)
         go_live = None
@@ -1061,7 +1143,12 @@ def get_transit_route(
         # GRT exposes public GTFS-RT feeds, while GO's useful live departure board
         # is provided through the key-protected OpenMetrolinx NextService API.
         # Query only the final chosen GO leg so route searches do not hammer the API.
-        if agency == "go" and realtime_allowed and go_realtime_configured():
+        if (
+            agency == "go"
+            and realtime_allowed
+            and go_realtime_configured()
+            and TRANSIT_GO_BOARD_ENRICHMENT
+        ):
             boarding_stop_code = raw_stop_id(group["stops"][0][0])
             board = go_departure_boards.get(boarding_stop_code)
             if board is None:
@@ -1117,6 +1204,7 @@ def get_transit_route(
             "route": route_name,
             "headsign": headsign,
             "trip_id": trip_id,
+            "route_id": meta.get("route_id") if meta else None,
             "from": group["from_name"],
             "to": group["to_name"],
             "from_stop_id": raw_stop_id(group["stops"][0][0]),
@@ -1156,6 +1244,7 @@ def get_transit_route(
         steps.append(step)
 
         total_distance += distance
+        used_trip_ids.add(str(trip_id))
         route_ids.add(str(route_name))
         if meta and meta.get("route_id"):
             route_ids.add(str(meta["route_id"]))
@@ -1214,7 +1303,7 @@ def get_transit_route(
     total_time = max(0.0, float(search_time) + walk_adjustment)
     distance_km = total_distance / 1000
 
-    feed_timestamp = realtime.get("feed_timestamp")
+    feed_timestamp = grt_realtime.get("feed_timestamp")
     feed_age = (
         max(0, int(time.time() - feed_timestamp)) if feed_timestamp else None
     )
@@ -1226,7 +1315,9 @@ def get_transit_route(
     }
     uses_grt = bool({"grt_busses", "grt_trains"} & used_agencies)
     uses_go = "go" in used_agencies
-    grt_connected_for_route = bool(uses_grt and realtime.get("available"))
+    if uses_go and any(step.get("agency") == "go" and step.get("realtime") for step in steps):
+        go_realtime_used = True
+    grt_connected_for_route = bool(uses_grt and grt_realtime.get("available"))
     go_connected_for_route = bool(uses_go and go_realtime_connected)
 
     live_sources = []
@@ -1254,7 +1345,7 @@ def get_transit_route(
         "suppressed_for_scheduled_trip": bool(
             not realtime_allowed
             and (
-                (uses_grt and realtime.get("available"))
+                (uses_grt and grt_realtime.get("available"))
                 or (uses_go and go_realtime_configured())
             )
         ),
@@ -1282,20 +1373,69 @@ def get_transit_route(
         "access_walk_limit_expanded": selected_access_limit != preference["access_walk_tiers_m"][0],
     }
 
-    alerts = matching_alerts(realtime, route_ids, used_stop_ids)
+    alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)
     mark("formatting")
+
+    routes = [route]
+    if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
+        signatures = {route_signature(route)}
+        attempted_exclusions = set()
+        queue_exclusions = [{key} for key in route_keys_for_path(path)]
+
+        while queue_exclusions and len(routes) < MAX_TRANSIT_ALTERNATIVES:
+            exclusion = queue_exclusions.pop(0)
+            frozen = frozenset(exclusion)
+            if frozen in attempted_exclusions:
+                continue
+            attempted_exclusions.add(frozen)
+
+            alternate = get_transit_route(
+                start_address,
+                end_address,
+                departure_datetime=requested_departure,
+                timing=None,
+                transit_preference=preference_key,
+                start_coordinates=start,
+                end_coordinates=end,
+                excluded_route_keys=exclusion,
+                include_alternatives=False,
+            )
+            if not alternate.get("success") or not alternate.get("routes"):
+                continue
+
+            candidate = alternate["routes"][0]
+            signature = route_signature(candidate)
+            if not signature or signature in signatures:
+                continue
+
+            signatures.add(signature)
+            candidate["route_number"] = len(routes) + 1
+            routes.append(candidate)
+
+            # If the alternative itself uses another service, try excluding that
+            # next. This often produces a third genuinely different option.
+            candidate_keys = {
+                (str(step.get("agency") or ""), str(step.get("route") or ""))
+                for step in candidate.get("steps", [])
+                if step.get("type") == "transit" and step.get("route")
+            }
+            for key in candidate_keys:
+                queue_exclusions.append(set(exclusion) | {key})
+
+    fastest = min(routes, key=lambda item: float(item.get("duration_min", float("inf"))))
+    shortest = min(routes, key=lambda item: float(item.get("distance_km", float("inf"))))
 
     return {
         "success": True,
         "mode": "transit",
         "start": {"address": start_address, "coordinates": start},
         "end": {"address": end_address, "coordinates": end},
-        "routes": [route],
+        "routes": routes,
         "alerts": alerts,
         "departure_datetime": requested_departure.isoformat(),
         "transit_preference": preference_key,
-        "fastest_route_number": 1,
-        "shortest_route_number": 1,
+        "fastest_route_number": fastest["route_number"],
+        "shortest_route_number": shortest["route_number"],
     }
 
 

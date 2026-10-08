@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -44,6 +45,19 @@ def parse_departure_datetime(value):
         raise ValueError("Scheduled departure must be in the future.")
 
     return parsed
+
+
+def parse_coordinates(value):
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        lat = float(value[0])
+        lon = float(value[1])
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return [lat, lon]
 
 
 def print_timing_report(mode, timing, total_microseconds):
@@ -133,12 +147,121 @@ def live_transit_departures():
     })
 
 
+@app.route("/api/transit/live-state", methods=["POST"])
+def live_transit_state():
+    payload = request.get_json() or {}
+    raw_steps = payload.get("steps") or []
+    if not isinstance(raw_steps, list):
+        raw_steps = []
+    raw_steps = raw_steps[:16]
+
+    from helpers._transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
+    from helpers._transit.realtime import (
+        matching_alerts,
+        snapshot as grt_snapshot,
+        vehicle_for_trip,
+    )
+    from transit import combine_realtime
+
+    grt = grt_snapshot()
+    go = go_gtfs_snapshot()
+    realtime = combine_realtime(grt, go)
+
+    route_ids = set()
+    stop_ids = set()
+    trip_ids = set()
+    trip_states = []
+    vehicles = []
+    seen_vehicles = set()
+
+    for step in raw_steps:
+        if not isinstance(step, dict) or step.get("type") != "transit":
+            continue
+        agency = str(step.get("agency") or "")
+        trip_id = str(step.get("trip_id") or "")
+        if not agency or not trip_id:
+            continue
+
+        route = step.get("route")
+        route_id = step.get("route_id")
+        if route is not None:
+            route_ids.add(str(route))
+        if route_id is not None:
+            route_ids.add(str(route_id))
+        for key in ("from_stop_id", "to_stop_id"):
+            if step.get(key) is not None:
+                stop_ids.add(str(step[key]))
+        trip_ids.add(trip_id)
+
+        update = realtime.get("trip_updates", {}).get((agency, trip_id))
+        delay_seconds = 0.0
+        cancelled = False
+        if update:
+            cancelled = bool(update.get("cancelled"))
+            stop_update = update.get("stops", {}).get(str(step.get("from_stop_id") or ""), {})
+            delay = stop_update.get("departure_delay")
+            if delay is None:
+                delay = stop_update.get("arrival_delay")
+            if delay is None:
+                delay = update.get("delay")
+            delay_seconds = float(delay or 0)
+
+        trip_states.append({
+            "agency": agency,
+            "trip_id": trip_id,
+            "delay_seconds": delay_seconds,
+            "cancelled": cancelled,
+        })
+
+        vehicle = vehicle_for_trip(realtime, agency, trip_id)
+        vehicle_key = (agency, trip_id)
+        if vehicle and vehicle_key not in seen_vehicles:
+            vehicles.append({
+                **vehicle,
+                "route": route,
+                "headsign": step.get("headsign"),
+            })
+            seen_vehicles.add(vehicle_key)
+
+    alerts = matching_alerts(
+        realtime,
+        route_ids,
+        stop_ids,
+        trip_ids=trip_ids,
+        limit=8,
+    )
+
+    return jsonify({
+        "success": True,
+        "trip_states": trip_states,
+        "live_vehicles": vehicles,
+        "alerts": alerts,
+        "sources": {
+            "grt": {
+                "trip_updates": bool(grt.get("available")),
+                "vehicles": bool(grt.get("vehicles")),
+                "alerts": bool(grt.get("alerts_available")),
+                "feed_timestamp": grt.get("feed_timestamp"),
+            },
+            "go": {
+                "configured": bool(os.getenv("METROLINX_API_KEY")),
+                "trip_updates": bool(go.get("available")),
+                "vehicles": bool(go.get("vehicles_available")),
+                "alerts": bool(go.get("alerts_available")),
+                "feed_timestamp": go.get("feed_timestamp"),
+            },
+        },
+    })
+
+
 @app.route("/api/routes", methods=["POST"])
 def routes():
     payload = request.get_json() or {}
 
     start = str(payload.get("start", "")).strip()
     destination = str(payload.get("destination", "")).strip()
+    start_coordinates = parse_coordinates(payload.get("start_coordinates"))
+    destination_coordinates = parse_coordinates(payload.get("destination_coordinates"))
     mode = str(payload.get("mode", "driving")).strip().lower()
     transit_preference = str(
         payload.get("transit_preference", "balanced")
@@ -163,16 +286,16 @@ def routes():
     timing = {"start": request_started} if PRINT_ROUTE_TIMING and mode == "transit" else None
 
     if mode == "driving":
-        result = get_driving_route(start, destination)
+        result = get_driving_route(start, destination, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
 
     elif mode == "walking":
-        result = get_walking_route(start, destination)
+        result = get_walking_route(start, destination, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
 
     elif mode == "cycling":
         route_type = str(payload.get("route_type", "regular")).strip().lower()
         if route_type not in VALID_CYCLING_TYPES:
             route_type = "regular"
-        result = get_cycling_route(start, destination, route_type=route_type)
+        result = get_cycling_route(start, destination, route_type=route_type, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
 
     elif mode == "transit":
         # Keep transit lazy in normal/server mode so the large graph is not loaded
@@ -185,6 +308,8 @@ def routes():
             departure_datetime=departure_datetime,
             timing=timing,
             transit_preference=transit_preference,
+            start_coordinates=start_coordinates,
+            end_coordinates=destination_coordinates,
         )
 
     else:
@@ -208,6 +333,23 @@ def routes():
         result["timing_mode"] = "scheduled" if departure_datetime else "now"
 
     return jsonify(result), (200 if result.get("success") else 404)
+
+
+def _preload_transit_graph():
+    try:
+        from transit import ensure_transit_loaded
+        ensure_transit_loaded()
+    except Exception as error:
+        if DEV_MODE:
+            print(f"Transit preload skipped: {error}")
+
+
+if os.getenv("MAP_PRELOAD_TRANSIT", "1") == "1":
+    threading.Thread(
+        target=_preload_transit_graph,
+        name="transit-preload",
+        daemon=True,
+    ).start()
 
 
 if __name__ == "__main__":

@@ -49,13 +49,13 @@ FASTEST_NEARBY_STOPS = 600
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "soft_walk_m": 700,
+        "soft_walk_m": 500,
         "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 300,
+        "soft_walk_m": 200,
         "walk_penalty": 2.0,   # each minute past soft_walk_m counts triple
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
@@ -96,12 +96,10 @@ def ensure_transit_loaded(verbose=False):
 
     with _transit_load_lock:
         if _data is not None:
-            if verbose:
-                print(f"Transit data already loaded ({len(stops):,} stops).")
+            if verbose: print(f"Transit data already loaded ({len(stops):,} stops).")
             return 0.0
 
-        if verbose:
-            print("Loading transit data...")
+        if verbose: print("Loading transit data...")
 
         load_started = time.perf_counter()
         loaded = make_graph()
@@ -116,19 +114,16 @@ def ensure_transit_loaded(verbose=False):
             _realtime_started = True
 
         if verbose:
-            print(
-                f"Transit data loaded in {load_seconds:.3f}s "
-                f"({len(stops):,} stops)."
-            )
+            print(f"Transit data loaded in {load_seconds:.3f}s ({len(stops):,} stops).")
 
         return load_seconds
 
 
-def coord(value):
+def coord(value) -> list[float, float]:
     return [float(value[0]), float(value[1])]
 
 
-def stop_coords(entry):
+def stop_coords(entry) -> list[float, float]:
     return coord(entry[1])
 
 

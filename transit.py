@@ -50,13 +50,13 @@ FASTEST_NEARBY_STOPS = 600
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "soft_walk_m": 500,
+        "soft_walk_m": 800,
         "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 200,
+        "soft_walk_m": 400,
         "walk_penalty": 2.0,   # each minute past soft_walk_m counts triple
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
@@ -67,6 +67,7 @@ TRANSIT_PREFERENCES = {
         "max_nearby_stops": FASTEST_NEARBY_STOPS,
     },
 }
+
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1
@@ -88,12 +89,7 @@ MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 
 
 def ensure_transit_loaded(verbose=False) -> float:
-    """Load the heavy transit graph only when transit is actually needed.
-
-    `verbose=True` is used by the standalone local transit tester so the old
-    loading messages are still available without spamming the production log.
-    Returns the graph load time in seconds, or 0.0 if it was already loaded.
-    """
+    "Load the heavy transit graph only when transit is actually needed."
     global _data, graph, stops, _realtime_started
 
     if _data is not None:

@@ -21,3 +21,5 @@ cd ..
 echo "\n\nstarting python..."
 nohup python3 main.py > output.log 2>&1 &
 echo "started python!\n"
+
+chmod +x map/update_check.sh

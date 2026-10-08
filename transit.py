@@ -837,7 +837,7 @@ def get_transit_route(
     departure_datetime=None,
     timing=None,
     transit_preference="balanced",
-):
+) -> dict:
     ensure_transit_loaded()
 
     timing_start = timing.get("start", us()) if timing is not None else None

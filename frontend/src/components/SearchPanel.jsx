@@ -54,6 +54,7 @@ function LocationInput({
   darkMode,
   endAction = null,
   skipLookup = false,
+  onSelectLocation = () => {},
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -163,6 +164,7 @@ function LocationInput({
   function chooseSuggestion(item) {
     suppressNextLookup.current = true;
     onChange(item.label);
+    onSelectLocation([Number(item.lat), Number(item.lon)], item.label);
     setSuggestions([]);
     setOpen(false);
     setActiveIndex(-1);
@@ -310,6 +312,8 @@ export default function SearchPanel({
   onDepartureTimeChange,
   usingCurrentLocation,
   onUseCurrentLocation,
+  onStartCoordinate = () => {},
+  onDestinationCoordinate = () => {},
 }) {
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
@@ -329,6 +333,7 @@ export default function SearchPanel({
           disabled={loading}
           darkMode={darkMode}
           skipLookup={usingCurrentLocation}
+          onSelectLocation={onStartCoordinate}
           icon={
             <GoDot
               className={`text-xl ${
@@ -365,6 +370,7 @@ export default function SearchPanel({
           placeholder="Destination"
           disabled={loading}
           darkMode={darkMode}
+          onSelectLocation={onDestinationCoordinate}
           icon={
             <PiMapPinFill
               className={`text-xl ${

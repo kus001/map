@@ -431,3 +431,328 @@ def match_departure(departures, trip_id=None, route_name=None, scheduled_time=No
             best_score = score
 
     return best if best is not None and best_score >= 12 else None
+
+# ---------------------------------------------------------------------------
+# GO GTFS-Realtime feeds
+# ---------------------------------------------------------------------------
+# OpenMetrolinx exposes GTFS-RT trip updates, vehicle positions and alerts at
+# Gtfs/Feed/*.  These feeds are more useful for route-wide live routing than the
+# station-specific JSON NextService endpoint above because they contain every
+# active trip in one compact protobuf response.
+
+try:
+    from google.transit import gtfs_realtime_pb2
+except ImportError:  # pragma: no cover - dependency is optional at import time
+    gtfs_realtime_pb2 = None
+
+GTFS_REFRESH_SECONDS = int(os.getenv("METROLINX_GTFS_REFRESH_SECONDS", "25"))
+GTFS_MAX_FRESH_AGE_SECONDS = int(os.getenv("METROLINX_GTFS_MAX_AGE_SECONDS", "180"))
+GTFS_FEED_PATHS = {
+    "trip_updates": "Gtfs/Feed/TripUpdates",
+    "vehicles": "Gtfs/Feed/VehiclePosition",
+    "alerts": "Gtfs/Feed/Alerts",
+}
+
+_gtfs_lock = threading.Lock()
+_gtfs_worker_lock = threading.Lock()
+_gtfs_worker_started = False
+_gtfs_cache = {
+    "loaded_at": 0.0,
+    "trip_updates": {},
+    "vehicles": {},
+    "alerts": [],
+    "available": False,
+    "vehicles_available": False,
+    "alerts_available": False,
+    "feed_timestamp": None,
+}
+
+
+def _request_gtfs_feed(path):
+    key = _api_key()
+    if not key or gtfs_realtime_pb2 is None:
+        return None
+
+    url = f"{BASE_URL}/{path.lstrip('/')}"
+    for parameter_name in ("key", "apiKey"):
+        try:
+            response = requests.get(
+                url,
+                params={parameter_name: key},
+                timeout=REQUEST_TIMEOUT,
+                headers={"Accept": "application/x-protobuf"},
+            )
+            if response.status_code in {401, 403}:
+                continue
+            response.raise_for_status()
+            feed = gtfs_realtime_pb2.FeedMessage()
+            feed.ParseFromString(response.content)
+            return feed
+        except Exception:
+            continue
+    return None
+
+
+def _feed_timestamp(feed):
+    if feed is None:
+        return None
+    try:
+        return int(feed.header.timestamp)
+    except Exception:
+        return None
+
+
+def _parse_gtfs_trip_updates(feed):
+    updates = {}
+    if feed is None:
+        return updates
+
+    for entity in feed.entity:
+        if not entity.HasField("trip_update"):
+            continue
+        trip_update = entity.trip_update
+        trip_id = str(trip_update.trip.trip_id or "")
+        if not trip_id:
+            continue
+
+        cancelled = int(trip_update.trip.schedule_relationship) == 3
+        default_delay = None
+        try:
+            if trip_update.HasField("delay"):
+                default_delay = int(trip_update.delay)
+        except Exception:
+            pass
+
+        stop_updates = {}
+        for stop_update in trip_update.stop_time_update:
+            stop_id = str(stop_update.stop_id or "")
+            if not stop_id:
+                continue
+            info = {}
+            if stop_update.HasField("arrival"):
+                try:
+                    if stop_update.arrival.HasField("delay"):
+                        info["arrival_delay"] = int(stop_update.arrival.delay)
+                except Exception:
+                    pass
+                try:
+                    if stop_update.arrival.HasField("time"):
+                        info["arrival_time"] = int(stop_update.arrival.time)
+                except Exception:
+                    pass
+            if stop_update.HasField("departure"):
+                try:
+                    if stop_update.departure.HasField("delay"):
+                        info["departure_delay"] = int(stop_update.departure.delay)
+                except Exception:
+                    pass
+                try:
+                    if stop_update.departure.HasField("time"):
+                        info["departure_time"] = int(stop_update.departure.time)
+                except Exception:
+                    pass
+            stop_updates[stop_id] = info
+
+        updates[("go", trip_id)] = {
+            "cancelled": cancelled,
+            "delay": default_delay,
+            "stops": stop_updates,
+        }
+    return updates
+
+
+def _parse_gtfs_vehicles(feed):
+    vehicles = {}
+    if feed is None:
+        return vehicles
+
+    for entity in feed.entity:
+        if not entity.HasField("vehicle"):
+            continue
+        vehicle = entity.vehicle
+        trip_id = str(vehicle.trip.trip_id or "")
+        if not trip_id or not vehicle.HasField("position"):
+            continue
+
+        lat = float(vehicle.position.latitude)
+        lon = float(vehicle.position.longitude)
+        # OpenMetrolinx occasionally uses sentinel/empty coordinates while a
+        # vehicle has no valid GPS fix. Do not put those on the map.
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == -1 and lon == -1):
+            continue
+
+        item = {
+            "agency": "go",
+            "trip_id": trip_id,
+            "route_id": str(vehicle.trip.route_id or ""),
+            "lat": lat,
+            "lon": lon,
+            "timestamp": int(vehicle.timestamp) if vehicle.timestamp else None,
+            "current_stop_id": str(vehicle.stop_id or ""),
+        }
+        try:
+            if vehicle.position.HasField("bearing"):
+                item["bearing"] = float(vehicle.position.bearing)
+        except Exception:
+            pass
+        try:
+            if vehicle.position.HasField("speed"):
+                item["speed_mps"] = float(vehicle.position.speed)
+        except Exception:
+            pass
+        if vehicle.vehicle.id:
+            item["vehicle_id"] = str(vehicle.vehicle.id)
+        if vehicle.vehicle.label:
+            item["vehicle_label"] = str(vehicle.vehicle.label)
+
+        vehicles[("go", trip_id)] = item
+    return vehicles
+
+
+def _translation_text(value):
+    try:
+        for translation in value.translation:
+            if translation.text:
+                return str(translation.text)
+    except Exception:
+        pass
+    return ""
+
+
+def _parse_gtfs_alerts(feed):
+    alerts = []
+    if feed is None:
+        return alerts
+
+    for entity in feed.entity:
+        if not entity.HasField("alert"):
+            continue
+        alert = entity.alert
+        route_ids = []
+        stop_ids = []
+        trip_ids = []
+        for informed in alert.informed_entity:
+            if informed.route_id:
+                route_ids.append(str(informed.route_id))
+            if informed.stop_id:
+                stop_ids.append(str(informed.stop_id))
+            try:
+                if informed.trip.trip_id:
+                    trip_ids.append(str(informed.trip.trip_id))
+            except Exception:
+                pass
+
+        header = _translation_text(alert.header_text)
+        description = _translation_text(alert.description_text)
+        if not header and not description:
+            continue
+
+        alerts.append(
+            {
+                "id": f"go:{entity.id}",
+                "agency": "go",
+                "header": header or "GO Transit service alert",
+                "description": description,
+                "route_ids": route_ids,
+                "stop_ids": stop_ids,
+                "trip_ids": trip_ids,
+            }
+        )
+    return alerts
+
+
+def _refresh_gtfs_once():
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    feeds = {}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        jobs = {
+            pool.submit(_request_gtfs_feed, path): kind
+            for kind, path in GTFS_FEED_PATHS.items()
+        }
+        for future in as_completed(jobs):
+            kind = jobs[future]
+            try:
+                feeds[kind] = future.result()
+            except Exception:
+                feeds[kind] = None
+
+    trip_feed = feeds.get("trip_updates")
+    vehicle_feed = feeds.get("vehicles")
+    alert_feed = feeds.get("alerts")
+    timestamps = [
+        value
+        for value in (
+            _feed_timestamp(trip_feed),
+            _feed_timestamp(vehicle_feed),
+            _feed_timestamp(alert_feed),
+        )
+        if value
+    ]
+    newest_timestamp = max(timestamps) if timestamps else None
+    now_epoch = int(time.time())
+    fresh = (
+        newest_timestamp is not None
+        and 0 <= now_epoch - newest_timestamp <= GTFS_MAX_FRESH_AGE_SECONDS
+    )
+
+    trip_updates = _parse_gtfs_trip_updates(trip_feed)
+    vehicles = _parse_gtfs_vehicles(vehicle_feed)
+    alerts = _parse_gtfs_alerts(alert_feed)
+
+    return {
+        "loaded_at": time.monotonic(),
+        "trip_updates": trip_updates,
+        "vehicles": vehicles,
+        "alerts": alerts,
+        "available": bool(trip_updates) and fresh,
+        "vehicles_available": vehicle_feed is not None,
+        "alerts_available": alert_feed is not None,
+        "feed_timestamp": newest_timestamp,
+    }
+
+
+def refresh_gtfs_now():
+    global _gtfs_cache
+    refreshed = _refresh_gtfs_once()
+    with _gtfs_lock:
+        _gtfs_cache = refreshed
+    return refreshed
+
+
+def _gtfs_background_worker():
+    while True:
+        refresh_gtfs_now()
+        time.sleep(GTFS_REFRESH_SECONDS)
+
+
+def start_gtfs_background_refresh():
+    global _gtfs_worker_started
+    if not configured() or gtfs_realtime_pb2 is None:
+        return False
+
+    with _gtfs_worker_lock:
+        if _gtfs_worker_started:
+            return True
+        thread = threading.Thread(
+            target=_gtfs_background_worker,
+            name="go-gtfs-realtime-refresh",
+            daemon=True,
+        )
+        thread.start()
+        _gtfs_worker_started = True
+    return True
+
+
+def gtfs_snapshot():
+    with _gtfs_lock:
+        return {
+            "loaded_at": _gtfs_cache["loaded_at"],
+            "trip_updates": dict(_gtfs_cache["trip_updates"]),
+            "vehicles": dict(_gtfs_cache["vehicles"]),
+            "alerts": list(_gtfs_cache["alerts"]),
+            "available": bool(_gtfs_cache["available"]),
+            "vehicles_available": bool(_gtfs_cache["vehicles_available"]),
+            "alerts_available": bool(_gtfs_cache["alerts_available"]),
+            "feed_timestamp": _gtfs_cache["feed_timestamp"],
+        }

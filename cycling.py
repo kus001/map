@@ -1,6 +1,5 @@
-# Cycling.py
-
 import os
+from functools import lru_cache
 
 import requests
 from dotenv import load_dotenv
@@ -8,8 +7,8 @@ from dotenv import load_dotenv
 from helpers.geocoding import explain_address_problem, get_coordinates
 
 load_dotenv()
-
 API_KEY = os.getenv("API")
+REQUEST_TIMEOUT = 8
 
 CYCLING_PROFILES = {
     "regular": "cycling-regular",
@@ -18,8 +17,6 @@ CYCLING_PROFILES = {
     "electric": "cycling-electric",
 }
 
-# openrouteservice maneuver codes. We keep the original instruction string too,
-# because that gives the clearest turn-by-turn text in the frontend.
 ORS_MANEUVER_TYPES = {
     0: ("turn", "left"),
     1: ("turn", "right"),
@@ -37,29 +34,59 @@ ORS_MANEUVER_TYPES = {
     13: ("continue", "keep right"),
 }
 
+_session = requests.Session()
+_session.headers.update({"Accept": "application/json, application/geo+json"})
+
 
 def _maneuver_details(step):
-    maneuver_code = step.get("type")
-
     try:
-        maneuver_code = int(maneuver_code)
+        maneuver_code = int(step.get("type"))
     except (TypeError, ValueError):
         return "continue", ""
-
     return ORS_MANEUVER_TYPES.get(maneuver_code, ("continue", ""))
 
 
-def get_cycling_route(start_address, end_address, route_type="regular"):
+def _resolve_coordinates(address, provided=None):
+    if isinstance(provided, (list, tuple)) and len(provided) >= 2:
+        try:
+            lat = float(provided[0])
+            lon = float(provided[1])
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return lat, lon
+        except (TypeError, ValueError):
+            pass
+    return get_coordinates(address)
+
+
+@lru_cache(maxsize=256)
+def _ors_cycling(profile, start_lat, start_lon, end_lat, end_lon):
+    url = f"https://api.heigit.org/openrouteservice/v2/directions/{profile}"
+    response = _session.get(
+        url,
+        headers={"Authorization": API_KEY},
+        params={
+            "start": f"{start_lon},{start_lat}",
+            "end": f"{end_lon},{end_lat}",
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def get_cycling_route(
+    start_address,
+    end_address,
+    route_type="regular",
+    start_coordinates=None,
+    end_coordinates=None,
+):
     if not API_KEY:
-        return {
-            "success": False,
-            "error": "Cycling API Key is missing.",
-        }
+        return {"success": False, "error": "Cycling API Key is missing."}
 
     profile = CYCLING_PROFILES.get(route_type, "cycling-regular")
-
-    start = get_coordinates(start_address)
-    end = get_coordinates(end_address)
+    start = _resolve_coordinates(start_address, start_coordinates)
+    end = _resolve_coordinates(end_address, end_coordinates)
 
     if start is None:
         return {
@@ -68,7 +95,6 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
                 start_address, "Starting address couldn't be found."
             ),
         }
-
     if end is None:
         return {
             "success": False,
@@ -77,40 +103,20 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
             ),
         }
 
-    start_lat, start_lon = start
-    end_lat, end_lon = end
-
-    url = (
-        "https://api.heigit.org/"
-        f"openrouteservice/v2/directions/{profile}"
+    start_lat, start_lon = map(float, start)
+    end_lat, end_lon = map(float, end)
+    key = (
+        profile,
+        round(start_lat, 6),
+        round(start_lon, 6),
+        round(end_lat, 6),
+        round(end_lon, 6),
     )
 
-    headers = {
-        "Authorization": API_KEY,
-        "Accept": "application/json, application/geo+json",
-    }
-
-    params = {
-        "start": f"{start_lon},{start_lat}",
-        "end": f"{end_lon},{end_lat}",
-    }
-
     try:
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=15,
-        )
-        response.raise_for_status()
-        data = response.json()
-
+        data = _ors_cycling(*key)
     except requests.RequestException as error:
-        return {
-            "success": False,
-            "error": f"Cycling routing server error: {error}",
-        }
-
+        return {"success": False, "error": f"Cycling routing server error: {error}"}
     except ValueError:
         return {
             "success": False,
@@ -118,23 +124,15 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         }
 
     if not data.get("features"):
-        return {
-            "success": False,
-            "error": "No cycling route could be found.",
-        }
+        return {"success": False, "error": "No cycling route could be found."}
 
     route_data = data["features"][0]
     properties = route_data.get("properties", {})
     summary = properties.get("summary", {})
-
     distance_km = float(summary.get("distance", 0) or 0) / 1000
     duration_min = float(summary.get("duration", 0) or 0) / 60
-
     geometry = route_data.get("geometry", {}).get("coordinates", [])
-    route_coordinates = [
-        [lat, lon]
-        for lon, lat in geometry
-    ]
+    route_coordinates = [[lat, lon] for lon, lat in geometry]
 
     steps = []
     total_ascent = 0.0
@@ -148,7 +146,6 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
             step_type, modifier = _maneuver_details(step)
             road_name = str(step.get("name", "") or "").strip()
             instruction = str(step.get("instruction", "") or "").strip()
-
             way_points = step.get("way_points") or []
             step_coordinate = None
             if way_points:
@@ -159,27 +156,22 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
                 except (TypeError, ValueError):
                     pass
 
-            steps.append({
-                # This was previously blank, which is why the UI could only say
-                # things such as "Cycling onto Wissler Road".
-                "instruction": instruction,
-                "type": step_type,
-                "modifier": modifier,
-                "road": road_name,
-                "name": road_name,
-                "distance_m": float(step.get("distance", 0) or 0),
-                "duration_min": float(step.get("duration", 0) or 0) / 60,
-                "maneuver_type": step.get("type"),
-                "way_points": way_points,
-                "coordinates": step_coordinate,
-            })
+            steps.append(
+                {
+                    "instruction": instruction,
+                    "type": step_type,
+                    "modifier": modifier,
+                    "road": road_name,
+                    "name": road_name,
+                    "distance_m": float(step.get("distance", 0) or 0),
+                    "duration_min": float(step.get("duration", 0) or 0) / 60,
+                    "maneuver_type": step.get("type"),
+                    "way_points": way_points,
+                    "coordinates": step_coordinate,
+                }
+            )
 
-    average_speed = (
-        distance_km / (duration_min / 60)
-        if duration_min > 0
-        else 0.0
-    )
-
+    average_speed = distance_km / (duration_min / 60) if duration_min > 0 else 0.0
     route = {
         "route_number": 1,
         "distance_km": distance_km,
@@ -188,10 +180,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         "steps": steps,
         "route_coordinates": route_coordinates,
     }
-
     if total_ascent:
         route["ascent_m"] = total_ascent
-
     if total_descent:
         route["descent_m"] = total_descent
 
@@ -199,14 +189,8 @@ def get_cycling_route(start_address, end_address, route_type="regular"):
         "success": True,
         "mode": "cycling",
         "route_type": route_type,
-        "start": {
-            "address": start_address,
-            "coordinates": [start_lat, start_lon],
-        },
-        "end": {
-            "address": end_address,
-            "coordinates": [end_lat, end_lon],
-        },
+        "start": {"address": start_address, "coordinates": [start_lat, start_lon]},
+        "end": {"address": end_address, "coordinates": [end_lat, end_lon]},
         "routes": [route],
         "fastest_route_number": 1,
         "shortest_route_number": 1,

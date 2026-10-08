@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 import requests
 from dotenv import load_dotenv
@@ -8,20 +9,51 @@ from helpers.geocoding import explain_address_problem, get_coordinates
 load_dotenv()
 
 API_KEY = os.getenv("API")
-WALKING_URL = (
-    "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
-)
+WALKING_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
+REQUEST_TIMEOUT = 8
+
+_session = requests.Session()
+_session.headers.update({"Accept": "application/json, application/geo+json"})
 
 
-def get_walking_route(start_address, end_address):
+def _resolve_coordinates(address, provided=None):
+    if isinstance(provided, (list, tuple)) and len(provided) >= 2:
+        try:
+            lat = float(provided[0])
+            lon = float(provided[1])
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return lat, lon
+        except (TypeError, ValueError):
+            pass
+    return get_coordinates(address)
+
+
+@lru_cache(maxsize=192)
+def _ors_walking(start_lat, start_lon, end_lat, end_lon):
+    response = _session.get(
+        WALKING_URL,
+        headers={"Authorization": API_KEY},
+        params={
+            "start": f"{start_lon},{start_lat}",
+            "end": f"{end_lon},{end_lat}",
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def get_walking_route(
+    start_address,
+    end_address,
+    start_coordinates=None,
+    end_coordinates=None,
+):
     if not API_KEY:
-        return {
-            "success": False,
-            "error": "OpenRouteService API key is missing.",
-        }
+        return {"success": False, "error": "OpenRouteService API key is missing."}
 
-    start = get_coordinates(start_address)
-    end = get_coordinates(end_address)
+    start = _resolve_coordinates(start_address, start_coordinates)
+    end = _resolve_coordinates(end_address, end_coordinates)
 
     if start is None:
         return {
@@ -30,7 +62,6 @@ def get_walking_route(start_address, end_address):
                 start_address, "Starting address couldn't be found."
             ),
         }
-
     if end is None:
         return {
             "success": False,
@@ -39,29 +70,19 @@ def get_walking_route(start_address, end_address):
             ),
         }
 
-    start_lat, start_lon = start
-    end_lat, end_lon = end
+    start_lat, start_lon = map(float, start)
+    end_lat, end_lon = map(float, end)
+    key = (
+        round(start_lat, 6),
+        round(start_lon, 6),
+        round(end_lat, 6),
+        round(end_lon, 6),
+    )
 
     try:
-        response = requests.get(
-            WALKING_URL,
-            headers={
-                "Authorization": API_KEY,
-                "Accept": "application/json, application/geo+json",
-            },
-            params={
-                "start": f"{start_lon},{start_lat}",
-                "end": f"{end_lon},{end_lat}",
-            },
-            timeout=15,
-        )
-        response.raise_for_status()
-        data = response.json()
+        data = _ors_walking(*key)
     except requests.RequestException as error:
-        return {
-            "success": False,
-            "error": f"Walking routing server error: {error}",
-        }
+        return {"success": False, "error": f"Walking routing server error: {error}"}
     except ValueError:
         return {
             "success": False,
@@ -69,19 +90,15 @@ def get_walking_route(start_address, end_address):
         }
 
     if not data.get("features"):
-        return {
-            "success": False,
-            "error": "No walking route could be found.",
-        }
+        return {"success": False, "error": "No walking route could be found."}
 
     route_data = data["features"][0]
     properties = route_data.get("properties", {})
     summary = properties.get("summary", {})
-
-    distance_km = float(summary.get("distance", 0)) / 1000
-    duration_min = float(summary.get("duration", 0)) / 60
+    distance_km = float(summary.get("distance", 0) or 0) / 1000
+    duration_min = float(summary.get("duration", 0) or 0) / 60
     route_coordinates = [
-        [lat, lon] for lon, lat in route_data["geometry"]["coordinates"]
+        [lat, lon] for lon, lat in route_data.get("geometry", {}).get("coordinates", [])
     ]
 
     steps = []
@@ -105,7 +122,7 @@ def get_walking_route(start_address, end_address):
                     "road": step.get("name", ""),
                     "name": step.get("name", ""),
                     "distance_m": step.get("distance", 0),
-                    "duration_min": float(step.get("duration", 0)) / 60,
+                    "duration_min": float(step.get("duration", 0) or 0) / 60,
                     "coordinates": step_coordinate,
                 }
             )
@@ -121,14 +138,8 @@ def get_walking_route(start_address, end_address):
     return {
         "success": True,
         "mode": "walking",
-        "start": {
-            "address": start_address,
-            "coordinates": [start_lat, start_lon],
-        },
-        "end": {
-            "address": end_address,
-            "coordinates": [end_lat, end_lon],
-        },
+        "start": {"address": start_address, "coordinates": [start_lat, start_lon]},
+        "end": {"address": end_address, "coordinates": [end_lat, end_lon]},
         "routes": [route],
         "fastest_route_number": 1,
         "shortest_route_number": 1,

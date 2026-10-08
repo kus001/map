@@ -211,12 +211,18 @@ def _parse_alerts(feed):
         alert = entity.alert
         route_ids = []
         stop_ids = []
+        trip_ids = []
 
         for informed in alert.informed_entity:
             if informed.route_id:
                 route_ids.append(str(informed.route_id))
             if informed.stop_id:
                 stop_ids.append(str(informed.stop_id))
+            try:
+                if informed.trip.trip_id:
+                    trip_ids.append(str(informed.trip.trip_id))
+            except Exception:
+                pass
 
         header = _translation_text(alert.header_text)
         description = _translation_text(alert.description_text)
@@ -227,10 +233,12 @@ def _parse_alerts(feed):
         alerts.append(
             {
                 "id": str(entity.id),
-                "header": header or "Transit service alert",
+                "agency": "grt",
+                "header": header or "GRT service alert",
                 "description": description,
                 "route_ids": route_ids,
                 "stop_ids": stop_ids,
+                "trip_ids": trip_ids,
             }
         )
 
@@ -245,7 +253,7 @@ def _refresh_once():
     alerts_received = False
     jobs = {}
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         for agency, url in TRIP_UPDATE_URLS.items():
             jobs[pool.submit(_fetch_feed, url)] = ("trip", agency)
 
@@ -416,27 +424,30 @@ def adjusted_arrival(realtime, agency, trip, stop_id):
 
 
 def vehicle_for_trip(realtime, agency, trip_id):
-    if not realtime.get("available"):
-        return None
+    # Vehicle-position feeds are independent of TripUpdates. A temporary delay
+    # feed outage should not make valid bus/train GPS positions disappear.
     return realtime.get("vehicles", {}).get(_trip_key(agency, trip_id))
 
 
-def matching_alerts(realtime, route_ids, stop_ids=None, limit=5):
+def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None):
     if not realtime.get("alerts_available"):
         return []
 
     route_ids = {str(route) for route in route_ids if route is not None}
     stop_ids = {str(stop) for stop in (stop_ids or []) if stop is not None}
+    trip_ids = {str(trip) for trip in (trip_ids or []) if trip is not None}
     matches = []
 
     for alert in realtime.get("alerts", []):
         alert_routes = set(alert.get("route_ids", []))
         alert_stops = set(alert.get("stop_ids", []))
+        alert_trips = set(alert.get("trip_ids", []))
 
         if (
-            (not alert_routes and not alert_stops)
+            (not alert_routes and not alert_stops and not alert_trips)
             or alert_routes & route_ids
             or alert_stops & stop_ids
+            or alert_trips & trip_ids
         ):
             matches.append(alert)
 

@@ -51,13 +51,13 @@ TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
         "soft_walk_m": 800,
-        "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
+        "walk_penalty": 2.0,   # each minute walked past soft_walk_m counts double
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
         "soft_walk_m": 400,
-        "walk_penalty": 2.0,   # each minute past soft_walk_m counts triple
+        "walk_penalty": 3.0,   # each minute past soft_walk_m counts triple
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {

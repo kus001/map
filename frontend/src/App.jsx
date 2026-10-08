@@ -616,23 +616,30 @@ export default function App() {
             return step;
           }
           const delayMin = Number(state.delay_seconds || 0) / 60;
+          const hasRealtime = Boolean(state.realtime);
           const scheduledDeparture =
             step.scheduled_departure_time || step.departure_time;
           const scheduledArrival = step.scheduled_arrival_time || step.arrival_time;
           return {
             ...step,
-            realtime: true,
-            delay_min: delayMin,
-            cancelled: Boolean(state.cancelled),
-            live_status: state.cancelled
-              ? "Cancelled"
-              : delayMin >= 1
-                ? "Delayed"
-                : delayMin <= -1
-                  ? "Early"
-                  : "On time",
-            departure_time: shiftClockTime(scheduledDeparture, delayMin),
-            arrival_time: shiftClockTime(scheduledArrival, delayMin),
+            realtime: hasRealtime,
+            delay_min: hasRealtime ? delayMin : 0,
+            cancelled: hasRealtime ? Boolean(state.cancelled) : false,
+            live_status: hasRealtime
+              ? state.cancelled
+                ? "Cancelled"
+                : delayMin >= 1
+                  ? "Delayed"
+                  : delayMin <= -1
+                    ? "Early"
+                    : "On time"
+              : null,
+            departure_time: hasRealtime
+              ? shiftClockTime(scheduledDeparture, delayMin)
+              : scheduledDeparture,
+            arrival_time: hasRealtime
+              ? shiftClockTime(scheduledArrival, delayMin)
+              : scheduledArrival,
           };
         };
 
@@ -665,7 +672,12 @@ export default function App() {
                   ...(routeItem.realtime || {}),
                   available: liveSources.length > 0,
                   feed_connected: liveSources.length > 0,
-                  used_live_updates: (live.trip_states || []).length > 0,
+                  used_live_updates: (live.trip_states || []).some(
+                    state => Boolean(state.realtime)
+                  ),
+                  scheduled_vehicle_fallback: Boolean(
+                    live.scheduled_vehicle_fallback
+                  ),
                   live_sources: liveSources,
                   grt_connected: Boolean(
                     live.sources?.grt?.trip_updates ||

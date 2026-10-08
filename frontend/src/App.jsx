@@ -6,7 +6,7 @@ import { TbMoonStars } from "react-icons/tb";
 import MapView from "./components/MapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
-import { navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
+import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
 
@@ -101,6 +101,100 @@ function coordinateString(location) {
   return `${Number(location[0]).toFixed(7)}, ${Number(location[1]).toFixed(7)}`;
 }
 
+function shiftClockTime(value, minutes) {
+  if (!value || !Number.isFinite(Number(minutes))) {
+    return value || null;
+  }
+
+  const parts = String(value).split(":");
+  if (parts.length < 2) {
+    return value;
+  }
+
+  const hour = Number(parts[0]);
+  const minute = Number(parts[1]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return value;
+  }
+
+  const shifted = ((hour * 60 + minute + Math.round(Number(minutes))) % 1440 + 1440) % 1440;
+  return `${String(Math.floor(shifted / 60)).padStart(2, "0")}:${String(shifted % 60).padStart(2, "0")}`;
+}
+
+function nearbyClockTimestamp(value, nowMs = Date.now()) {
+  if (!value) {
+    return null;
+  }
+  const [hour, minute] = String(value).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+
+  const candidate = new Date(nowMs);
+  candidate.setHours(hour, minute, 0, 0);
+  let timestamp = candidate.getTime();
+  if (timestamp - nowMs > 12 * 60 * 60 * 1000) {
+    timestamp -= 24 * 60 * 60 * 1000;
+  } else if (nowMs - timestamp > 12 * 60 * 60 * 1000) {
+    timestamp += 24 * 60 * 60 * 1000;
+  }
+  return timestamp;
+}
+
+function transitStepKey(step) {
+  return `${step?.agency || ""}:${step?.trip_id || ""}`;
+}
+
+function clockMinutes(value) {
+  if (!value) {
+    return null;
+  }
+  const [hour, minute] = String(value).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
+function impossibleTransitConnection(steps) {
+  let previousTransit = null;
+  let transferMinutes = 0;
+
+  for (const step of steps || []) {
+    if (step?.type === "transit") {
+      if (previousTransit) {
+        const arrival = clockMinutes(previousTransit.arrival_time);
+        let departure = clockMinutes(step.departure_time);
+        if (arrival != null && departure != null) {
+          // Only interpret a lower clock time as the following day when the
+          // connection genuinely crosses midnight. A normal 10:05 -> 10:00
+          // pair must remain an impossible connection, not a 23h55 wait.
+          if (arrival >= 18 * 60 && departure <= 6 * 60) {
+            departure += 24 * 60;
+          }
+          const connectionMargin = departure - arrival - transferMinutes;
+          if (connectionMargin < 1) {
+            return {
+              from: previousTransit,
+              to: step,
+              margin_min: connectionMargin,
+            };
+          }
+        }
+      }
+      previousTransit = step;
+      transferMinutes = 0;
+      continue;
+    }
+
+    if (previousTransit && ["walk", "transfer"].includes(step?.type)) {
+      transferMinutes += Number(step.duration_min || 0);
+    }
+  }
+
+  return null;
+}
+
 export default function App() {
   const savedPreferences = useMemo(() => loadPreferences(), []);
   const sharedRoute = useMemo(() => readSharedRoute(), []);
@@ -189,9 +283,13 @@ export default function App() {
 
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
+  const routeAbortController = useRef(null);
   const navigationWatchId = useRef(null);
   const navigationOffRouteSamples = useRef(0);
   const navigationLastRerouteAt = useRef(0);
+  const transitLastAutoRerouteAt = useRef(0);
+  const transitLiveRequestId = useRef(0);
+  const selectedRouteRef = useRef(null);
   const searchRoutesRef = useRef(null);
 
   useEffect(() => {
@@ -233,6 +331,14 @@ export default function App() {
     [data, selectedRouteNumber]
   );
   const displayedMode = data?.mode || mode;
+  const selectedTransitSignature = useMemo(
+    () =>
+      (selectedRoute?.steps || [])
+        .filter(step => step?.type === "transit")
+        .map(step => transitStepKey(step))
+        .join("|"),
+    [selectedRoute]
+  );
   const navigationInfo = useMemo(
     () =>
       navigationActive && currentLocation && selectedRoute
@@ -240,6 +346,10 @@ export default function App() {
         : null,
     [navigationActive, currentLocation, selectedRoute]
   );
+
+  useEffect(() => {
+    selectedRouteRef.current = selectedRoute;
+  }, [selectedRoute]);
 
   function getDepartureDateTime(requestedTimingMode = timingMode) {
     if (requestedTimingMode !== "scheduled") {
@@ -272,14 +382,20 @@ export default function App() {
     requestedTimingMode = timingMode,
     requestedUseCurrentLocation = startUsesCurrentLocation,
     requestedTransitPreference = transitPreference,
+    requestedStartCoordinate = startMapCoordinate,
+    requestedDestinationCoordinate = destinationMapCoordinate,
   } = {}) {
+    const effectiveCurrentLocation =
+      requestedUseCurrentLocation && Array.isArray(requestedStartCoordinate)
+        ? requestedStartCoordinate
+        : currentLocation;
     const cleanStart =
-      requestedUseCurrentLocation && currentLocation
-        ? coordinateString(currentLocation)
+      requestedUseCurrentLocation && effectiveCurrentLocation
+        ? coordinateString(effectiveCurrentLocation)
         : requestedStart.trim();
     const cleanDestination = requestedDestination.trim();
 
-    if (requestedUseCurrentLocation && !currentLocation) {
+    if (requestedUseCurrentLocation && !effectiveCurrentLocation) {
       setError(true);
       setStatus("Current location is not available yet.");
       return;
@@ -304,6 +420,9 @@ export default function App() {
     }
 
     const requestId = ++searchRequestId.current;
+    routeAbortController.current?.abort();
+    const controller = new AbortController();
+    routeAbortController.current = controller;
     setLoading(true);
     setError(false);
     setStatus(
@@ -316,6 +435,7 @@ export default function App() {
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           start: cleanStart,
           destination: cleanDestination,
@@ -323,6 +443,10 @@ export default function App() {
           route_type: requestedCyclingType,
           departure_datetime: departureDatetime,
           transit_preference: requestedTransitPreference,
+          start_coordinates: requestedUseCurrentLocation
+            ? effectiveCurrentLocation
+            : requestedStartCoordinate,
+          destination_coordinates: requestedDestinationCoordinate,
         }),
       });
 
@@ -372,20 +496,25 @@ export default function App() {
         setStatus(`${typeName} cycling route found${scheduledSuffix}`);
       } else if (requestedMode === "transit") {
         const realtime = result.routes?.[0]?.realtime;
+        const count = result.routes?.length || 1;
+        const prefix = `${count} transit route${count === 1 ? "" : "s"} found`;
 
         if (effectiveTimingMode === "scheduled") {
-          setStatus("Scheduled transit route found");
+          setStatus(`${prefix} • scheduled`);
         } else if (realtime?.available && realtime?.used_live_updates) {
-          setStatus("Transit route found • live predictions used");
+          setStatus(`${prefix} • live predictions used`);
         } else if (realtime?.available) {
-          setStatus("Transit route found • live feed connected");
+          setStatus(`${prefix} • live feed connected`);
         } else {
-          setStatus("Transit route found • scheduled data");
+          setStatus(`${prefix} • scheduled data`);
         }
       } else {
         setStatus(`Route found${scheduledSuffix}`);
       }
     } catch (routeError) {
+      if (routeError?.name === "AbortError") {
+        return;
+      }
       if (requestId !== searchRequestId.current) {
         return;
       }
@@ -395,6 +524,9 @@ export default function App() {
       setStatus(routeError.message || "Something went wrong.");
     } finally {
       if (requestId === searchRequestId.current) {
+        if (routeAbortController.current === controller) {
+          routeAbortController.current = null;
+        }
         setLoading(false);
       }
     }
@@ -403,6 +535,252 @@ export default function App() {
   useEffect(() => {
     searchRoutesRef.current = searchRoutes;
   });
+
+  useEffect(() => {
+    if (
+      displayedMode !== "transit" ||
+      timingMode !== "now" ||
+      !selectedTransitSignature ||
+      !selectedRouteRef.current
+    ) {
+      return undefined;
+    }
+
+    let stopped = false;
+    let intervalId = null;
+    const routeSnapshot = selectedRouteRef.current;
+    const routeNumber = routeSnapshot.route_number;
+    const baseTransitSteps = (routeSnapshot.steps || []).filter(
+      step => step?.type === "transit"
+    );
+
+    const getFreshLocation = () =>
+      new Promise(resolve => {
+        if (!navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          position => {
+            const location = [position.coords.latitude, position.coords.longitude];
+            setCurrentLocation(location);
+            setNavigationAccuracy(
+              Number.isFinite(position.coords.accuracy)
+                ? position.coords.accuracy
+                : null
+            );
+            setNavigationSpeedMps(
+              Number.isFinite(position.coords.speed) ? position.coords.speed : null
+            );
+            resolve({
+              location,
+              accuracy: Number.isFinite(position.coords.accuracy)
+                ? position.coords.accuracy
+                : null,
+              speed: Number.isFinite(position.coords.speed)
+                ? position.coords.speed
+                : null,
+            });
+          },
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 8000 }
+        );
+      });
+
+    async function refreshTransitLive() {
+      const requestId = ++transitLiveRequestId.current;
+      try {
+        const response = await fetch("/api/transit/live-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ steps: baseTransitSteps }),
+        });
+        const live = await response.json();
+        if (stopped || requestId !== transitLiveRequestId.current || !response.ok || !live.success) {
+          return;
+        }
+
+        const stateByTrip = new Map(
+          (live.trip_states || []).map(item => [
+            `${item.agency || ""}:${item.trip_id || ""}`,
+            item,
+          ])
+        );
+
+        const updateStep = step => {
+          if (step?.type !== "transit") {
+            return step;
+          }
+          const state = stateByTrip.get(transitStepKey(step));
+          if (!state) {
+            return step;
+          }
+          const delayMin = Number(state.delay_seconds || 0) / 60;
+          const scheduledDeparture =
+            step.scheduled_departure_time || step.departure_time;
+          const scheduledArrival = step.scheduled_arrival_time || step.arrival_time;
+          return {
+            ...step,
+            realtime: true,
+            delay_min: delayMin,
+            cancelled: Boolean(state.cancelled),
+            live_status: state.cancelled
+              ? "Cancelled"
+              : delayMin >= 1
+                ? "Delayed"
+                : delayMin <= -1
+                  ? "Early"
+                  : "On time",
+            departure_time: shiftClockTime(scheduledDeparture, delayMin),
+            arrival_time: shiftClockTime(scheduledArrival, delayMin),
+          };
+        };
+
+        const liveSources = [];
+        if (live.sources?.grt?.trip_updates || live.sources?.grt?.vehicles) {
+          liveSources.push("GRT");
+        }
+        if (live.sources?.go?.trip_updates || live.sources?.go?.vehicles) {
+          liveSources.push("GO Transit");
+        }
+
+        setData(previous => {
+          if (!previous || previous.mode !== "transit") {
+            return previous;
+          }
+          return {
+            ...previous,
+            alerts: live.alerts || [],
+            routes: (previous.routes || []).map(routeItem => {
+              if (routeItem.route_number !== routeNumber) {
+                return routeItem;
+              }
+              const updatedSteps = (routeItem.steps || []).map(updateStep);
+              return {
+                ...routeItem,
+                steps: updatedSteps,
+                stops: updatedSteps,
+                live_vehicles: live.live_vehicles || [],
+                realtime: {
+                  ...(routeItem.realtime || {}),
+                  available: liveSources.length > 0,
+                  feed_connected: liveSources.length > 0,
+                  used_live_updates: (live.trip_states || []).length > 0,
+                  live_sources: liveSources,
+                  grt_connected: Boolean(
+                    live.sources?.grt?.trip_updates ||
+                      live.sources?.grt?.vehicles ||
+                      live.sources?.grt?.alerts
+                  ),
+                  go_connected: Boolean(
+                    live.sources?.go?.trip_updates ||
+                      live.sources?.go?.vehicles ||
+                      live.sources?.go?.alerts
+                  ),
+                  go_configured: live.sources?.go?.configured !== false,
+                },
+              };
+            }),
+          };
+        });
+
+        const updatedRouteSteps = (routeSnapshot.steps || []).map(updateStep);
+        const updatedTransitSteps = updatedRouteSteps.filter(
+          step => step?.type === "transit"
+        );
+        const nowMs = Date.now();
+        const firstRelevantStep = updatedTransitSteps.find(step => {
+          const departureMs = nearbyClockTimestamp(step.departure_time, nowMs);
+          return departureMs == null || departureMs >= nowMs - 4 * 60 * 1000;
+        });
+        if (!firstRelevantStep) {
+          return;
+        }
+
+        const cancelledStep = updatedTransitSteps.find(step => {
+          if (!step.cancelled) {
+            return false;
+          }
+          const departure = nearbyClockTimestamp(step.departure_time, nowMs);
+          return departure == null || departure >= nowMs - 4 * 60 * 1000;
+        });
+        const connectionFailure = impossibleTransitConnection(updatedRouteSteps);
+        const departureMs = nearbyClockTimestamp(firstRelevantStep.departure_time, nowMs);
+        const departurePassed =
+          departureMs != null && nowMs > departureMs + 45 * 1000;
+
+        if (!cancelledStep && !connectionFailure && !departurePassed) {
+          return;
+        }
+
+        const cooldownPassed =
+          nowMs - transitLastAutoRerouteAt.current > 30000;
+        if (!cooldownPassed || !searchRoutesRef.current) {
+          return;
+        }
+
+        const gps = await getFreshLocation();
+        if (stopped || !gps?.location) {
+          return;
+        }
+
+        const boardingStop = (routeSnapshot.transit_stops || []).find(
+          stop =>
+            String(stop.raw_id || stop.id) ===
+              String(firstRelevantStep.from_stop_id || "") &&
+            String(stop.agency || "") === String(firstRelevantStep.agency || "")
+        );
+        const distanceToBoarding = boardingStop?.coordinates
+          ? haversineMeters(gps.location, boardingStop.coordinates)
+          : Infinity;
+        const nearBoarding =
+          distanceToBoarding <= Math.max(120, Number(gps.accuracy || 0) * 1.75);
+        const probablyNotOnVehicle =
+          gps.speed == null || Number(gps.speed) < 2.5;
+
+        if (
+          cancelledStep ||
+          connectionFailure ||
+          (departurePassed && nearBoarding && probablyNotOnVehicle)
+        ) {
+          transitLastAutoRerouteAt.current = nowMs;
+          setStatus(
+            cancelledStep
+              ? "Transit trip cancelled • finding the next best route..."
+              : connectionFailure
+                ? "A live delay breaks your connection • rerouting..."
+                : "Looks like you missed that departure • rerouting..."
+          );
+          searchRoutesRef.current({
+            requestedMode: "transit",
+            requestedTimingMode: "now",
+            requestedTransitPreference: transitPreference,
+            requestedUseCurrentLocation: true,
+            requestedStartCoordinate: gps.location,
+          });
+        }
+      } catch (liveError) {
+        if (!stopped) {
+          console.warn("Transit live refresh failed:", liveError);
+        }
+      }
+    }
+
+    refreshTransitLive();
+    intervalId = window.setInterval(refreshTransitLive, 15000);
+    return () => {
+      stopped = true;
+      if (intervalId != null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [
+    displayedMode,
+    timingMode,
+    selectedRouteNumber,
+    selectedTransitSignature,
+    transitPreference,
+  ]);
 
   useEffect(() => {
     if (!navigationActive || !navigationInfo || displayedMode === "transit") {
@@ -486,6 +864,7 @@ export default function App() {
         requestedStart: value,
         requestedDestination: destination,
         requestedUseCurrentLocation: false,
+        requestedStartCoordinate: coordinate,
       });
     }
   }
@@ -505,6 +884,7 @@ export default function App() {
     if (reroute && canRoute) {
       searchRoutes({
         requestedDestination: value,
+        requestedDestinationCoordinate: coordinate,
       });
     }
   }
@@ -882,6 +1262,13 @@ export default function App() {
           usingCurrentLocation={startUsesCurrentLocation}
           onUseCurrentLocation={() =>
             findLocation({ focus: false, quiet: false, useAsStart: true })
+          }
+          onStartCoordinate={coordinate => {
+            setStartMapCoordinate(coordinate);
+            setStartUsesCurrentLocation(false);
+          }}
+          onDestinationCoordinate={coordinate =>
+            setDestinationMapCoordinate(coordinate)
           }
         />
 

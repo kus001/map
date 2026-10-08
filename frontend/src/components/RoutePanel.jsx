@@ -311,7 +311,7 @@ export default function RoutePanel({
         >
           GO routing is working from the timetable. Add a server-side
           <span className="font-mono font-semibold"> METROLINX_API_KEY </span>
-          to enable live GO departures, delay status, and platforms.
+          to enable live GO delays, vehicles, alerts, and station departure boards.
         </div>
       )}
 
@@ -322,7 +322,14 @@ export default function RoutePanel({
               key={alert.id}
               className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
             >
-              <div className="font-bold">{alert.header}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-bold">{alert.header}</div>
+                {alert.agency && (
+                  <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+                    {alert.agency === "go" ? "GO" : "GRT"}
+                  </span>
+                )}
+              </div>
               {alert.description && (
                 <div className="mt-1 line-clamp-3">{alert.description}</div>
               )}
@@ -335,6 +342,12 @@ export default function RoutePanel({
         {data.routes.map(route => {
           const selected = route.route_number === activeRoute.route_number;
           const labels = [];
+          const transitLegs = (route.steps || [])
+            .filter(step => step?.type === "transit")
+            .map(step => String(step.route || step.vehicle || "Transit"));
+          const transitSummary = transitLegs.filter(
+            (value, index) => index === 0 || transitLegs[index - 1] !== value
+          );
 
           if (
             data.routes.length > 1 &&
@@ -385,6 +398,19 @@ export default function RoutePanel({
                     <span>•</span>
                     <span>{Number(route.distance_km || 0).toFixed(2)} km</span>
                   </div>
+
+                  {mode === "transit" && transitSummary.length > 0 && (
+                    <div
+                      className={`mt-1 line-clamp-1 text-xs font-semibold ${
+                        darkMode ? "text-blue-light" : "text-green-dark"
+                      }`}
+                    >
+                      {transitSummary.join(" → ")}
+                      {(route.steps || []).some(
+                        step => step?.type === "transit" && step?.realtime
+                      ) && " • LIVE"}
+                    </div>
+                  )}
 
                   {mode === "cycling" && (route.ascent_m || route.descent_m) && (
                     <div

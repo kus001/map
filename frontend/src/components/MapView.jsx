@@ -596,8 +596,16 @@ export default function MapView({
             }}
           >
             <Popup>
-              Live {vehicle.route ? `route ${vehicle.route}` : "transit vehicle"}
-              {vehicle.headsign ? ` toward ${vehicle.headsign}` : ""}
+              <div className="font-semibold">
+                {vehicle.agency === "go" ? "GO Transit" : "GRT"} • Live {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
+              </div>
+              {vehicle.headsign ? <div>toward {vehicle.headsign}</div> : null}
+              {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
+              {vehicle.timestamp ? (
+                <div className="mt-1 text-[10px] opacity-60">
+                  Position update {new Date(Number(vehicle.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+                </div>
+              ) : null}
             </Popup>
           </CircleMarker>
         ))}

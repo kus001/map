@@ -16,7 +16,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
-const DEFAULT_CENTER = [43.4829, -80.5249];
+const DEFAULT_CENTER = [43.46426, -80.52189];
 
 const MODE_COLORS = {
   driving: "#66856B",

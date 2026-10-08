@@ -1,25 +1,38 @@
+#!/bin/bash
+
+set -e
+
+cd ~/map || exit 1
+
+echo "Stopping Python server..."
+
 PID=$(pgrep -f "python3 main.py" | head -n 1)
 
 if [ -n "$PID" ]; then
-    echo "Killing main.py:"
     ps -p "$PID" -o pid,%mem,args
     kill "$PID"
+    sleep 1
 else
     echo "No main.py process found."
 fi
 
-echo "\n\npulling new code\n\n"
+echo
+echo "Pulling new code..."
 git restore .
-git pull
-echo "\n\npulled new code!\n\n"
+git pull --ff-only
 
-cd frontend/
+echo
+echo "Building frontend..."
+cd frontend
 npm run build
-pm2 restart all
 cd ..
 
-echo "\n\nstarting python..."
-nohup python3 main.py > output.log 2>&1 &
-echo "started python!\n"
+echo
+echo "Restarting PM2..."
+pm2 restart all
 
-chmod +x map/update_check.sh
+echo
+echo "Starting Python..."
+nohup python3 main.py > output.log 2>&1 &
+
+echo "Done."

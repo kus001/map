@@ -42,29 +42,26 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-MAX_NEARBY_STOPS = 12
+MAX_NEARBY_STOPS = 250
 
-# Transit access-stop preference. The router searches the shorter-walk tiers first.
-# If a valid route exists from nearby stops, it will wait for that service instead of
-# walking a long distance just to catch an earlier bus. It only expands the walk
-# radius when no usable transit route exists in the smaller tier.
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (600, 900, 1200),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (800, 1200, 1800, 2400, 4800),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "access_walk_tiers_m": (350, 600, 900, 1200),
-        "max_nearby_stops": 14,
+        "access_walk_tiers_m": (400, 600, 900, 1200, 1500),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
-        "access_walk_tiers_m": (1600,),
-        "max_nearby_stops": 12,
+        "access_walk_tiers_m": (2400, 3000, 3600, 4800),
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
 }
+
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 200.0
 ACCESS_WALK_SPEED_MPS = 1.35
@@ -256,6 +253,7 @@ def normalize_color(value):
 
 
 def vehicle_label(agency, route_type=None):
+    print(route_type)
     labels = {
         "0": "tram",
         "1": "subway",

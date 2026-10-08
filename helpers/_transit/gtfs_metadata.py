@@ -110,7 +110,7 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
 
 
 @lru_cache(maxsize=64)
-def _load_shape(agency, shape_id):
+def _load_shape(agency, shape_id) -> tuple:
     """Load only the requested shape instead of every shape in an agency feed."""
     path = GTFS_ROOT / agency / "shapes.txt"
     if not path.exists() or not shape_id:
@@ -133,14 +133,14 @@ def _load_shape(agency, shape_id):
     return tuple(point for _, point in points)
 
 
-def _point_score(point, target):
+def _point_score(point, target) -> float:
     scale = math.cos(math.radians((float(point[0]) + float(target[0])) / 2))
     dlat = float(point[0]) - float(target[0])
     dlon = (float(point[1]) - float(target[1])) * scale
     return dlat * dlat + dlon * dlon
 
 
-def _nearest_indices(shape, target, amount=12):
+def _nearest_indices(shape, target, amount=12) -> list:
     return [
         index
         for _, index in nsmallest(

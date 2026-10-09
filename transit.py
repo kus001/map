@@ -55,8 +55,8 @@ TRANSIT_PREFERENCES = {
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 300,
-        "walk_penalty": 3.0,   # each minute past soft_walk_m counts quadruple
+        "soft_walk_m": 0,
+        "walk_penalty": 3.0,   # Walking time counts quadruple ...
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
@@ -1516,7 +1516,7 @@ def get_transit_route(
 
         steps.append(step)
 
-        total_distance += distance
+        # total_distance += distance
         used_trip_ids.add(str(trip_id))
         route_ids.add(str(route_name))
         if meta and meta.get("route_id"):

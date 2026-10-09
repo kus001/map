@@ -199,7 +199,7 @@ function impossibleTransitConnection(steps) {
 
 export default function App() {
   const savedPreferences = useMemo(() => loadPreferences(), []);
-  const [SidePanel, setIsSidePanel] = useState();
+  const [sidePanel, setIsSidePanel] = useState();
   const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
     const fallback = DEFAULT_INITIAL_SCHEDULE;
@@ -1243,19 +1243,6 @@ export default function App() {
               >
                 {darkMode ? <PiSunFill /> : <TbMoonStars />}
               </button>
-
-              <button
-                type="button"
-                onClick={() => setIsSidePanel(value => !value)}
-                title="Toggle dark mode"
-                className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                  darkMode
-                    ? "border-button bg-charcoal-light text-blue-light"
-                    : "border-button-light bg-white text-green-dark"
-                }`}
-              >
-                {SidePanel ? <MdOpenInNew /> : <IoClose />}
-              </button>
             </div>
           </div>
 
@@ -1327,7 +1314,7 @@ export default function App() {
             darkMode
               ? "border-button/40 text-darkmode-gray"
               : "border-button-light/50 text-button"
-          }`}
+          } ${sidePanel ? "hidden" : ""}`}
         >
           <span>made by</span>
           <a
@@ -1360,6 +1347,18 @@ export default function App() {
       </aside>
 
       <main className="relative min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setIsSidePanel(value => !value)}
+          title="Open/close menu"
+          className={`rounded-lg absolute top-4 left-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${
+            darkMode
+              ? "border-button bg-charcoal-light text-blue-light"
+              : "border-button-light bg-white text-green-dark"
+          }`}
+        >
+          {sidePanel ? <MdOpenInNew /> : <IoClose />}
+        </button>
         <MapView
           data={data}
           selectedRoute={selectedRoute}

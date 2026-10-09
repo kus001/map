@@ -1,6 +1,7 @@
 import asyncio
 import math
 import os
+from sys import flags
 import time
 import threading
 from collections import OrderedDict
@@ -701,6 +702,16 @@ def candidate_stops(options, max_distance_m=None, max_count=MAX_NEARBY_STOPS):
 
 
 def transit_preference_profile(value):
+    if isinstance(value, (int, float)):
+        return (
+            f"P{value}", 
+            {
+                "label": f"P{value}",
+                "soft_walk_m": 100,
+                "walk_penalty": float(value),   # each minute walked past soft_walk_m counts value times
+                "max_nearby_stops": MAX_NEARBY_STOPS,
+            }
+        )
     key = str(value or "balanced").strip().lower()
     if key not in TRANSIT_PREFERENCES:
         key = "balanced"

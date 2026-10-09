@@ -391,7 +391,7 @@ export default function SearchPanel({
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <span
-          className={`text-[10px] ${
+          className={`text-[10px] whitespace-pre-line ${
             darkMode ? "text-darkmode-gray/70" : "text-button-darkest"
           }`}
         >

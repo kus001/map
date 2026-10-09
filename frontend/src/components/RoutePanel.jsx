@@ -362,7 +362,11 @@ export default function RoutePanel({
             data.routes.length > 1 &&
             route.route_number === data.shortest_route_number
           ) {
-            labels.push("SHORTEST");
+            if (mode === "transit") {
+              labels.push("SHORTEST WALK");
+            } else {
+              labels.push("SHORTEST")
+            }
           }
 
           return (

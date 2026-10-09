@@ -3,6 +3,7 @@ export default function Button({
   children,
   className = "",
   darkMode,
+  mapStyle,
   ...props
 }) {
   const base =
@@ -10,7 +11,9 @@ export default function Button({
 
   const colors = active
     ? darkMode
-      ? "border-blue bg-blue text-white active:bg-blue-dark active:scale-95"
+      ?  mapStyle === "hybrid"
+        ? "border-hybrid-purple bg-hybrid-purple text-white active:scale-95"
+        : "border-blue bg-blue text-white active:bg-blue-dark active:scale-95"
       : "border-green bg-green text-white active:bg-green-dark active:scale-95"
     : darkMode
       ? "border-charcoal bg-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"

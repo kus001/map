@@ -1261,6 +1261,7 @@ export default function App() {
           start={start}
           destination={destination}
           setStart={handleStartChange}
+          mapStyle={mapStyle}
           setDestination={handleDestinationChange}
           mode={mode}
           cyclingType={cyclingType}

@@ -304,6 +304,7 @@ export default function SearchPanel({
   onSwap,
   loading,
   darkMode,
+  mapStyle,
   timingMode,
   onTimingModeChange,
   departureDate,
@@ -411,6 +412,7 @@ export default function SearchPanel({
             type="button"
             key={id}
             active={mode === id}
+            mapStyle={mapStyle}
             disabled={loading}
             darkMode={darkMode}
             onClick={() => onModeChange(id)}
@@ -429,6 +431,7 @@ export default function SearchPanel({
               type="button"
               key={option.id}
               disabled={loading}
+              mapStyle={mapStyle}
               onClick={() => onCyclingTypeChange(option.id)}
               className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
                 cyclingType === option.id

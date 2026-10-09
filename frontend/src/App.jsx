@@ -1350,6 +1350,9 @@ export default function App() {
           >
             Madhav
           </a>
+          <span>
+            Built at: {import.meta.env.VITE_BUILD_TIME || "Right now!"}
+          </span>
         </footer>
       </aside>
 

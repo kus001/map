@@ -27,6 +27,7 @@ git pull --ff-only
 echo
 echo "Building frontend..."
 cd frontend
+export VITE_BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 npm run build
 cd ..
 

@@ -10,7 +10,6 @@ from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
-
 import httpx
 from dotenv import load_dotenv
 
@@ -50,14 +49,14 @@ FASTEST_NEARBY_STOPS = 600
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "soft_walk_m": 800,
-        "walk_penalty": 2.0,   # each minute walked past soft_walk_m counts double
+        "soft_walk_m": 300,
+        "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 400,
-        "walk_penalty": 3.0,   # each minute past soft_walk_m counts triple
+        "soft_walk_m": 300,
+        "walk_penalty": 3.0,   # each minute past soft_walk_m counts quadruple
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {

@@ -701,7 +701,7 @@ def candidate_stops(options, max_distance_m=None, max_count=MAX_NEARBY_STOPS):
     return ordered[:max_count]
 
 
-def transit_preference_profile(value):
+def transit_preference_profile(value) -> tuple[str, dict]:
     if isinstance(value, (int, float)):
         return (
             f"P{value}", 
@@ -726,7 +726,7 @@ def _candidate_trip(
     earliest,
     date,
     realtime,
-):
+) -> tuple|None:
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:

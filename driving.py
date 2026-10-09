@@ -1,11 +1,12 @@
+import os
 from functools import lru_cache
 
 import requests
 
 from helpers.geocoding import explain_address_problem, get_coordinates
 
-OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
-REQUEST_TIMEOUT = 8
+OSRM_URL = os.getenv("MAP_DRIVING_OSRM_URL", "https://router.project-osrm.org/route/v1/driving").rstrip("/")
+REQUEST_TIMEOUT = (1.8, 4.0)
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "map-router/3.0"})
@@ -46,6 +47,7 @@ def get_driving_route(
     alternatives=3,
     start_coordinates=None,
     end_coordinates=None,
+    provider="osrm",
 ):
     start = _resolve_coordinates(start_address, start_coordinates)
     end = _resolve_coordinates(end_address, end_coordinates)
@@ -65,6 +67,15 @@ def get_driving_route(
                 end_address, "Destination couldn't be found."
             ),
         }
+
+    if provider == "google":
+        # Google Routes content is only returned when the React UI can switch
+        # to a Google map. No Google content is drawn on a MapTiler basemap.
+        from google_driving import google_driving_route
+        try:
+            return google_driving_route(start_address, end_address, start, end)
+        except (requests.RequestException, ValueError, RuntimeError) as error:
+            print(f"[MAP] Google traffic routing unavailable, using OSRM: {error}")
 
     start_lat, start_lon = map(float, start)
     end_lat, end_lon = map(float, end)
@@ -145,6 +156,8 @@ def get_driving_route(
     return {
         "success": True,
         "mode": "driving",
+        "routing_provider": "osrm",
+        "traffic_aware": False,
         "start": {"address": start_address, "coordinates": [start_lat, start_lon]},
         "end": {"address": end_address, "coordinates": [end_lat, end_lon]},
         "routes": routes,

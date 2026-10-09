@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt, MdOutlineSatellite } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
-import { IoLayers } from "react-icons/io5";
+import { IoLayers, IoClose } from "react-icons/io5";
+import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
@@ -198,6 +199,7 @@ function impossibleTransitConnection(steps) {
 
 export default function App() {
   const savedPreferences = useMemo(() => loadPreferences(), []);
+  const [SidePanel, setIsSidePanel] = useState();
   const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
     const fallback = DEFAULT_INITIAL_SCHEDULE;
@@ -1239,6 +1241,19 @@ export default function App() {
               }`}
             >
               {darkMode ? <PiSunFill /> : <TbMoonStars />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsSidePanel(value => !value)}
+              title="Toggle dark mode"
+              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+                darkMode
+                  ? "border-button bg-charcoal-light text-blue-light"
+                  : "border-button-light bg-white text-green-dark"
+              }`}
+            >
+              {SidePanel ? <MdOpenInNew /> : <IoClose />}
             </button>
           </div>
 

@@ -398,7 +398,10 @@ export default function RoutePanel({
                     <ModeIcon />
                     <span>{modeInfo.name}</span>
                     <span>•</span>
-                    <span>{Number(route.distance_km || 0).toFixed(2)} km</span>
+                    <span>
+                      {Number(route.distance_km || 0).toFixed(2)} km
+                      {mode === "transit" ? " walking" : ""}
+                    </span>
                   </div>
 
                   {mode === "transit" && transitSummary.length > 0 && (

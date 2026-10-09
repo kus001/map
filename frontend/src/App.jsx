@@ -1253,8 +1253,7 @@ export default function App() {
               darkMode ? "text-darkmode-gray" : "text-button-darkest"
             }`}
           >
-            {"Drive. Walk. Bike. Transit. Sleep.\n"}
-            Built at: {import.meta.env.VITE_BUILD_TIME || "Now!"}
+            Drive. Walk. Bike. Transit. Sleep.
           </div>
         </header>
 

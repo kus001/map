@@ -16,9 +16,10 @@ export default function Button({
         : "border-blue bg-blue text-white active:bg-blue-dark active:scale-95"
       : "border-green bg-green text-white active:bg-green-dark active:scale-95"
     : darkMode
-      ? "border-charcoal bg-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"
-      : "border-charcoal bg-charcoal text-white hover:border-green hover:bg-green active:bg-green-dark";
-
+      ? mapStyle === "hybrid"
+        ? "border-hybrid-charcoal bg-hybrid-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"
+        : "border-charcoal bg-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"
+      : "border-charcoal bg-charcoal text-white hover:border-green hover:bg-green active:bg-green-dark"
   return (
     <button className={`${base} ${colors} ${className}`} {...props}>
       {children}

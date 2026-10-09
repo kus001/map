@@ -52,6 +52,7 @@ function LocationInput({
   icon,
   disabled,
   darkMode,
+  mapStyle,
   endAction = null,
   skipLookup = false,
   onSelectLocation = () => {},
@@ -328,6 +329,7 @@ export default function SearchPanel({
         <LocationInput
           key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
+          mapStyle={mapStyle}
           onChange={setStart}
           onSearch={onSearch}
           placeholder="Starting location"
@@ -352,10 +354,14 @@ export default function SearchPanel({
               className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 ${
                 usingCurrentLocation
                   ? darkMode
-                    ? "border-blue bg-blue text-white" 
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple text-white" 
+                      : "border-blue bg-blue text-white" 
                     : "border-green bg-green text-white"
                   : darkMode
-                    ? "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-hybrid-charcoal text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
+                      : "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
                     : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
               }`}
             >
@@ -368,6 +374,7 @@ export default function SearchPanel({
           value={destination}
           onChange={setDestination}
           onSearch={onSearch}
+          mapStyle={mapStyle}
           placeholder="Destination"
           disabled={loading}
           darkMode={darkMode}

@@ -1226,7 +1226,11 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode ? "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
+                darkMode 
+                  ? mapStyle === "hybrid"
+                    ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" 
+                    : "text-blue-light hover:text-blue" 
+                  : "text-green hover:text-green-dark"
               }`}
             >
               Map Router

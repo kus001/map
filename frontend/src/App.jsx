@@ -1249,11 +1249,11 @@ export default function App() {
           </div>
 
           <div
-            className={`mt-1 text-[11px] ${
+            className={`mt-1 text-[11px] whitespace-pre-line ${
               darkMode ? "text-darkmode-gray" : "text-button-darkest"
             }`}
           >
-            Drive. Walk. Bike. Transit. Sleep.
+            {"Drive. Walk. Bike. Transit. Sleep.\n"}
             Built at: {import.meta.env.VITE_BUILD_TIME || "Now!"}
           </div>
         </header>

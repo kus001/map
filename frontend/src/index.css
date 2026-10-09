@@ -14,6 +14,10 @@
   --color-darkmode-gray: #d0d8d1;
   --color-charcoal: #2B353C;
   --color-charcoal-light: #35424A;
+  --color-hybrid-purple: #8C6BAC;
+  --color-hybrid-purple-light: #C09BDD;
+  --color-hybrid-charcoal: #15121D;
+  --color-hybrid-charcoal-light: #25202F;
 }
 
 html,

@@ -1230,31 +1230,33 @@ export default function App() {
               Map Router
             </a>
 
-            <button
-              type="button"
-              onClick={() => setDarkMode(value => !value)}
-              title="Toggle dark mode"
-              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                darkMode
-                  ? "border-button bg-charcoal-light text-blue-light"
-                  : "border-button-light bg-white text-green-dark"
-              }`}
-            >
-              {darkMode ? <PiSunFill /> : <TbMoonStars />}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setDarkMode(value => !value)}
+                title="Toggle dark mode"
+                className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+                  darkMode
+                    ? "border-button bg-charcoal-light text-blue-light"
+                    : "border-button-light bg-white text-green-dark"
+                }`}
+              >
+                {darkMode ? <PiSunFill /> : <TbMoonStars />}
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setIsSidePanel(value => !value)}
-              title="Toggle dark mode"
-              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                darkMode
-                  ? "border-button bg-charcoal-light text-blue-light"
-                  : "border-button-light bg-white text-green-dark"
-              }`}
-            >
-              {SidePanel ? <MdOpenInNew /> : <IoClose />}
-            </button>
+              <button
+                type="button"
+                onClick={() => setIsSidePanel(value => !value)}
+                title="Toggle dark mode"
+                className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+                  darkMode
+                    ? "border-button bg-charcoal-light text-blue-light"
+                    : "border-button-light bg-white text-green-dark"
+                }`}
+              >
+                {SidePanel ? <MdOpenInNew /> : <IoClose />}
+              </button>
+            </div>
           </div>
 
           <div

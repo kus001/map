@@ -17,7 +17,7 @@ export default function Button({
       : "border-green bg-green text-white active:bg-green-dark active:scale-95"
     : darkMode
       ? mapStyle === "hybrid"
-        ? "border-hybrid-charcoal bg-hybrid-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"
+        ? "border-hybrid-charcoal bg-hybrid-charcoal-light text-darkmode-gray hover:border-hybrid-purple hover:bg-hybrid-purple active:bg-purple-dark"
         : "border-charcoal bg-charcoal-light text-darkmode-gray hover:border-blue hover:bg-blue active:bg-blue-dark"
       : "border-charcoal bg-charcoal text-white hover:border-green hover:bg-green active:bg-green-dark"
   return (

@@ -16,11 +16,7 @@ const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
 const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
-const VALID_TRANSIT_PREFERENCES = new Set([
-  "balanced",
-  "less_walking",
-  "fastest",
-]);
+const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 
 // Capture the page-load time outside React rendering. React's purity lint rule
 // correctly rejects Date.now() when it is called during a component render.
@@ -1258,6 +1254,7 @@ export default function App() {
             }`}
           >
             Drive. Walk. Bike. Transit. Sleep.
+            Built at: {import.meta.env.VITE_BUILD_TIME || "Now!"}
           </div>
         </header>
 
@@ -1350,9 +1347,6 @@ export default function App() {
           >
             Madhav
           </a>
-          <span>
-            Built at: {import.meta.env.VITE_BUILD_TIME || "Right now!"}
-          </span>
         </footer>
       </aside>
 

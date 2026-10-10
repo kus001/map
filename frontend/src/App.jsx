@@ -14,7 +14,7 @@ const PREFERENCES_KEY = "map-router-preferences-v1";
 
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
-const VALID_MAP_STYLES = new Set(["street", "satellite"]);
+const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
 const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
 const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 

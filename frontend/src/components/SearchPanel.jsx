@@ -535,7 +535,10 @@ export default function SearchPanel({
         disabled={loading}
         onClick={() => onSearch()}
         darkMode={darkMode}
-        className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] ${darkMode? "border-blue bg-blue active:bg-blue-dark": "border-green bg-green active:bg-green-dark"}`}>
+        mapStyle={mapStyle}
+        className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] 
+        ${darkMode ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
+        }`}>
         {loading
           ? "Finding route..."
           : mode === "transit" && timingMode === "scheduled"

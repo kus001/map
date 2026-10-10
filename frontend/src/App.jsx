@@ -1211,13 +1211,15 @@ export default function App() {
   return (
     <div
       className={`flex h-screen w-screen overflow-hidden ${
-        darkMode ? "bg-charcoal" : "bg-green"
+        darkMode ? mapStyle === "hybrid" ? "bg-hybrid-charcoal" : "bg-charcoal" : "bg-white"
       }`}
     >
       <aside
         className={`z-[1000] flex h-screen w-[360px] flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden" : ""} ${
           darkMode
-            ? "border-button/50 bg-charcoal"
+            ? mapStyle === "hybrid"
+              ? "border-button/50 bg-hybrid-charcoal"
+              : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
         } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-hidden max-[760px]:rounded-2xl max-[760px]:border`}
       >
@@ -1272,6 +1274,7 @@ export default function App() {
           onSwap={swapLocations}
           loading={loading}
           darkMode={darkMode}
+          mapStyle={mapStyle}
           timingMode={timingMode}
           onTimingModeChange={changeTimingMode}
           departureDate={departureDate}

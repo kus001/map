@@ -1662,7 +1662,7 @@ def get_transit_route(
 
     route = {
         "route_number": 1,
-        "distance_km": distance_km,
+        "distance_km": math.ceil(distance_km, 1),
         "duration_min": total_time,
         "average_speed": (
             distance_km / (total_time / 60) if total_time > 0 else 0.0

@@ -42,9 +42,9 @@ _COORDINATE_RE = re.compile(
 _geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
 _geocode = RateLimiter(
     _geolocator.geocode,
-    min_delay_seconds=1,
-    max_retries=2,
-    error_wait_seconds=2,
+    min_delay_seconds=0,
+    max_retries=0,
+    error_wait_seconds=0,
     swallow_exceptions=True,
 )
 
@@ -181,7 +181,7 @@ def get_coordinates(address):
     # Last resort for typed places that were not selected through autocomplete.
     location = _geocode(
         clean_address,
-        timeout=10,
+        timeout=2.5,
         viewbox=WATERLOO_REGION_VIEWBOX,
         bounded=False,
         country_codes="ca",

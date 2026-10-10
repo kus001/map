@@ -401,6 +401,13 @@ export default function RoutePanel({
                     <span>{Number(route.distance_km || 0).toFixed(2)} km</span>
                   </div>
 
+                  {mode === "driving" && data.routing_provider === "google" && (
+                    <div className="mt-1 text-xs font-semibold text-green-dark">
+                      Google traffic-aware ETA
+                      {route.traffic_delay_min > 0.5 && ` • +${Math.round(route.traffic_delay_min)} min traffic`}
+                    </div>
+                  )}
+
                   {mode === "transit" && transitSummary.length > 0 && (
                     <div
                       className={`mt-1 line-clamp-1 text-xs font-semibold ${

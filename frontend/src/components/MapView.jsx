@@ -16,7 +16,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
-const DEFAULT_CENTER = [43.46426, -80.52189];
+const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
   driving: "#66856B",
@@ -184,9 +184,6 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   const [point, setPoint] = useState(null);
 
   useMapEvents({
-    click(event) {
-      setPoint([event.latlng.lat, event.latlng.lng]);
-    },
     contextmenu(event) {
       event.originalEvent?.preventDefault?.();
       setPoint([event.latlng.lat, event.latlng.lng]);
@@ -400,19 +397,8 @@ function getBaseLayer(mapStyle, darkMode) {
     };
   }
 
-  if (mapStyle === "street" && MAPTILER_KEY) {
+  if (MAPTILER_KEY) {
     const styleId = darkMode ? "streets-v4-dark" : "streets-v4";
-
-    return {
-      id: `maptiler-${styleId}`,
-      url: `https://api.maptiler.com/maps/${styleId}/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
-      attribution:
-        '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    };
-  }
-
-  if (mapStyle === "hybrid" && MAPTILER_KEY) {
-    const styleId = darkMode ? "hybrid-v4-dark" : "hybrid-v4";
 
     return {
       id: `maptiler-${styleId}`,
@@ -430,6 +416,88 @@ function getBaseLayer(mapStyle, darkMode) {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO',
   };
+}
+
+
+function NearbyVehicleLayer({ enabled, selectedVehicles }) {
+  const map = useMap();
+  const [viewport, setViewport] = useState(() => {
+    const center = map.getCenter();
+    const bounds = map.getBounds();
+    return { lat: center.lat, lon: center.lng,
+      radius: Math.min(15000, Math.max(1000, map.distance(center, bounds.getNorthWest()))) };
+  });
+  const [vehicles, setVehicles] = useState([]);
+  const selectedKeys = new Set(
+    (selectedVehicles || []).map(v => `${v.agency}:${v.trip_id}`)
+  );
+
+  useMapEvents({
+    moveend: () => {
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+      setViewport({ lat: center.lat, lon: center.lng,
+        radius: Math.min(15000, Math.max(1000, map.distance(center, bounds.getNorthWest()))) });
+    },
+  });
+
+  useEffect(() => {
+    if (!enabled || !viewport) return;
+    let active = true;
+    let controller;
+    async function refresh() {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const q = new URLSearchParams({ lat: String(viewport.lat),
+          lon: String(viewport.lon), radius: String(Math.round(viewport.radius)) });
+        const response = await fetch(`/api/transit/vehicles?${q}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (active && result.success) setVehicles(result.vehicles || []);
+      } catch (error) {
+        if (error.name !== "AbortError") console.warn("Vehicle map refresh:", error);
+      }
+    }
+    refresh();
+    const intervalId = window.setInterval(refresh, 20000);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [enabled, viewport]);
+
+  if (!enabled) return null;
+  return <>
+    {vehicles.filter(v =>
+      validCoordinate([v.lat, v.lon]) && !selectedKeys.has(`${v.agency}:${v.trip_id}`)
+    ).map(v => (
+      <CircleMarker
+        key={`nearby-${v.agency}-${v.trip_id}`}
+        center={[v.lat, v.lon]}
+        radius={v.estimated ? 5.5 : 7}
+        pathOptions={{
+          color: "#FFFFFF", weight: v.estimated ? 2 : 3,
+          fillColor: v.estimated ? "#64748B" : "#D97706",
+          fillOpacity: v.estimated ? 0.85 : 1,
+          dashArray: v.estimated ? "4 3" : undefined,
+        }}
+      >
+        <Popup>
+          <div className="font-semibold">
+            {v.agency === "go" ? "GO Transit" : "GRT"}
+            {v.route ? ` • ${v.route}` : ""}
+          </div>
+          <div>{v.estimated ? "Scheduled estimate — not GPS" : "Live GPS position"}</div>
+          {v.headsign && <div>toward {v.headsign}</div>}
+          {v.estimated && <div className="text-xs">Approximate position between scheduled stops.</div>}
+        </Popup>
+      </CircleMarker>
+    ))}
+  </>;
 }
 
 export default function MapView({
@@ -583,6 +651,11 @@ export default function MapView({
           />
         </>
       ) : null}
+
+      <NearbyVehicleLayer
+        enabled={mode === "transit"}
+        selectedVehicles={route?.live_vehicles || []}
+      />
 
       {(route?.transit_stops ?? [])
         .filter(stop => validCoordinate(stop.coordinates))

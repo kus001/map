@@ -59,7 +59,7 @@ function MapThemeEffect({ darkMode, mapStyle }) {
     container.classList.toggle("map-dark-ui", darkMode);
     container.classList.toggle(
       "dark-satellite-map",
-      darkMode && (mapStyle === "satellite" || mapStyle === "hybrid")
+      darkMode && mapStyle === "satellite"
     );
 
     return () => {

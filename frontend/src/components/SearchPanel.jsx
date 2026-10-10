@@ -319,7 +319,9 @@ export default function SearchPanel({
 }) {
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
-      ? "border-button bg-charcoal-light focus:border-blue text-darkmode-gray"
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light/10 focus:border-hybrid-purple text-darkmode-gray"
+        : "border-button bg-charcoal-light focus:border-blue text-darkmode-gray"
       : "border-button-light focus:border-green bg-white text-charcoal"
   }`;
 
@@ -479,7 +481,9 @@ export default function SearchPanel({
                 className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
                   transitPreference === option.id
                     ? darkMode
-                      ? "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                      ? mapStyle === "hybrid"
+                        ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
+                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
                       : "border-green bg-green/15 text-green active:bg-green/25"
                     : darkMode
                       ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
@@ -508,7 +512,9 @@ export default function SearchPanel({
               className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
                 timingMode === "now"
                   ? darkMode
-                    ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white shadow-sm active:bg-hybrid-purple-dark"
+                      : "bg-blue text-white shadow-sm active:bg-blue-dark"
                     : "bg-green text-white shadow-sm active:bg-green-dark"
                   : darkMode
                     ? "text-darkmode-gray hover:bg-blue/10"
@@ -525,7 +531,9 @@ export default function SearchPanel({
               className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
                 timingMode === "scheduled"
                   ? darkMode
-                    ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white shadow-sm active:bg-hybrid-purple"
+                      : "bg-blue text-white shadow-sm active:bg-blue-dark"
                     : "bg-green text-white shadow-sm active:bg-green-dark"
                   : darkMode
                     ? "text-darkmode-gray hover:bg-blue/10"

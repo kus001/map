@@ -393,7 +393,7 @@ export default function SearchPanel({
             darkMode ? "text-darkmode-gray/70" : "text-button-darkest"
           }`}
         >
-          {"Tip: click the map to choose A or B.\n"}
+          {"Tip: right-click the map to choose A or B.\n"}
           Last built at: {import.meta.env.VITE_BUILD_TIME || "now!"}
         </span>
 

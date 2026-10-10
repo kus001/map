@@ -2,6 +2,8 @@
 
 set -e
 
+echo "Starting rebuild!!"
+
 export NVM_DIR="/root/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
@@ -39,4 +41,4 @@ echo
 echo "Starting Python..."
 nohup python3 main.py > output.log 2>&1 &
 
-echo "Done."
+echo "Done. Built new code! See main.py output in output.log."

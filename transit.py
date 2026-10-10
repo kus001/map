@@ -57,7 +57,7 @@ TRANSIT_PREFERENCES = {
     "less_walking": {
         "label": "Less walking",
         "soft_walk_m": 0,
-        "walk_penalty": 3.0,   # Walking time counts quadruple ...
+        "walk_penalty": 2.0,   # Walking time counts quadruple ...
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
@@ -727,6 +727,7 @@ def _candidate_trip(
     date,
     realtime,
 ) -> tuple|None:
+    """Find candidate trips"""
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt, MdOutlineSatellite } from "react-icons/md";
+import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
-import { IoLayers, IoClose } from "react-icons/io5";
-import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
+import GoogleDrivingMapView from "./components/GoogleDrivingMapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
@@ -14,7 +13,7 @@ const PREFERENCES_KEY = "map-router-preferences-v1";
 
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
-const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
+const VALID_MAP_STYLES = new Set(["street", "satellite"]);
 const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
 const VALID_TRANSIT_PREFERENCES = new Set([
   "balanced",
@@ -199,7 +198,6 @@ function impossibleTransitConnection(steps) {
 
 export default function App() {
   const savedPreferences = useMemo(() => loadPreferences(), []);
-  const [sidePanel, setIsSidePanel] = useState();
   const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
     const fallback = DEFAULT_INITIAL_SCHEDULE;
@@ -262,6 +260,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(
     () => savedPreferences.darkMode === true
   );
+  const [googleFailed, setGoogleFailed] = useState(false);
   const [mapStyle, setMapStyle] = useState(() =>
     validSavedValue(savedPreferences.mapStyle, VALID_MAP_STYLES, "street")
   );
@@ -380,11 +379,11 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
+    requestedDrivingProvider = null,
     requestedStart = start,
     requestedDestination = destination,
     requestedTimingMode = timingMode,
     requestedUseCurrentLocation = startUsesCurrentLocation,
-    requestedTransitPreference = transitPreference,
     requestedStartCoordinate = startMapCoordinate,
     requestedDestinationCoordinate = destinationMapCoordinate,
   } = {}) {
@@ -434,6 +433,7 @@ export default function App() {
         : "Finding route..."
     );
 
+    const routeStartedMs = performance.now();
     try {
       const response = await fetch("/api/routes", {
         method: "POST",
@@ -445,7 +445,8 @@ export default function App() {
           mode: requestedMode,
           route_type: requestedCyclingType,
           departure_datetime: departureDatetime,
-          transit_preference: requestedTransitPreference,
+          transit_preference: "balanced",
+          driving_provider: requestedDrivingProvider || (requestedMode === "driving" && !googleFailed && import.meta.env.VITE_GOOGLE_MAPS_KEY ? "google" : "osrm"),
           start_coordinates: requestedUseCurrentLocation
             ? effectiveCurrentLocation
             : requestedStartCoordinate,
@@ -454,6 +455,10 @@ export default function App() {
       });
 
       const result = await response.json();
+      console.info(
+        `[MAP] ${requestedMode}: ${(performance.now() - routeStartedMs).toFixed(0)} ms total, ` +
+        `${result.server_time_ms ?? "?"} ms server (remaining time is transport/rendering)`
+      );
 
       if (requestId !== searchRequestId.current) {
         return;
@@ -1161,7 +1166,7 @@ export default function App() {
     }
 
     if (mode === "transit") {
-      params.set("transit", transitPreference);
+      params.set("transit", "balanced");
       params.set("timing", timingMode);
 
       if (timingMode === "scheduled") {
@@ -1207,17 +1212,15 @@ export default function App() {
   return (
     <div
       className={`flex h-screen w-screen overflow-hidden ${
-        darkMode ? mapStyle == "hybrid" ? "bg-hybrid-charcoal" : "bg-charcoal" : "bg-white"
+        darkMode ? "bg-charcoal" : "bg-green"
       }`}
     >
       <aside
         className={`z-[1000] flex h-screen w-[360px] flex-shrink-0 flex-col border-r shadow-xl ${
           darkMode
-            ? mapStyle == "hybrid" 
-              ? "border-button/50 bg-hybrid-charcoal"
-              : "border-button/50 bg-charcoal"
+            ? "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } ${sidePanel ? "hidden" : ""} max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-hidden max-[760px]:rounded-2xl max-[760px]:border`}
+        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-hidden max-[760px]:rounded-2xl max-[760px]:border`}
       >
         <header className="px-5 pb-4 pt-4">
           <div className="flex items-center justify-between">
@@ -1226,30 +1229,24 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode 
-                  ? mapStyle === "hybrid"
-                    ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" 
-                    : "text-blue-light hover:text-blue" 
-                  : "text-green hover:text-green-dark"
+                darkMode ? "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
               Map Router
             </a>
 
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setDarkMode(value => !value)}
-                title="Toggle dark mode"
-                className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                  darkMode
-                    ? "border-button bg-charcoal-light text-blue-light"
-                    : "border-button-light bg-white text-green-dark"
-                }`}
-              >
-                {darkMode ? <PiSunFill /> : <TbMoonStars />}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setDarkMode(value => !value)}
+              title="Toggle dark mode"
+              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+                darkMode
+                  ? "border-button bg-charcoal-light text-blue-light"
+                  : "border-button-light bg-white text-green-dark"
+              }`}
+            >
+              {darkMode ? <PiSunFill /> : <TbMoonStars />}
+            </button>
           </div>
 
           <div
@@ -1265,7 +1262,6 @@ export default function App() {
           start={start}
           destination={destination}
           setStart={handleStartChange}
-          mapStyle={mapStyle}
           setDestination={handleDestinationChange}
           mode={mode}
           cyclingType={cyclingType}
@@ -1321,7 +1317,7 @@ export default function App() {
             darkMode
               ? "border-button/40 text-darkmode-gray"
               : "border-button-light/50 text-button"
-          } ${sidePanel ? "hidden" : ""}`}
+          }`}
         >
           <span>made by</span>
           <a
@@ -1354,18 +1350,42 @@ export default function App() {
       </aside>
 
       <main className="relative min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => setIsSidePanel(value => !value)}
-          title="Open/close menu"
-          className={`rounded-lg absolute top-4 left-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${
-            darkMode
-              ? "border-button bg-charcoal-light text-blue-light"
-              : "border-button-light bg-white text-green-dark"
-          }`}
-        >
-          {sidePanel ? <MdOpenInNew /> : <IoClose />}
-        </button>
+        {data?.routing_provider === "google" && displayedMode === "driving" ? (
+        <GoogleDrivingMapView
+          data={data}
+          selectedRoute={selectedRoute}
+          selectedRouteNumber={selectedRouteNumber}
+          hoveredRouteNumber={hoveredRouteNumber}
+          displayedMode={displayedMode}
+          onSelectRoute={selectRoute}
+          onHoverRoute={setHoveredRouteNumber}
+          currentLocation={currentLocation}
+          navigationActive={navigationActive}
+          navigationAccuracy={navigationAccuracy}
+          navigationHeading={navigationHeading}
+          startCoordinate={
+            startUsesCurrentLocation ? currentLocation : startMapCoordinate
+          }
+          destinationCoordinate={destinationMapCoordinate}
+          startLabel={start}
+          destinationLabel={destination}
+          startDraggable={!startUsesCurrentLocation}
+          onSetMapStart={coordinate => setStartFromMap(coordinate)}
+          onSetMapDestination={coordinate => setDestinationFromMap(coordinate)}
+          onMoveStart={coordinate => setStartFromMap(coordinate)}
+          onMoveDestination={coordinate => setDestinationFromMap(coordinate)}
+          locationFocusKey={locationFocusKey}
+          routeFocusKey={routeFocusKey}
+          stepFocusCoordinate={stepFocusCoordinate}
+          stepFocusKey={stepFocusKey}
+          darkMode={darkMode}
+          mapStyle={mapStyle}
+          onUseFreeRouting={() => {
+            setGoogleFailed(true);
+            searchRoutes({ requestedMode: "driving", requestedDrivingProvider: "osrm" });
+          }}
+        />
+        ) : (
         <MapView
           data={data}
           selectedRoute={selectedRoute}
@@ -1396,6 +1416,7 @@ export default function App() {
           darkMode={darkMode}
           mapStyle={mapStyle}
         />
+        )}
 
         <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[62vh]">
           <div
@@ -1438,26 +1459,6 @@ export default function App() {
               <MdSatelliteAlt className="text-lg" />
               <span className="max-[900px]:hidden">Satellite</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => setMapStyle("hybrid")}
-              title="Hybrid map"
-              className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
-                darkMode ? "border-button" : "border-button-light"
-              } ${
-                mapStyle === "hybrid"
-                  ? darkMode
-                    ? "bg-blue text-white"
-                    : "bg-green text-white"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-charcoal hover:bg-green/10"
-              }`}
-            >
-              <IoLayers className="text-lg" />
-              <span className="max-[900px]:hidden">Hybrid</span>
-            </button>           
           </div>
 
           {selectedRoute?.route_coordinates?.length > 1 && (

@@ -398,7 +398,7 @@ export default function SearchPanel({
           }`}
         >
           {"Tip: click the map to choose A or B.\n"}
-          Built at: {import.meta.env.VITE_BUILD_TIME || "Now!"}
+          Last built at: {import.meta.env.VITE_BUILD_TIME || "now!"}
         </span>
 
         <button

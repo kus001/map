@@ -57,7 +57,7 @@ TRANSIT_PREFERENCES = {
     "less_walking": {
         "label": "Less walking",
         "soft_walk_m": 0,
-        "walk_penalty": 3.0,   # Walking time counts quadruple ...
+        "walk_penalty": 2.0,   # Walking time counts quadruple ...
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
@@ -701,7 +701,7 @@ def candidate_stops(options, max_distance_m=None, max_count=MAX_NEARBY_STOPS):
     return ordered[:max_count]
 
 
-def transit_preference_profile(value):
+def transit_preference_profile(value) -> tuple[str, dict]:
     if isinstance(value, (int, float)):
         return (
             f"P{value}", 
@@ -726,7 +726,8 @@ def _candidate_trip(
     earliest,
     date,
     realtime,
-):
+) -> tuple|None:
+    """Find candidate trips"""
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:

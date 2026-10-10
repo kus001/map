@@ -15,11 +15,7 @@ const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite"]);
 const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
-const VALID_TRANSIT_PREFERENCES = new Set([
-  "balanced",
-  "less_walking",
-  "fastest",
-]);
+const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 
 // Capture the page-load time outside React rendering. React's purity lint rule
 // correctly rejects Date.now() when it is called during a component render.
@@ -1250,7 +1246,7 @@ export default function App() {
           </div>
 
           <div
-            className={`mt-1 text-[11px] ${
+            className={`mt-1 text-[11px] whitespace-pre-line ${
               darkMode ? "text-darkmode-gray" : "text-button-darkest"
             }`}
           >
@@ -1459,6 +1455,26 @@ export default function App() {
               <MdSatelliteAlt className="text-lg" />
               <span className="max-[900px]:hidden">Satellite</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setMapStyle("hybrid")}
+              title="Hybrid map"
+              className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
+                darkMode ? "border-button" : "border-button-light"
+              } ${
+                mapStyle === "hybrid"
+                  ? darkMode
+                    ? "bg-hybrid-purple text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-charcoal hover:bg-green/10"
+              }`}
+            >
+              <IoLayers className="text-lg" />
+              <span className="max-[900px]:hidden">Hybrid</span>
+            </button>           
           </div>
 
           {selectedRoute?.route_coordinates?.length > 1 && (

@@ -1,5 +1,6 @@
 import math
 import os
+from sys import flags
 import time
 import threading
 from collections import OrderedDict
@@ -10,8 +11,8 @@ from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
-
 import requests
+import httpx
 from dotenv import load_dotenv
 
 from helpers._transit.go_realtime import (
@@ -53,13 +54,15 @@ MAX_NEARBY_STOPS = 12
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "access_walk_tiers_m": (600, 900, 1200),
-        "max_nearby_stops": 12,
+        "soft_walk_m": 800,
+        "walk_penalty": 2.0,   # each minute walked past soft_walk_m counts double
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
-        "access_walk_tiers_m": (350, 600, 900, 1200),
-        "max_nearby_stops": 14,
+        "soft_walk_m": 400,
+        "walk_penalty": 3.0,   # each minute past soft_walk_m counts triple
+        "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
@@ -751,7 +754,17 @@ def candidate_stops(options, max_distance_m, max_count=MAX_NEARBY_STOPS):
     return nearby[:max_count]
 
 
-def transit_preference_profile(value):
+def transit_preference_profile(value) -> tuple[str, dict]:
+    if isinstance(value, (int, float)):
+        return (
+            f"P{value}", 
+            {
+                "label": f"P{value}",
+                "soft_walk_m": 100,
+                "walk_penalty": float(value),   # each minute walked past soft_walk_m counts value times
+                "max_nearby_stops": MAX_NEARBY_STOPS,
+            }
+        )
     key = str(value or "balanced").strip().lower()
     if key not in TRANSIT_PREFERENCES:
         key = "balanced"
@@ -766,7 +779,8 @@ def _candidate_trip(
     earliest,
     date,
     realtime,
-):
+) -> tuple|None:
+    """Find candidate trips"""
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:
@@ -1585,7 +1599,7 @@ def get_transit_route(
 
         steps.append(step)
 
-        total_distance += distance
+        # total_distance += distance
         used_trip_ids.add(str(trip_id))
         route_ids.add(str(route_name))
         if meta and meta.get("route_id"):

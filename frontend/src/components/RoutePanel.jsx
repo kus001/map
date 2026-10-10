@@ -362,7 +362,11 @@ export default function RoutePanel({
             data.routes.length > 1 &&
             route.route_number === data.shortest_route_number
           ) {
-            labels.push("SHORTEST");
+            if (mode === "transit") {
+              labels.push("SHORTEST WALK");
+            } else {
+              labels.push("SHORTEST")
+            }
           }
 
           return (
@@ -398,7 +402,10 @@ export default function RoutePanel({
                     <ModeIcon />
                     <span>{modeInfo.name}</span>
                     <span>•</span>
-                    <span>{Number(route.distance_km || 0).toFixed(2)} km</span>
+                    <span>
+                      {Number(route.distance_km || 0).toFixed(1)} km
+                      {mode === "transit" ? " walking" : ""}
+                    </span>
                   </div>
 
                   {mode === "driving" && data.routing_provider === "google" && (

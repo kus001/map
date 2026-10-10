@@ -1368,6 +1368,13 @@ export default function App() {
         >
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
+        {sidePanel === true && (
+          <div className="absolute top-16 left-4 z-[500] text-white bg-hybrid-charcoal rounded-xl p-2">
+            Directions will go here
+          </div>
+        )}
+
+
         {data?.routing_provider === "google" && displayedMode === "driving" ? (
         <GoogleDrivingMapView
           data={data}

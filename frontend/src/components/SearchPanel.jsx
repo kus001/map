@@ -47,6 +47,7 @@ function LocationInput({
   placeholder,
   icon,
   disabled,
+  mapStyle,
   darkMode,
   endAction = null,
   skipLookup = false,
@@ -234,7 +235,9 @@ function LocationInput({
           endAction ? "pr-12" : ""
         } ${
           darkMode
-            ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
+            ? mapStyle === "hybrid"
+              ? "border-button bg-hybrid-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-hybrid-purple focus:ring-hybrid-purple/15"
+              : "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
             : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/15"
         }`}
       />

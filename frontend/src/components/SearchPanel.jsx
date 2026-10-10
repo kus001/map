@@ -404,7 +404,9 @@ export default function SearchPanel({
           title="Swap locations"
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
             darkMode
-              ? "bg-charcoal-light hover:bg-blue text-darkmode-gray"
+              ? mapStyle === "hybrid"
+                ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"
+                : "bg-charcoal-light hover:bg-blue text-darkmode-gray"
               : "bg-green/10 hover:bg-green text-green-dark"
           }`}
         >

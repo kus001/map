@@ -6,6 +6,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
+from dotenv import load_dotenv
+
+# Load root .env before importing providers (their config is read at import time).
+load_dotenv()
 
 from cycling import get_cycling_route
 from driving import get_driving_route
@@ -286,6 +290,56 @@ def live_transit_state():
     })
 
 
+
+@app.get("/api/transit/vehicles")
+def nearby_transit_vehicles():
+    """Nearby vehicle layer; does not block /api/routes or require a route."""
+    try:
+        lat = float(request.args["lat"])
+        lon = float(request.args["lon"])
+        radius = max(500, min(15000, float(request.args.get("radius", 5000))))
+        if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+            raise ValueError("Out of range")
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid map center"}), 400
+
+    from helpers._transit.realtime import snapshot as grt_snapshot
+    from helpers._transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
+    from transit import live_vehicle_is_usable, nearby_scheduled_vehicles
+    from math import radians, cos
+
+    # Read cached GTFS-RT feeds only; no network request in this handler.
+    snapshots = (grt_snapshot(), go_gtfs_snapshot())
+    live = {}
+    for snapshot in snapshots:
+        for key, vehicle in snapshot.get("vehicles", {}).items():
+            if not live_vehicle_is_usable(vehicle):
+                continue
+            vlat, vlon = vehicle.get("lat"), vehicle.get("lon")
+            if not isinstance(vlat, (int, float)) or not isinstance(vlon, (int, float)):
+                continue
+            north_south = (vlat - lat) * 111195
+            east_west = (vlon - lon) * 111195 * cos(radians(lat))
+            if north_south * north_south + east_west * east_west > radius * radius:
+                continue
+            live[str(key)] = {**vehicle, "estimated": False, "position_source": "live"}
+
+    # If GPS is missing, provide *nearby current* GTFS estimates, not just the
+    # selected route's vehicle (which could be hours from departure).
+    estimates = nearby_scheduled_vehicles(lat, lon, radius_m=radius, limit=45)
+    unique_live = {
+        (str(v.get("agency")), str(v.get("trip_id"))) for v in live.values()
+    }
+    for estimate in estimates:
+        key = (estimate["agency"], estimate["trip_id"])
+        if key in unique_live:
+            continue
+        live["scheduled:" + ":".join(key)] = estimate
+
+    return jsonify({"success": True, "vehicles": list(live.values())[:90],
+                    "live_count": len(unique_live),
+                    "estimated_count": sum(bool(v.get("estimated")) for v in live.values())})
+
 @app.route("/api/routes", methods=["POST"])
 def routes():
     payload = request.get_json() or {}
@@ -295,11 +349,7 @@ def routes():
     start_coordinates = parse_coordinates(payload.get("start_coordinates"))
     destination_coordinates = parse_coordinates(payload.get("destination_coordinates"))
     mode = str(payload.get("mode", "driving")).strip().lower()
-    transit_preference = str(
-        payload.get("transit_preference", "balanced")
-    ).strip().lower()
-    if transit_preference not in VALID_TRANSIT_PREFERENCES:
-        transit_preference = "balanced"
+    transit_preference = "balanced"
 
     if not start:
         return jsonify({"success": False, "error": "Starting location is required."}), 400
@@ -318,7 +368,12 @@ def routes():
     timing = {"start": request_started} if PRINT_ROUTE_TIMING and mode == "transit" else None
 
     if mode == "driving":
-        result = get_driving_route(start, destination, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
+        result = get_driving_route(
+            start, destination,
+            start_coordinates=start_coordinates,
+            end_coordinates=destination_coordinates,
+            provider="google" if payload.get("driving_provider") == "google" else "osrm",
+        )
 
     elif mode == "walking":
         result = get_walking_route(start, destination, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
@@ -351,6 +406,11 @@ def routes():
         }), 400
 
     total_microseconds = us() - request_started
+    result["server_time_ms"] = round(total_microseconds / 1000, 1)
+    if total_microseconds > 3_000_000 and not PRINT_ROUTE_TIMING:
+        # Slow-route diagnostics are printed even in production so expensive
+        # geocoding/providers can be identified without guessing from the UI.
+        print(f"[SLOW ROUTE] {mode}: {total_microseconds / 1_000_000:.2f}s", flush=True)
 
     if PRINT_ROUTE_TIMING:
         if timing is not None:

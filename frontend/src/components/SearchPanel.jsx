@@ -525,7 +525,9 @@ export default function SearchPanel({
               className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
                 timingMode === "scheduled"
                   ? darkMode
-                    ? "bg-blue text-white shadow-sm active:bg-blue-dark"
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white shadow-sm active:bg-hybrid-purple"
+                      : "bg-blue text-white shadow-sm active:bg-blue-dark"
                     : "bg-green text-white shadow-sm active:bg-green-dark"
                   : darkMode
                     ? "text-darkmode-gray hover:bg-blue/10"

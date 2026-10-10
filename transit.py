@@ -1,6 +1,5 @@
 import math
 import os
-from sys import flags
 import time
 import threading
 from collections import OrderedDict
@@ -11,8 +10,8 @@ from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
 from zoneinfo import ZoneInfo
+
 import requests
-import httpx
 from dotenv import load_dotenv
 
 from helpers._transit.go_realtime import (
@@ -45,7 +44,7 @@ ORS_WALKING_URL = (
 )
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-MAX_NEARBY_STOPS = 12
+MAX_NEARBY_STOPS = 1200
 
 # Transit access-stop preference. The router searches the shorter-walk tiers first.
 # If a valid route exists from nearby stops, it will wait for that service instead of
@@ -54,15 +53,13 @@ MAX_NEARBY_STOPS = 12
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
-        "soft_walk_m": 800,
-        "walk_penalty": 2.0,   # each minute walked past soft_walk_m counts double
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (600, 900, 1200),
+        "max_nearby_stops": 12,
     },
     "less_walking": {
         "label": "Less walking",
-        "soft_walk_m": 400,
-        "walk_penalty": 3.0,   # each minute past soft_walk_m counts triple
-        "max_nearby_stops": MAX_NEARBY_STOPS,
+        "access_walk_tiers_m": (350, 600, 900, 1200),
+        "max_nearby_stops": 14,
     },
     "fastest": {
         "label": "Fastest",
@@ -754,21 +751,31 @@ def candidate_stops(options, max_distance_m, max_count=MAX_NEARBY_STOPS):
     return nearby[:max_count]
 
 
-def transit_preference_profile(value) -> tuple[str, dict]:
-    if isinstance(value, (int, float)):
-        return (
-            f"P{value}", 
-            {
-                "label": f"P{value}",
-                "soft_walk_m": 100,
-                "walk_penalty": float(value),   # each minute walked past soft_walk_m counts value times
-                "max_nearby_stops": MAX_NEARBY_STOPS,
-            }
-        )
+def transit_preference_profile(value):
+    """Normalize preferences, including profiles left over from older releases.
+
+    v8.3 uses progressive access-walk tiers instead of the previous
+    soft_walk_m/walk_penalty scoring settings. If a partially merged profile
+    lacks the new keys, recover with the v8.3 defaults rather than causing
+    a 500 error when searching for a transit route.
+    """
     key = str(value or "balanced").strip().lower()
     if key not in TRANSIT_PREFERENCES:
         key = "balanced"
-    return key, TRANSIT_PREFERENCES[key]
+
+    defaults = {
+        "balanced": (600, 900, 1200),
+        "less_walking": (350, 600, 900, 1200),
+        "fastest": (1600,),
+    }
+    profile = dict(TRANSIT_PREFERENCES[key])
+    tiers = profile.get("access_walk_tiers_m")
+    if not isinstance(tiers, (tuple, list)) or not tiers:
+        tiers = defaults[key]
+    profile["access_walk_tiers_m"] = tuple(tiers)
+    profile.setdefault("max_nearby_stops", MAX_NEARBY_STOPS)
+    profile.setdefault("label", key.replace("_", " ").title())
+    return key, profile
 
 
 def _candidate_trip(
@@ -779,8 +786,7 @@ def _candidate_trip(
     earliest,
     date,
     realtime,
-) -> tuple|None:
-    """Find candidate trips"""
+):
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:
@@ -1599,7 +1605,7 @@ def get_transit_route(
 
         steps.append(step)
 
-        # total_distance += distance
+        total_distance += distance
         used_trip_ids.add(str(trip_id))
         route_ids.add(str(route_name))
         if meta and meta.get("route_id"):

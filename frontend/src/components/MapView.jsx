@@ -59,7 +59,7 @@ function MapThemeEffect({ darkMode, mapStyle }) {
     container.classList.toggle("map-dark-ui", darkMode);
     container.classList.toggle(
       "dark-satellite-map",
-      darkMode && mapStyle === "satellite"
+      darkMode && (mapStyle === "satellite" || mapStyle === "hybrid")
     );
 
     return () => {
@@ -379,6 +379,31 @@ function TransitSegments({ route, darkMode }) {
 }
 
 function getBaseLayer(mapStyle, darkMode) {
+  if (mapStyle === "hybrid") {
+    if (MAPTILER_KEY) {
+      // MapTiler's rendered hybrid style includes imagery, roads and labels.
+      const styleId = darkMode ? "hybrid-v4-dark" : "hybrid-v4";
+      return {
+        id: `maptiler-${styleId}`,
+        url: `https://api.maptiler.com/maps/${styleId}/256/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`,
+        attribution:
+          '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      };
+    }
+
+    // Key-free fallback: Esri satellite imagery with a transparent label overlay.
+    return {
+      id: "esri-hybrid",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      attribution:
+        "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      labels: {
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+        attribution: "Labels &copy; Esri",
+      },
+    };
+  }
+
   if (mapStyle === "satellite") {
     if (MAPTILER_KEY) {
       return {
@@ -549,7 +574,7 @@ export default function MapView({
   );
   const selectedColor =
     mode === "walking"
-      ? darkMode || mapStyle === "satellite"
+      ? darkMode || mapStyle === "satellite" || mapStyle === "hybrid"
         ? "#FFFFFF"
         : "#2F3E46"
       : MODE_COLORS[mode] || MODE_COLORS.driving;
@@ -583,6 +608,16 @@ export default function MapView({
         attribution={baseLayer.attribution}
         maxZoom={22}
       />
+
+      {baseLayer.labels && (
+        <TileLayer
+          key={`${baseLayer.id}-labels`}
+          url={baseLayer.labels.url}
+          attribution={baseLayer.labels.attribution}
+          maxZoom={22}
+          zIndex={250}
+        />
+      )}
 
       <ZoomControl position="topright" />
 

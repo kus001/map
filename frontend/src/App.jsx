@@ -1242,7 +1242,9 @@ export default function App() {
               title="Toggle dark mode"
               className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
                 darkMode
-                  ? "border-button bg-charcoal-light text-blue-light"
+                  ? mapStyle === "hybrid"
+                    ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+                    : "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >
@@ -1358,7 +1360,9 @@ export default function App() {
           title="Open/close menu"
           className={`rounded-lg absolute top-4 left-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${
             darkMode
-              ? "border-button bg-charcoal-light text-blue-light"
+              ? mapStyle === "hybrid"
+                ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+                : "border-button bg-charcoal-light text-blue-light"
               : "border-button-light bg-white text-green-dark"
           }`}
         >

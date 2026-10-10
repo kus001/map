@@ -1444,7 +1444,7 @@ export default function App() {
               } ${
                 mapStyle === "hybrid"
                   ? darkMode
-                    ? "bg-blue text-white"
+                    ? "bg-hybrid-purple text-white"
                     : "bg-green text-white"
                   : darkMode
                     ? "text-darkmode-gray hover:bg-blue/10"

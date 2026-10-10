@@ -50,6 +50,28 @@ function validCoordinate(coordinate) {
   );
 }
 
+function MapResizeEffect() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let frame = null;
+
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    });
+
+    observer.observe(container);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
 function MapThemeEffect({ darkMode, mapStyle }) {
   const map = useMap();
 
@@ -600,6 +622,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+      <MapResizeEffect />
       <NavigationFollow active={navigationActive} location={currentLocation} />
 
       <TileLayer

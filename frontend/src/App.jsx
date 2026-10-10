@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdCenterFocusStrong, MdMap, MdMyLocation, MdSatelliteAlt } from "react-icons/md";
-import { IoLayers } from "react-icons/io5";
+import { IoLayers, IoClose } from "react-icons/io5";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
+import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
 import GoogleDrivingMapView from "./components/GoogleDrivingMapView.jsx";
@@ -194,6 +195,7 @@ function impossibleTransitConnection(steps) {
 }
 
 export default function App() {
+  const [sidePanel, setIsSidePanel] = useState();
   const savedPreferences = useMemo(() => loadPreferences(), []);
   const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
@@ -1213,7 +1215,7 @@ export default function App() {
       }`}
     >
       <aside
-        className={`z-[1000] flex h-screen w-[360px] flex-shrink-0 flex-col border-r shadow-xl ${
+        className={`z-[1000] flex h-screen w-[360px] flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden" : ""} ${
           darkMode
             ? "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
@@ -1347,6 +1349,18 @@ export default function App() {
       </aside>
 
       <main className="relative min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setIsSidePanel(value => !value)}
+          title="Open/close menu"
+          className={`rounded-lg absolute top-4 left-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${
+            darkMode
+              ? "border-button bg-charcoal-light text-blue-light"
+              : "border-button-light bg-white text-green-dark"
+          }`}
+        >
+          {sidePanel ? <MdOpenInNew /> : <IoClose />}
+        </button>
         {data?.routing_provider === "google" && displayedMode === "driving" ? (
         <GoogleDrivingMapView
           data={data}

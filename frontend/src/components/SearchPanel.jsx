@@ -319,7 +319,9 @@ export default function SearchPanel({
 }) {
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
-      ? "border-button bg-charcoal-light focus:border-blue text-darkmode-gray"
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light/10 focus:border-hybrid-purple text-darkmode-gray"
+        : "border-button bg-charcoal-light focus:border-blue text-darkmode-gray"
       : "border-button-light focus:border-green bg-white text-charcoal"
   }`;
 

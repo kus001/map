@@ -335,7 +335,7 @@ export default function SearchPanel({
           icon={
             <GoDot
               className={`text-xl ${
-                darkMode ? "text-blue-light" : "text-charcoal"
+                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-charcoal"
               }`}
             />
           }
@@ -377,7 +377,7 @@ export default function SearchPanel({
           icon={
             <PiMapPinFill
               className={`text-xl ${
-                darkMode ? "text-blue-light" : "text-green"
+                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-green"
               }`}
             />
           }

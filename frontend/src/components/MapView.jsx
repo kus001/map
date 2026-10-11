@@ -430,7 +430,7 @@ function TransitStopMarker({ stop, darkMode }) {
   );
 }
 
-function TransitSegments({ route, darkMode }) {
+function TransitSegments({ route, darkMode, mapStyle }) {
   return (route?.segments ?? []).map((segment, index) => {
     const walking = segment.type === "walking";
 
@@ -443,7 +443,13 @@ function TransitSegments({ route, darkMode }) {
             ? darkMode
               ? "#FFFFFF"
               : MODE_COLORS.walking
-            : segment.color || MODE_COLORS.transit,
+            : darkMode
+              ? mapStyle === "hybrid"
+                ? "#C2A9DF"
+                : mapStyle === "satellite"
+                  ? "#8fa88f"
+                  : "#7EA5C8"
+              : "#8fa88f",
           weight: walking ? 5 : 7,
           opacity: 1,
           dashArray: walking ? "1 10" : undefined,
@@ -733,7 +739,7 @@ export default function MapView({
       })}
 
       {route && mode === "transit" && route.segments?.length ? (
-        <TransitSegments route={route} darkMode={darkMode} />
+        <TransitSegments route={route} darkMode={darkMode} mapStyle={mapStyle} />
       ) : route?.route_coordinates?.length ? (
         <>
           {mode !== "walking" && (

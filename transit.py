@@ -33,6 +33,7 @@ from helpers._transit.realtime import (
 from helpers.coords import nearest_stops
 from helpers.geocoding import explain_address_problem, get_coordinates
 from helpers.time_management import seconds_to_time, us
+from helpers.fast_osrm import osrm_route
 from walking import get_walking_route
 
 load_dotenv()
@@ -145,10 +146,12 @@ def raw_stop_id(stop_id) -> str:
 
 
 def access_walk_minutes(distance_m) -> float:
+    """Walk time between two points"""
     return float(distance_m) / ACCESS_WALK_SPEED_MPS / 60
 
 
-def haversine_m(a, b) -> float:
+def haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Higher accuracy distance between two points"""
     lat1, lon1 = map(float, a[:2])
     lat2, lon2 = map(float, b[:2])
     radius = 6_371_000.0
@@ -210,7 +213,6 @@ def live_vehicle_is_usable(vehicle, now=None):
 
     timestamp = vehicle.get("timestamp")
     if timestamp in (None, ""):
-        # Some valid feeds omit timestamps on individual vehicle entities.
         return True
 
     try:
@@ -642,40 +644,126 @@ def _walk_client():
     )
 
 
-async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
-    if not ORS_API_KEY:
-        return None
+def _ors_walk_directions(feature, coordinates):
+    """Turn-by-turn steps from an ORS foot-walking feature."""
+    directions = []
+    for segment in feature.get("properties", {}).get("segments", []):
+        for step in segment.get("steps", []):
+            # ORS type 10 is "arrive at your destination". Inside a transit
+            # route a walk ends at a stop, so that line would be misleading.
+            if step.get("type") == 10:
+                continue
 
+            point = None
+            way_points = step.get("way_points") or []
+            if way_points:
+                try:
+                    index = int(way_points[0])
+                    if 0 <= index < len(coordinates):
+                        point = list(coordinates[index])
+                except (TypeError, ValueError):
+                    pass
+
+            directions.append(
+                {
+                    "instruction": step.get("instruction", ""),
+                    "type": "walking",
+                    "modifier": "",
+                    "road": step.get("name", ""),
+                    "name": step.get("name", ""),
+                    "distance_m": float(step.get("distance", 0) or 0),
+                    "duration_min": float(step.get("duration", 0) or 0) / 60,
+                    "coordinates": point,
+                }
+            )
+    return directions
+
+
+def _osrm_walk(start_lat, start_lon, end_lat, end_lon):
+    """Foot-routing fallback (public OSRM) with the same shape as the ORS result."""
+    route = osrm_route("walking", start_lat, start_lon, end_lat, end_lon)
+    coordinates = [
+        [float(lat), float(lon)] for lon, lat in route["geometry"]["coordinates"]
+    ]
+
+    directions = []
+    for leg in route.get("legs", []):
+        for step in leg.get("steps", []):
+            maneuver = step.get("maneuver") or {}
+            if maneuver.get("type") == "arrive":
+                continue
+            location = maneuver.get("location") or []
+            directions.append(
+                {
+                    "instruction": "",
+                    "type": maneuver.get("type", "continue"),
+                    "modifier": maneuver.get("modifier", ""),
+                    "road": step.get("name", ""),
+                    "name": step.get("name", ""),
+                    "distance_m": float(step.get("distance", 0) or 0),
+                    "duration_min": float(step.get("duration", 0) or 0) / 60,
+                    "coordinates": (
+                        [float(location[1]), float(location[0])]
+                        if len(location) >= 2
+                        else None
+                    ),
+                }
+            )
+
+    return {
+        "coordinates": coordinates,
+        "distance_m": float(route.get("distance", 0)),
+        "duration_min": float(route.get("duration", 0)) / 60,
+        "steps": directions,
+    }
+
+
+async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
     key = (start_lat, start_lon, end_lat, end_lon)
     cached = _WALK_CACHE.get(key)
     if cached is not None:
         return cached
 
-    try:
-        response = await client.get(
-            ORS_WALKING_URL,
-            params={
-                "start": f"{start_lon},{start_lat}",
-                "end": f"{end_lon},{end_lat}",
-            },
-        )
-        response.raise_for_status()
+    result = None
 
-        feature = response.json()["features"][0]
-        summary = feature.get("properties", {}).get("summary", {})
+    if ORS_API_KEY:
+        try:
+            response = await client.get(
+                ORS_WALKING_URL,
+                params={
+                    "start": f"{start_lon},{start_lat}",
+                    "end": f"{end_lon},{end_lat}",
+                },
+            )
+            response.raise_for_status()
 
-        result = {
-            "coordinates": [
+            feature = response.json()["features"][0]
+            summary = feature.get("properties", {}).get("summary", {})
+            coordinates = [
                 [float(lat), float(lon)]
                 for lon, lat in feature["geometry"]["coordinates"]
-            ],
-            "distance_m": float(summary.get("distance", 0)),
-            "duration_min": float(summary.get("duration", 0)) / 60,
-        }
-    except Exception:
-        return None
+            ]
 
-    # Failures are not cached, so a temporary ORS error doesn't stick.
+            result = {
+                "coordinates": coordinates,
+                "distance_m": float(summary.get("distance", 0)),
+                "duration_min": float(summary.get("duration", 0)) / 60,
+                "steps": _ors_walk_directions(feature, coordinates),
+            }
+        except Exception:
+            result = None
+
+    if result is None:
+        # No ORS key, or ORS failed / rate-limited: fall back to public OSRM so
+        # walking legs still get real streets and turns instead of a straight line.
+        try:
+            result = await asyncio.to_thread(
+                _osrm_walk, start_lat, start_lon, end_lat, end_lon
+            )
+        except Exception:
+            return None
+
+    # Failures are not cached, so a temporary routing error doesn't stick.
     _WALK_CACHE[key] = result
     while len(_WALK_CACHE) > MAX_WALK_CACHE_ENTRIES:
         try:
@@ -1436,6 +1524,8 @@ def get_transit_route(
                 "duration_min": start_walk["duration_min"],
                 "distance_m": start_walk["distance_m"],
                 "coordinates": start_walk["coordinates"][0] if start_walk.get("coordinates") else list(start),
+                "to_coordinates": start_walk["coordinates"][-1] if start_walk.get("coordinates") else list(stop_coords(first)),
+                "directions": start_walk.get("steps") or [],
             }
         )
         total_distance += start_walk["distance_m"]
@@ -1466,6 +1556,8 @@ def get_transit_route(
                     "duration_min": duration,
                     "distance_m": distance,
                     "coordinates": walk["coordinates"][0] if walk.get("coordinates") else list(group["from_coords"]),
+                    "to_coordinates": walk["coordinates"][-1] if walk.get("coordinates") else list(group["to_coords"]),
+                    "directions": walk.get("steps") or [],
                 }
             )
             total_distance += distance
@@ -1596,6 +1688,8 @@ def get_transit_route(
             "realtime": step_realtime,
             "delay_min": step_delay_min,
             "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
+            # Where you get off: lets navigation measure distance to your stop.
+            "to_coordinates": list(group["to_coords"]),
         }
 
         if go_live is not None:
@@ -1672,6 +1766,8 @@ def get_transit_route(
                 "duration_min": end_walk["duration_min"],
                 "distance_m": end_walk["distance_m"],
                 "coordinates": end_walk["coordinates"][0] if end_walk.get("coordinates") else stop_coords(last),
+                "to_coordinates": end_walk["coordinates"][-1] if end_walk.get("coordinates") else list(end),
+                "directions": end_walk.get("steps") or [],
             }
         )
         total_distance += end_walk["distance_m"]

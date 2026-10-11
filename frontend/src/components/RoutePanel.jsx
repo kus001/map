@@ -486,7 +486,11 @@ export default function RoutePanel({
                 navigationActive
                   ? "border-green bg-green text-white"
                   : darkMode
-                    ? "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
+                    : mapStyle === "satellite"
+                      ? "border-button bg-charcoal-light text-green-light hover:border-green hover:bg-green/15"
+                      : "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
                     : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
               }`}
             >

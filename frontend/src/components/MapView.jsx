@@ -661,7 +661,15 @@ export default function MapView({
       ? darkMode || mapStyle === "satellite" || mapStyle === "hybrid"
         ? "#FFFFFF"
         : "#2F3E46"
-      : MODE_COLORS[mode] || MODE_COLORS.driving;
+      : mode === "driving"
+        ? darkMode
+          ? mapStyle === "hybrid"
+            ? "#C2A9DF"
+            : mapStyle === "satellite"
+              ? "#8fa88f"
+              : "#7EA5C8"
+          : "#8fa88f"
+        : MODE_COLORS[mode] || MODE_COLORS.driving;
   const baseLayer = getBaseLayer(mapStyle, darkMode);
 
   const mapCenter = validCoordinate(currentLocation)

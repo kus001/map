@@ -35,7 +35,7 @@ cd ..
 
 echo
 echo "Restarting PM2..."
-pm2 restart all
+pm2 startOrRestart ecosystem.config.cjs
 
 echo
 echo "Starting Python..."

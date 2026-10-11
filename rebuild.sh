@@ -31,11 +31,11 @@ echo "Building frontend..."
 cd frontend
 export VITE_BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 npm run build
-cd ..
 
 echo
 echo "Restarting PM2..."
 pm2 startOrRestart ecosystem.config.cjs
+cd ..
 
 echo
 echo "Starting Python..."

@@ -194,8 +194,12 @@ function impossibleTransitConnection(steps) {
   return null;
 }
 
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
 export default function App() {
   const [sidePanel, setIsSidePanel] = useState();
+  const overlayRef = useRef(null);
+  const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
   const sharedRoute = useMemo(() => readSharedRoute(), []);
   const initialSchedule = useMemo(() => {
@@ -1211,18 +1215,60 @@ export default function App() {
     };
   }, []);
 
+  // The turn-by-turn card only appears while navigating with the side panel hidden.
+  const overlayVisible = sidePanel === true && navigationActive;
+  const viewInsets = overlayVisible ? measuredInsets : ZERO_INSETS;
+
+  // Measure how much of the map the instructions overlay covers, so the map can
+  // treat the remaining area as "the screen" when centring and fitting routes.
+  useEffect(() => {
+    if (!overlayVisible) {
+      return undefined;
+    }
+
+    const overlay = overlayRef.current;
+    const container = overlay?.parentElement;
+    if (!overlay || !container) {
+      return undefined;
+    }
+
+    const measure = () => {
+      const o = overlay.getBoundingClientRect();
+      const c = container.getBoundingClientRect();
+      const next = { top: 0, right: 0, bottom: 0, left: 0 };
+
+      if (o.width >= c.width * 0.8) {
+        // Full-width sheet along the bottom (phones).
+        next.bottom = Math.max(0, Math.round(c.bottom - o.top));
+      } else {
+        // Floating card in the top-left corner (desktop).
+        next.left = Math.max(0, Math.round(o.right - c.left));
+      }
+
+      setMeasuredInsets(prev =>
+        prev.left === next.left && prev.bottom === next.bottom ? prev : next
+      );
+    };
+
+    // ResizeObserver fires once on observe(), so this also does the first measurement.
+    const observer = new ResizeObserver(measure);
+    observer.observe(overlay);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [overlayVisible]);
+
   const controlSurface = darkMode
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
 
   return (
     <div
-      className={`flex h-screen w-screen overflow-hidden ${
+      className={`flex h-dvh w-screen overflow-hidden ${
         darkMode ? mapStyle === "hybrid" ? "bg-hybrid-charcoal" : "bg-charcoal" : "bg-white"
       }`}
     >
       <aside
-        className={`z-[1000] flex h-screen w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x resize-none overflow-auto flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden" : ""} ${
+        className={`z-[1000] flex h-dvh w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x resize-none overflow-auto flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden!" : ""} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"
@@ -1361,12 +1407,12 @@ export default function App() {
         </footer>
       </aside>
 
-      <main className="relative min-w-0 flex-1">
+      <main className="relative h-full min-w-0 flex-1 overflow-hidden">
         <button
           type="button"
           onClick={() => setIsSidePanel(value => !value)}
           title="Open/close menu"
-          className={`rounded-lg absolute top-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${sidePanel ? "left-4 md:left-87.5" : "left-4"} ${
+          className={`rounded-lg absolute top-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${overlayVisible ? "left-4 md:left-87.5" : "left-4"} ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
@@ -1376,8 +1422,8 @@ export default function App() {
         >
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
-        {sidePanel === true && (
-          <div className={`absolute bottom-0 right-0 left-0 md:left-4 md:top-4 md:right-auto md:bottom-auto z-[500] rounded-xl p-2 w-full md:w-80 md:h-96 h-[40vh] overflow-hidden flex flex-col
+        {overlayVisible && (
+          <div ref={overlayRef} className={`absolute bottom-0 right-0 left-0 md:left-4 md:top-4 md:right-auto md:bottom-auto z-[500] rounded-xl p-2 w-full md:w-80 md:h-96 h-[40vh] overflow-hidden flex flex-col
             ${darkMode 
               ? mapStyle === "hybrid"
                 ? "text-white bg-hybrid-charcoal-light"
@@ -1438,6 +1484,7 @@ export default function App() {
           stepFocusKey={stepFocusKey}
           darkMode={darkMode}
           mapStyle={mapStyle}
+          viewInsets={viewInsets}
           onUseFreeRouting={() => {
             setGoogleFailed(true);
             searchRoutes({ requestedMode: "driving", requestedDrivingProvider: "osrm" });
@@ -1473,6 +1520,7 @@ export default function App() {
           stepFocusKey={stepFocusKey}
           darkMode={darkMode}
           mapStyle={mapStyle}
+          viewInsets={viewInsets}
         />
         )}
 
@@ -1488,9 +1536,9 @@ export default function App() {
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode
-                    ? mapStyle === "hybrid"
+                    ? mapStyle === "satellite"
                       ? "bg-hybrid-purple text-white"
-                      : mapStyle === "satellite"
+                      : mapStyle === "street"
                         ? "bg-green text-white"
                         : "bg-blue text-white"
                     : "bg-white text-charcoal"
@@ -1500,7 +1548,7 @@ export default function App() {
                 }`}
             >
               {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
-              <span className="capitalize">{mapStyle}</span>
+              <span className="capitalize">{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"} </span>
             </button>    
           </div>
 

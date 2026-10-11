@@ -30,6 +30,23 @@ function point(value) {
   return { lat: +value[0], lng: +value[1] };
 }
 
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
+// Map centre that puts `position` in the middle of the visible (un-covered) area.
+function centeredLatLng(map, position, zoom, insets) {
+  const dx = (insets.left - insets.right) / 2;
+  const dy = (insets.top - insets.bottom) / 2;
+  const projection = map.getProjection?.();
+  if ((!dx && !dy) || !projection || !position) {
+    return position;
+  }
+  const scale = 2 ** zoom;
+  const world = projection.fromLatLngToPoint(position);
+  return projection.fromPointToLatLng(
+    new window.google.maps.Point(world.x - dx / scale, world.y - dy / scale)
+  );
+}
+
 export default function GoogleDrivingMapView({
   data, selectedRoute, selectedRouteNumber = 1, hoveredRouteNumber,
   onSelectRoute = () => {}, onHoverRoute = () => {},
@@ -40,9 +57,12 @@ export default function GoogleDrivingMapView({
   onMoveStart = () => {}, onMoveDestination = () => {},
   locationFocusKey = 0, routeFocusKey = 0,
   stepFocusCoordinate, stepFocusKey = 0, mapStyle = "street", darkMode,
+  viewInsets = ZERO_INSETS,
 }) {
   const container = useRef(null);
   const mapRef = useRef(null);
+  const insetsRef = useRef(viewInsets);
+  const previousInsets = useRef(viewInsets);
   const previousLocationFocusKey = useRef(locationFocusKey);
   const mapItems = useRef([]);
   const positionItems = useRef([]);
@@ -197,14 +217,23 @@ export default function GoogleDrivingMapView({
     if (coords.length < 2) return;
     const bounds = new window.google.maps.LatLngBounds();
     coords.map(point).filter(Boolean).forEach(position => bounds.extend(position));
-    mapRef.current.fitBounds(bounds, 60);
+    const pad = insetsRef.current;
+    mapRef.current.fitBounds(bounds, {
+      top: 60 + pad.top,
+      right: 60 + pad.right,
+      bottom: 60 + pad.bottom,
+      left: 60 + pad.left,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, routeFocusKey]);
 
   useEffect(() => {
     if (ready && point(stepFocusCoordinate)) {
-      mapRef.current.panTo(point(stepFocusCoordinate));
-      mapRef.current.setZoom(Math.max(mapRef.current.getZoom() || 13, 17));
+      const zoom = Math.max(mapRef.current.getZoom() || 13, 17);
+      mapRef.current.panTo(
+        centeredLatLng(mapRef.current, point(stepFocusCoordinate), zoom, insetsRef.current)
+      );
+      mapRef.current.setZoom(zoom);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, stepFocusKey]);
@@ -213,10 +242,25 @@ export default function GoogleDrivingMapView({
     const requestedFocus = locationFocusKey !== previousLocationFocusKey.current;
     previousLocationFocusKey.current = locationFocusKey;
     if (ready && point(currentLocation) && (navigationActive || requestedFocus)) {
-      mapRef.current.panTo(point(currentLocation));
-      if (navigationActive) mapRef.current.setZoom(Math.max(17, mapRef.current.getZoom() || 13));
+      const zoom = navigationActive
+        ? Math.max(17, mapRef.current.getZoom() || 13)
+        : mapRef.current.getZoom() || 13;
+      mapRef.current.panTo(
+        centeredLatLng(mapRef.current, point(currentLocation), zoom, insetsRef.current)
+      );
+      if (navigationActive) mapRef.current.setZoom(zoom);
     }
   }, [ready, navigationActive, locationFocusKey, currentLocation]);
+
+  // Keep the ref current, and when an overlay opens/closes shift the map so the
+  // middle of the visible area stays put.
+  useEffect(() => {
+    insetsRef.current = viewInsets;
+    const dx = (viewInsets.left - viewInsets.right) / 2 - (previousInsets.current.left - previousInsets.current.right) / 2;
+    const dy = (viewInsets.top - viewInsets.bottom) / 2 - (previousInsets.current.top - previousInsets.current.bottom) / 2;
+    previousInsets.current = viewInsets;
+    if ((dx || dy) && mapRef.current) mapRef.current.panBy(-dx, -dy);
+  }, [viewInsets]);
 
   return (
     <div className="relative h-full w-full">

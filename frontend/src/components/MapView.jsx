@@ -50,6 +50,44 @@ function validCoordinate(coordinate) {
   );
 }
 
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
+// Offset (px) of the centre of the *visible* map area from the centre of the
+// map container, given the pixels covered by overlays on each side.
+function visibleOffset(insets) {
+  return [(insets.left - insets.right) / 2, (insets.top - insets.bottom) / 2];
+}
+
+// Returns the map centre that makes `latlng` appear in the middle of the
+// visible (un-covered) area at the given zoom.
+function centeredTarget(map, latlng, zoom, insets) {
+  const [dx, dy] = visibleOffset(insets);
+  if (!dx && !dy) {
+    return L.latLng(latlng);
+  }
+  return map.unproject(map.project(latlng, zoom).subtract([dx, dy]), zoom);
+}
+
+// When an overlay opens/closes, shift the map so whatever was in the middle of
+// the visible area stays in the middle of the visible area.
+function MapInsetEffect({ insets }) {
+  const map = useMap();
+  const previous = useRef(insets);
+
+  useEffect(() => {
+    const [px, py] = visibleOffset(previous.current);
+    const [nx, ny] = visibleOffset(insets);
+    previous.current = insets;
+    const dx = nx - px;
+    const dy = ny - py;
+    if (dx || dy) {
+      map.panBy([-dx, -dy], { animate: true, duration: 0.3 });
+    }
+  }, [map, insets]);
+
+  return null;
+}
+
 function MapResizeEffect() {
   const map = useMap();
 
@@ -99,6 +137,7 @@ function MapEffects({
   routeFocusKey,
   stepFocusCoordinate,
   stepFocusKey,
+  insets,
 }) {
   const map = useMap();
   const previousLocationFocusKey = useRef(locationFocusKey);
@@ -117,14 +156,19 @@ function MapEffects({
     }
 
     map.flyTo(
-      [Number(currentLocation[0]), Number(currentLocation[1])],
+      centeredTarget(
+        map,
+        [Number(currentLocation[0]), Number(currentLocation[1])],
+        15,
+        insets
+      ),
       15,
       {
         animate: true,
         duration: 0.9,
       }
     );
-  }, [map, currentLocation, locationFocusKey]);
+  }, [map, currentLocation, locationFocusKey, insets]);
 
   useEffect(() => {
     if (routeFocusKey === previousRouteFocusKey.current) {
@@ -140,13 +184,14 @@ function MapEffects({
 
     const bounds = L.latLngBounds(safeRouteCoordinates);
     map.flyToBounds(bounds, {
-      padding: [58, 58],
+      paddingTopLeft: [58 + insets.left, 58 + insets.top],
+      paddingBottomRight: [58 + insets.right, 58 + insets.bottom],
       maxZoom: 16,
       animate: true,
       duration: 1.1,
       easeLinearity: 0.25,
     });
-  }, [map, routeCoordinates, routeFocusKey]);
+  }, [map, routeCoordinates, routeFocusKey, insets]);
 
   useEffect(() => {
     if (stepFocusKey === previousStepFocusKey.current) {
@@ -159,20 +204,26 @@ function MapEffects({
       return;
     }
 
+    const zoom = Math.max(map.getZoom(), 17);
     map.flyTo(
-      [Number(stepFocusCoordinate[0]), Number(stepFocusCoordinate[1])],
-      Math.max(map.getZoom(), 17),
+      centeredTarget(
+        map,
+        [Number(stepFocusCoordinate[0]), Number(stepFocusCoordinate[1])],
+        zoom,
+        insets
+      ),
+      zoom,
       {
         animate: true,
         duration: 0.75,
       }
     );
-  }, [map, stepFocusCoordinate, stepFocusKey]);
+  }, [map, stepFocusCoordinate, stepFocusKey, insets]);
 
   return null;
 }
 
-function NavigationFollow({ active, location }) {
+function NavigationFollow({ active, location, insets }) {
   const map = useMap();
   const started = useRef(false);
 
@@ -189,15 +240,19 @@ function NavigationFollow({ active, location }) {
     const target = [Number(location[0]), Number(location[1])];
     if (!started.current) {
       started.current = true;
-      map.flyTo(target, Math.max(map.getZoom(), 17), {
+      const zoom = Math.max(map.getZoom(), 17);
+      map.flyTo(centeredTarget(map, target, zoom, insets), zoom, {
         animate: true,
         duration: 0.8,
       });
       return;
     }
 
-    map.panTo(target, { animate: true, duration: 0.45 });
-  }, [map, active, location]);
+    map.panTo(centeredTarget(map, target, map.getZoom(), insets), {
+      animate: true,
+      duration: 0.45,
+    });
+  }, [map, active, location, insets]);
 
   return null;
 }
@@ -574,6 +629,7 @@ export default function MapView({
   stepFocusKey = 0,
   darkMode,
   mapStyle = "street",
+  viewInsets = ZERO_INSETS,
 }) {
   const mode = displayedMode || data?.mode || "driving";
 
@@ -623,7 +679,12 @@ export default function MapView({
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <MapResizeEffect />
-      <NavigationFollow active={navigationActive} location={currentLocation} />
+      <MapInsetEffect insets={viewInsets} />
+      <NavigationFollow
+        active={navigationActive}
+        location={currentLocation}
+        insets={viewInsets}
+      />
 
       <TileLayer
         key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
@@ -862,6 +923,7 @@ export default function MapView({
         routeFocusKey={routeFocusKey}
         stepFocusCoordinate={stepFocusCoordinate}
         stepFocusKey={stepFocusKey}
+        insets={viewInsets}
       />
     </MapContainer>
   );

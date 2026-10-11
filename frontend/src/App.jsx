@@ -1483,17 +1483,20 @@ export default function App() {
               type="button"
               onClick={mapStyles}
               title="Change map style"
-              className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
+              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition ${
                 darkMode ? "border-button" : "border-button-light"
               } ${
-                mapStyle === "satellite"
-                  ? darkMode
-                    ? "bg-blue text-white"
-                    : "bg-green text-white"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-charcoal hover:bg-green/10"
-              }`}
+                  darkMode
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white"
+                      : mapStyle === "satellite"
+                        ? "bg-green text-white"
+                        : "bg-blue text-white"
+                    : "bg-white text-charcoal"
+                  // : darkMode
+                  //   ? "text-darkmode-gray hover:bg-blue/10"
+                  //   : "text-charcoal hover:bg-green/10"
+                }`}
             >
               {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
               <span className="capitalize">{mapStyle}</span>

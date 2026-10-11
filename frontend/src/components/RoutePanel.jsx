@@ -504,9 +504,14 @@ export default function RoutePanel({
             title="Copy shareable route link"
             aria-label="Copy shareable route link"
             className={`flex size-8 items-center justify-center rounded-lg border text-sm transition ${
-              darkMode
-                ? "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
-                : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
+                  darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
+                    : mapStyle === "satellite"
+                      ? "border-button bg-charcoal-light text-green-light hover:border-green hover:bg-green/15"
+                      : "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                    : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
+
             }`}
           >
             <MdShare />

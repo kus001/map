@@ -469,7 +469,7 @@ export default function RoutePanel({
                       darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
-                    {formatDuration(route.duration_min)} • 
+                    {formatDuration(route.duration_min)}{" • "}
                     {new Date(new Date().getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
                   </div>
 

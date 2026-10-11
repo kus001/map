@@ -461,11 +461,14 @@ export default function RoutePanel({
           }`}
         >
           Directions
+          <span className="block text-xs font-normal opacity-70 md:hidden">
+            {steps.length} {steps.length === 1 ? "step" : "steps"}
+          </span>
         </h2>
 
         <div className="flex items-center gap-2">
           <span
-            className={`text-xs ${
+            className={`text-xs md:inline hidden ${
               darkMode ? "text-darkmode-gray" : "text-button-darkest"
             }`}
           >

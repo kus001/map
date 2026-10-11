@@ -1368,6 +1368,20 @@ export default function App() {
         >
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
+        {sidePanel === true && (
+          <div className={`absolute top-16 left-4 z-[500] rounded-xl p-2 
+            ${darkMode 
+              ? mapStyle === "hybrid"
+                ? "text-white bg-hybrid-charcoal-light"
+                : "bg-charcoal-light text-white"
+              : "text-black bg-white"
+            }`}
+          >
+            Directions will go here
+          </div>
+        )}
+
+
         {data?.routing_provider === "google" && displayedMode === "driving" ? (
         <GoogleDrivingMapView
           data={data}

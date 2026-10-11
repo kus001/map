@@ -1410,6 +1410,8 @@ export default function App() {
           status={status}
           error={error}
           darkMode={darkMode}
+          timingMode={timingMode}
+          departureTime={departureTime}
         />
 
         <footer
@@ -1491,6 +1493,8 @@ export default function App() {
               status={status}
               error={error}
               darkMode={darkMode}
+              timingMode={timingMode}
+              departureTime={departureTime}
             />
           </div>
         )}

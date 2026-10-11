@@ -213,6 +213,8 @@ export default function RoutePanel({
   status,
   error,
   darkMode,
+  timingMode,
+  departureTime
 }) {
   const mode = displayedMode || data?.mode || "driving";
 
@@ -262,6 +264,10 @@ export default function RoutePanel({
     navigationActive && mode === "transit"
       ? transitNavigationSummary(navigationInfo)
       : null;
+
+  const departureDateObject = new Date();
+  const [hours, minutes] = departureTime.split(':');
+  departureDateObject.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
   return (
     <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
@@ -480,7 +486,12 @@ export default function RoutePanel({
                     }`}
                   >
                     {formatDuration(route.duration_min)}{" • "}
-                    {new Date(new Date().getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    {
+                      timingMode === "now" ?
+                      new Date(new Date().getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+                      : new Date(departureDateObject.getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+                    }
+                    {/*returns arrival time*/}
                   </div>
 
                   <div

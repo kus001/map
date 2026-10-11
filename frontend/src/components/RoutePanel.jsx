@@ -456,9 +456,19 @@ export default function RoutePanel({
               onMouseLeave={() => onRouteHover(null)}
               className={`w-full rounded-xl border p-3.5 text-left transition-all ${
                 selected
-                  ? "border-green bg-green/10 shadow-sm"
+                  ? darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple/10 shadow-sm"
+                      : mapStyle === "satellite"
+                        ? "border-green bg-green/10 shadow-sm"
+                        : "border-blue bg-blue/10 shadow-sm"
+                    : "border-green bg-green/10 shadow-sm"
                   : darkMode
-                    ? "border-button bg-charcoal-light hover:border-green hover:bg-green/10"
+                    ? mapStyle == "hybrid"
+                      ? "border-button bg-hybrid-charcoal-light hover:border-hybrid-purple hover:bg-hybrid-purple/10"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal-light hover:border-green hover:bg-green/10"
+                        : "border-button bg-charcoal-light hover:border-blue hover:bg-blue/10"
                     : "border-button-light bg-white hover:border-green hover:shadow-sm"
               }`}
             >

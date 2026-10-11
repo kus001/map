@@ -1377,7 +1377,25 @@ export default function App() {
               : "text-black bg-white"
             }`}
           >
-            Directions will go here
+            <RoutePanel
+              data={data}
+              selectedRoute={selectedRoute}
+              selectedRouteNumber={selectedRouteNumber}
+              onSelectRoute={selectRoute}
+              onRouteHover={setHoveredRouteNumber}
+              onStepSelect={focusStep}
+              onShareRoute={shareRoute}
+              displayedMode={displayedMode}
+              navigationActive={navigationActive}
+              navigationInfo={navigationInfo}
+              navigationAccuracy={navigationAccuracy}
+              navigationSpeedMps={navigationSpeedMps}
+              onStartNavigation={startNavigation}
+              onStopNavigation={() => stopNavigation()}
+              status={status}
+              error={error}
+              darkMode={darkMode}
+            />
           </div>
         )}
 

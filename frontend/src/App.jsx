@@ -1228,7 +1228,7 @@ export default function App() {
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-hidden max-[760px]:rounded-2xl max-[760px]:border`}
+        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-y-auto max-[760px]:rounded-2xl max-[760px]:border`}
       >
         <header className="px-5 pb-4 pt-4">
           <div className="flex items-center justify-between">
@@ -1313,6 +1313,7 @@ export default function App() {
           onShareRoute={shareRoute}
           displayedMode={displayedMode}
           navigationActive={navigationActive}
+          mapStyle={mapStyle}
           navigationInfo={navigationInfo}
           navigationAccuracy={navigationAccuracy}
           navigationSpeedMps={navigationSpeedMps}

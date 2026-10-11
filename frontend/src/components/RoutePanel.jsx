@@ -13,6 +13,7 @@ import {
   formatDistance,
   formatDuration,
 } from "../utils/format.js";
+import { map } from "leaflet";
 
 const MODE_INFO = {
   driving: { name: "Driving route", Icon: IoCarOutline },
@@ -142,6 +143,7 @@ export default function RoutePanel({
   onSelectRoute = () => {},
   onRouteHover = () => {},
   onStepSelect = () => {},
+  mapStyle,
   onShareRoute = () => {},
   displayedMode,
   navigationActive = false,
@@ -196,7 +198,7 @@ export default function RoutePanel({
     navigationInfo?.off_route_m > navigationOffRouteThreshold;
 
   return (
-    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
       <div
         className={`mb-3 rounded-xl border px-3 py-2.5 text-xs ${
           error
@@ -547,7 +549,15 @@ export default function RoutePanel({
                     : "cursor-default"
                 }`}
               >
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green text-white">
+                <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white ${
+                  darkMode
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple"
+                      : mapStyle === "satellite"
+                        ? "bg-green"
+                        : "bg-blue"
+                    : "bg-green"
+                }`}>
                   <StepIcon step={step} />
                 </div>
 

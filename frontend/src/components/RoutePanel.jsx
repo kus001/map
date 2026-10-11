@@ -183,7 +183,7 @@ function transitNavigationSummary(info) {
           : ` (in ${minutes} min)`
         : "";
       lines.push(
-        `Board ${board.vehicle ? `${board.vehicle} ` : ""}route ${board.route} towards ${board} at ${board.departure_time}${when}`
+        `Board ${board.vehicle ? `${board.vehicle} ` : ""}route ${board.route} at ${board.departure_time}${when}`
       );
       if (board.live_status && board.live_status !== "On time") {
         lines.push(board.live_status);
@@ -321,9 +321,9 @@ export default function RoutePanel({
             {!transitNav && Number.isFinite(navigationInfo?.distance_to_next_m) && (
               <span>{formatDistance(navigationInfo.distance_to_next_m)} to turn</span>
             )}
-            {Number.isFinite(navigationInfo?.remaining_m) && (
+            {/*   {Number.isFinite(navigationInfo?.remaining_m) && (
               <span>{transitNav ? "" : "• "}{formatDistance(navigationInfo.remaining_m)} remaining</span>
-            )}
+            )}   */}
             {Number.isFinite(Number(navigationAccuracy)) && (
               <span>• GPS ±{Math.round(Number(navigationAccuracy))} m</span>
             )}
@@ -469,7 +469,7 @@ export default function RoutePanel({
                       darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
-                    {formatDuration(route.duration_min)}
+                    {formatDuration(route.duration_min)} • {new Date(new Date().getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
                   </div>
 
                   <div

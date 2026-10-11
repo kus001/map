@@ -116,7 +116,31 @@ function routeDistanceFrom(routeCoordinates, segmentIndex, segmentProgress) {
   return total;
 }
 
-export function navigationSnapshot(location, route) {
+// Whole minutes from `nowMs` until the next occurrence of an "HH:MM" clock time
+// (treated as the nearest one within +/-12 h, so midnight rollovers work).
+export function minutesUntilClock(value, nowMs) {
+  if (!value || !Number.isFinite(nowMs)) {
+    return null;
+  }
+
+  const [hour, minute] = String(value).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+
+  const candidate = new Date(nowMs);
+  candidate.setHours(hour, minute, 0, 0);
+  let timestamp = candidate.getTime();
+  if (timestamp - nowMs > 12 * 60 * 60 * 1000) {
+    timestamp -= 24 * 60 * 60 * 1000;
+  } else if (nowMs - timestamp > 12 * 60 * 60 * 1000) {
+    timestamp += 24 * 60 * 60 * 1000;
+  }
+
+  return Math.round((timestamp - nowMs) / 60000);
+}
+
+export function navigationSnapshot(location, route, nowMs = null) {
   const routeCoordinates = (route?.route_coordinates || []).filter(validCoordinate);
   const steps = route?.steps || route?.stops || [];
   const position = routePosition(location, routeCoordinates);
@@ -144,7 +168,69 @@ export function navigationSnapshot(location, route) {
     ? haversineMeters(location, next.step.coordinates)
     : null;
 
+  // The step the user is on right now (the one just before `next`), and how
+  // far they are from where it ends. Used by transit, where "the next
+  // maneuver" is less useful than "what am I doing and when does it end".
+  // (`next` falls back to the last step when we're past every step start, so
+  // look for the genuine upcoming step separately here.)
+  const upcomingPosition = stepLocations.findIndex(
+    item => item.routeIndex > currentRouteIndex + 1.25
+  );
+  const current = stepLocations.length
+    ? upcomingPosition === -1
+      ? stepLocations[stepLocations.length - 1]
+      : stepLocations[Math.max(0, upcomingPosition - 1)]
+    : null;
+  const currentEnd =
+    current?.step?.to_coordinates ||
+    stepLocations[(current ? stepLocations.indexOf(current) : 0) + 1]?.step?.coordinates ||
+    routeCoordinates[routeCoordinates.length - 1];
+  const distanceToStepEnd = validCoordinate(currentEnd)
+    ? haversineMeters(location, currentEnd)
+    : null;
+
+  // Turn-by-turn inside a walking leg: find the next turn still ahead of us,
+  // looking only at the stretch of route that belongs to this step so a vehicle
+  // shape that runs along the same street can't be matched by mistake.
+  let nextTurn = null;
+  let distanceToTurn = null;
+  const directions = current?.step?.directions;
+  if (Array.isArray(directions) && directions.length) {
+    const currentPosition = stepLocations.indexOf(current);
+    const windowStart = current.routeIndex;
+    const windowEnd =
+      stepLocations[currentPosition + 1]?.routeIndex ?? routeCoordinates.length - 1;
+    const windowCoordinates = routeCoordinates.slice(windowStart, windowEnd + 1);
+
+    for (const direction of directions) {
+      const offset = nearestRouteIndex(direction.coordinates, windowCoordinates);
+      if (offset !== null && windowStart + offset > currentRouteIndex + 1.25) {
+        nextTurn = direction;
+        break;
+      }
+    }
+
+    if (nextTurn) {
+      distanceToTurn = haversineMeters(location, nextTurn.coordinates);
+    }
+  }
+
+  const upcomingTransit = current && current.step?.type !== "transit"
+    ? stepLocations.find(
+        item => item.index > current.index && item.step?.type === "transit"
+      )?.step || null
+    : null;
+
   return {
+    current_step: current?.step || null,
+    current_step_index: current?.index ?? null,
+    distance_to_step_end_m: distanceToStepEnd,
+    next_turn: nextTurn,
+    distance_to_turn_m: distanceToTurn,
+    next_transit_step: upcomingTransit,
+    minutes_to_departure: upcomingTransit
+      ? minutesUntilClock(upcomingTransit.departure_time, nowMs)
+      : null,
     off_route_m: position.distance_m,
     route_index: currentRouteIndex,
     remaining_m: routeDistanceFrom(

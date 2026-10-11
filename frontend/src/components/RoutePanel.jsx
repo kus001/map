@@ -136,6 +136,64 @@ function formatScheduledDeparture(value) {
   }).format(date);
 }
 
+// Headline + detail lines for the navigation card while following a transit route.
+function transitNavigationSummary(info) {
+  const step = info?.current_step;
+  if (!step) {
+    return null;
+  }
+
+  const toEnd = info.distance_to_step_end_m;
+  const lines = [];
+  let headline;
+
+  if (step.type === "transit") {
+    const nearStop = Number.isFinite(toEnd) && toEnd <= 250;
+    headline = nearStop && step.to ? `Get off at ${step.to}` : directionText(step);
+    if (Number.isFinite(toEnd)) {
+      lines.push(
+        nearStop ? `${formatDistance(toEnd)} to your stop` : `${formatDistance(toEnd)} to ${step.to || "your stop"}`
+      );
+    }
+    if (step.arrival_time) {
+      lines.push(`Arrives ${step.arrival_time}`);
+    }
+    if (step.live_status && step.live_status !== "On time") {
+      lines.push(step.live_status);
+    }
+  } else {
+    const turn = info.next_turn;
+    headline = turn ? directionText(turn) : directionText(step);
+    if (turn && Number.isFinite(info.distance_to_turn_m)) {
+      lines.push(`${formatDistance(info.distance_to_turn_m)} to turn`);
+    }
+    if (Number.isFinite(toEnd)) {
+      lines.push(
+        turn && step.to
+          ? `${formatDistance(toEnd)} to ${step.to}`
+          : `${formatDistance(toEnd)} to go`
+      );
+    }
+    const board = info.next_transit_step;
+    if (board) {
+      const minutes = info.minutes_to_departure;
+      const when = Number.isFinite(minutes)
+        ? minutes <= 0
+          ? " (now)"
+          : ` (in ${minutes} min)`
+        : "";
+      lines.push(
+        `Board ${board.vehicle ? `${board.vehicle} ` : ""}route ${board.route} towards ${board} at ${board.departure_time}${when}`
+      );
+      if (board.live_status && board.live_status !== "On time") {
+        lines.push(board.live_status);
+      }
+    }
+  }
+
+  return { headline, lines };
+}
+
 export default function RoutePanel({
   data,
   selectedRoute,
@@ -193,9 +251,17 @@ export default function RoutePanel({
     70,
     Number(navigationAccuracy || 0) * 2
   );
+  // While riding a vehicle the path is the vehicle's, so don't flag "off route".
+  const ridingTransit =
+    mode === "transit" && navigationInfo?.current_step?.type === "transit";
   const navigationOffRoute =
     navigationActive &&
+    !ridingTransit &&
     navigationInfo?.off_route_m > navigationOffRouteThreshold;
+  const transitNav =
+    navigationActive && mode === "transit"
+      ? transitNavigationSummary(navigationInfo)
+      : null;
 
   return (
     <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
@@ -211,7 +277,7 @@ export default function RoutePanel({
         {status}
       </div>
 
-      {navigationActive && mode !== "transit" && (
+      {navigationActive && (
         <div
           className={`mb-3 rounded-2xl border p-3.5 ${
             navigationOffRoute
@@ -236,17 +302,27 @@ export default function RoutePanel({
           </div>
 
           <div className="mt-2 text-base font-bold leading-5">
-            {navigationInfo?.next_step
-              ? directionText(navigationInfo.next_step)
-              : "Following route…"}
+            {transitNav
+              ? transitNav.headline
+              : navigationInfo?.next_step
+                ? directionText(navigationInfo.next_step)
+                : "Following route…"}
           </div>
 
+          {transitNav?.lines.length > 0 && (
+            <div className="mt-1 space-y-0.5 text-xs font-semibold opacity-90">
+              {transitNav.lines.map(line => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
+
           <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs opacity-80">
-            {Number.isFinite(navigationInfo?.distance_to_next_m) && (
+            {!transitNav && Number.isFinite(navigationInfo?.distance_to_next_m) && (
               <span>{formatDistance(navigationInfo.distance_to_next_m)} to turn</span>
             )}
             {Number.isFinite(navigationInfo?.remaining_m) && (
-              <span>• {formatDistance(navigationInfo.remaining_m)} remaining</span>
+              <span>{transitNav ? "" : "• "}{formatDistance(navigationInfo.remaining_m)} remaining</span>
             )}
             {Number.isFinite(Number(navigationAccuracy)) && (
               <span>• GPS ±{Math.round(Number(navigationAccuracy))} m</span>
@@ -476,7 +552,7 @@ export default function RoutePanel({
           >
             {steps.length} {steps.length === 1 ? "step" : "steps"}
           </span>
-          {mode !== "transit" && (
+          {(
             <button
               type="button"
               onClick={navigationActive ? onStopNavigation : onStartNavigation}
@@ -541,16 +617,23 @@ export default function RoutePanel({
             const canFocus =
               Array.isArray(step?.coordinates) && step.coordinates.length >= 2;
 
+            const directions = Array.isArray(step?.directions)
+              ? step.directions.filter(item => directionText(item))
+              : [];
+
             return (
+              <div
+                key={`${step.type || "step"}-${index}`}
+                className={`border-b last:border-b-0 ${
+                  darkMode ? "border-button/50" : "border-button-light/60"
+                }`}
+              >
               <button
                 type="button"
-                key={`${step.type || "step"}-${index}`}
                 onClick={() => canFocus && onStepSelect(step, index)}
                 disabled={!canFocus}
                 title={canFocus ? "Show this step on the map" : undefined}
-                className={`flex w-full gap-3 border-b p-3 text-left last:border-b-0 ${
-                  darkMode ? "border-button/50" : "border-button-light/60"
-                } ${
+                className={`flex w-full gap-3 p-3 text-left ${
                   canFocus
                     ? darkMode
                       ? "transition hover:bg-blue/10"
@@ -600,6 +683,52 @@ export default function RoutePanel({
                   )}
                 </div>
               </button>
+
+              {directions.length > 1 && (
+                <details
+                  className={`pb-3 pl-14 pr-3 text-xs ${
+                    darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                  }`}
+                >
+                  <summary className="cursor-pointer select-none font-semibold">
+                    Walking directions ({directions.length} steps)
+                  </summary>
+                  <ol className="mt-1.5 space-y-0.5">
+                    {directions.map((direction, directionIndex) => {
+                      const canFocusDirection =
+                        Array.isArray(direction?.coordinates) &&
+                        direction.coordinates.length >= 2;
+
+                      return (
+                        <li key={`${directionIndex}-${direction.road || ""}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              canFocusDirection && onStepSelect(direction, directionIndex)
+                            }
+                            disabled={!canFocusDirection}
+                            className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left ${
+                              canFocusDirection
+                                ? darkMode
+                                  ? "hover:bg-blue/10"
+                                  : "hover:bg-green/10"
+                                : "cursor-default"
+                            }`}
+                          >
+                            <span>{directionText(direction)}</span>
+                            {direction.distance_m > 0 && (
+                              <span className="shrink-0 opacity-70">
+                                {formatDistance(direction.distance_m)}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </details>
+              )}
+              </div>
             );
           })}
         </div>

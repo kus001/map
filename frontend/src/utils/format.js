@@ -52,7 +52,12 @@ export function directionText(step) {
   if (type === "depart") {
     text = modifier ? `Start heading ${modifier}` : "Start";
   } else if (type === "turn") {
-    text = modifier ? `Turn ${modifier}` : "Turn";
+    text = modifier === "straight" ? "Continue straight" : modifier ? `Turn ${modifier}` : "Turn";
+  } else if (type === "new name") {
+    // OSRM: the road changes name but you keep going the same way.
+    text = "Continue";
+  } else if (type === "fork") {
+    text = modifier ? `Keep ${modifier.replace("slight ", "")}` : "Keep going";
   } else if (type === "continue") {
     if (modifier === "straight") {
       text = "Continue straight";

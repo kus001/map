@@ -260,9 +260,16 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [googleFailed, setGoogleFailed] = useState(false);
-  const [mapStyle, setMapStyle] = useState(() =>
-    validSavedValue(savedPreferences.mapStyle, VALID_MAP_STYLES, "street")
-  );
+  const [mapStyle, setMapStyle] = useState("street");
+  const mapStyles = () => {
+    if (mapStyle === "street") {
+      setMapStyle("satellite");
+    } else if (mapStyle === "satellite") {
+      setMapStyle("hybrid");
+    } else {
+      setMapStyle("street");
+    }
+  }
   const [timingMode, setTimingMode] = useState(() =>
     sharedRoute.timingMode ||
     validSavedValue(savedPreferences.timingMode, VALID_TIMING_MODES, "now")
@@ -1474,26 +1481,8 @@ export default function App() {
           >
             <button
               type="button"
-              onClick={() => setMapStyle("street")}
-              title="Street map"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition ${
-                mapStyle === "street"
-                  ? darkMode
-                    ? "bg-blue text-white"
-                    : "bg-green text-white"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-charcoal hover:bg-green/10"
-              }`}
-            >
-              <MdMap className="text-lg" />
-              <span className="max-[900px]:hidden">Map</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMapStyle("satellite")}
-              title="Satellite map"
+              onClick={mapStyles}
+              title="Change map style"
               className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
                 darkMode ? "border-button" : "border-button-light"
               } ${
@@ -1506,29 +1495,9 @@ export default function App() {
                     : "text-charcoal hover:bg-green/10"
               }`}
             >
-              <MdSatelliteAlt className="text-lg" />
-              <span className="max-[900px]:hidden">Satellite</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMapStyle("hybrid")}
-              title="Hybrid map"
-              className={`flex h-11 items-center gap-1.5 border-l px-3 text-sm font-semibold transition ${
-                darkMode ? "border-button" : "border-button-light"
-              } ${
-                mapStyle === "hybrid"
-                  ? darkMode
-                    ? "bg-hybrid-purple text-white"
-                    : "bg-green text-white"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-charcoal hover:bg-green/10"
-              }`}
-            >
-              <IoLayers className="text-lg" />
-              <span className="max-[900px]:hidden">Hybrid</span>
-            </button>           
+              {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
+              <span className="capitalize">{mapStyle}</span>
+            </button>    
           </div>
 
           {selectedRoute?.route_coordinates?.length > 1 && (

@@ -19,7 +19,13 @@
 
 ![Satelite Light Mode Example](assets/light_sat.png)
 
-##### more views incoming...
+#### Hybrid:
+
+![Hybrid Dark Mode Example](assets/hybrid_dark.png)
+
+↑↑ Dark Mode (Hybrid) ↑↑ | | | ↓↓ Light Mode (Hybrid) ↓↓ 
+
+![Hybrid Light Mode Example](assets/hybrid_light.png)
 
 ## Running / Using [MAP](https://map.host-transit-page.hackclub.app/)
 

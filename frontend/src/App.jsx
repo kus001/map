@@ -292,6 +292,7 @@ export default function App() {
   const [navigationAccuracy, setNavigationAccuracy] = useState(null);
   const [navigationHeading, setNavigationHeading] = useState(null);
   const [navigationSpeedMps, setNavigationSpeedMps] = useState(null);
+  const [navigationClockMs, setNavigationClockMs] = useState(PAGE_LOAD_TIME);
 
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
@@ -354,10 +355,24 @@ export default function App() {
   const navigationInfo = useMemo(
     () =>
       navigationActive && currentLocation && selectedRoute
-        ? buildNavigationSnapshot(currentLocation, selectedRoute)
+        ? buildNavigationSnapshot(currentLocation, selectedRoute, navigationClockMs)
         : null,
-    [navigationActive, currentLocation, selectedRoute]
+    [navigationActive, currentLocation, selectedRoute, navigationClockMs]
   );
+
+  // Transit navigation shows "departs in N min", so keep a coarse clock ticking.
+  useEffect(() => {
+    if (!navigationActive || displayedMode !== "transit") {
+      return undefined;
+    }
+    const tick = () => setNavigationClockMs(Date.now());
+    const first = window.setTimeout(tick, 0);
+    const interval = window.setInterval(tick, 10000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(interval);
+    };
+  }, [navigationActive, displayedMode]);
 
   useEffect(() => {
     selectedRouteRef.current = selectedRoute;
@@ -739,7 +754,7 @@ export default function App() {
         const departurePassed =
           departureMs != null && nowMs > departureMs + 45 * 1000;
 
-        if (!cancelledStep && !connectionFailure && !departurePassed) {
+        if (!cancelledStep && !connectionFailure && !departurePassed && !navigationActive) {
           return;
         }
 
@@ -760,18 +775,38 @@ export default function App() {
               String(firstRelevantStep.from_stop_id || "") &&
             String(stop.agency || "") === String(firstRelevantStep.agency || "")
         );
-        const distanceToBoarding = boardingStop?.coordinates
-          ? haversineMeters(gps.location, boardingStop.coordinates)
+        // Fall back to the step's own boarding coordinate if the stop lookup
+        // misses (agency/id formats differ); otherwise a missed bus never fires.
+        const boardingCoordinates =
+          boardingStop?.coordinates || firstRelevantStep.coordinates;
+        const distanceToBoarding = boardingCoordinates
+          ? haversineMeters(gps.location, boardingCoordinates)
           : Infinity;
         const nearBoarding =
-          distanceToBoarding <= Math.max(120, Number(gps.accuracy || 0) * 1.75);
+          distanceToBoarding <= Math.max(50, Number(gps.accuracy || 0) * 1.75);
         const probablyNotOnVehicle =
-          gps.speed == null || Number(gps.speed) < 2.5;
+          gps.speed == null || Number(gps.speed) < 2.5 || !nearBoarding ;
+
+        // While actively navigating, also catch "can't make it": the bus has
+        // gone and you're not at the stop, or walking there (~1.4 m/s) takes
+        // longer than the time left. Without navigation we only trust the
+        // "standing at the stop" case, since the route may be planned from
+        // somewhere other than where you are.
+        const secondsLeft = departureMs != null ? (departureMs - nowMs) / 1000 : null;
+        const cannotMakeIt =
+          navigationActive &&
+          probablyNotOnVehicle &&
+          Number.isFinite(distanceToBoarding) &&
+          secondsLeft != null &&
+          (departurePassed
+            ? distanceToBoarding > 150
+            : distanceToBoarding / 1.4 > secondsLeft + 60);
 
         if (
           cancelledStep ||
           connectionFailure ||
-          (departurePassed && nearBoarding && probablyNotOnVehicle)
+          (departurePassed && nearBoarding && probablyNotOnVehicle) ||
+          cannotMakeIt
         ) {
           transitLastAutoRerouteAt.current = nowMs;
           setStatus(
@@ -779,7 +814,7 @@ export default function App() {
               ? "Transit trip cancelled • finding the next best route..."
               : connectionFailure
                 ? "A live delay breaks your connection • rerouting..."
-                : "Looks like you missed that departure • rerouting..."
+                : "Looks like you'll miss that departure • rerouting..."
           );
           searchRoutesRef.current({
             requestedMode: "transit",
@@ -810,10 +845,22 @@ export default function App() {
     selectedRouteNumber,
     selectedTransitSignature,
     transitPreference,
+    navigationActive,
   ]);
 
   useEffect(() => {
-    if (!navigationActive || !navigationInfo || displayedMode === "transit") {
+    if (!navigationActive || !navigationInfo) {
+      navigationOffRouteSamples.current = 0;
+      return undefined;
+    }
+
+    // Transit: only reroute from a walking leg of a live ("now") trip. While
+    // riding, the vehicle sets the path (detours are not "off route"), and
+    // missed/cancelled trips are already handled by the live-update effect.
+    if (
+      displayedMode === "transit" &&
+      (timingMode !== "now" || navigationInfo.current_step?.type === "transit")
+    ) {
       navigationOffRouteSamples.current = 0;
       return undefined;
     }
@@ -858,6 +905,7 @@ export default function App() {
     navigationAccuracy,
     destination,
     cyclingType,
+    timingMode,
   ]);
 
   function handleStartChange(nextStart) {
@@ -1083,12 +1131,6 @@ export default function App() {
     if (!selectedRoute?.route_coordinates?.length) {
       setError(true);
       setStatus("Find a route before starting navigation.");
-      return;
-    }
-
-    if (displayedMode === "transit") {
-      setError(true);
-      setStatus("Turn-by-turn navigation currently supports driving, walking, and cycling routes.");
       return;
     }
 
@@ -1536,9 +1578,9 @@ export default function App() {
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode
-                    ? mapStyle === "satellite"
+                    ? mapStyle === "hybrid"
                       ? "bg-hybrid-purple text-white"
-                      : mapStyle === "street"
+                      : mapStyle === "satellite"
                         ? "bg-green text-white"
                         : "bg-blue text-white"
                     : "bg-white text-charcoal"

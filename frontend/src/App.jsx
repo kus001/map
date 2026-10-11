@@ -1358,7 +1358,7 @@ export default function App() {
           type="button"
           onClick={() => setIsSidePanel(value => !value)}
           title="Open/close menu"
-          className={`rounded-lg absolute top-4 left-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${
+          className={`rounded-lg absolute top-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${sidePanel ? "left-87.5" : "left-4"} ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
@@ -1369,7 +1369,7 @@ export default function App() {
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
         {sidePanel === true && (
-          <div className={`absolute top-16 left-4 z-[500] rounded-xl p-2 
+          <div className={`absolute top-4 left-4 z-[500] rounded-xl p-2 w-80 h-96 overflow-hidden flex flex-col
             ${darkMode 
               ? mapStyle === "hybrid"
                 ? "text-white bg-hybrid-charcoal-light"

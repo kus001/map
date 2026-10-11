@@ -1222,7 +1222,7 @@ export default function App() {
       }`}
     >
       <aside
-        className={`z-[1000] flex h-screen w-[360px] flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden" : ""} ${
+        className={`z-[1000] flex h-screen w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x resize-none overflow-auto flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden" : ""} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"
@@ -1475,7 +1475,7 @@ export default function App() {
         />
         )}
 
-        <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[62vh]">
+        <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[42vh]">
           <div
             className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
           >

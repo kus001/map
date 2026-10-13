@@ -2,7 +2,7 @@
 
 <div align="center">
 
-#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [host-transit-page@user.hackclub.app](mailto:host-transit-page@user.hackclub.app)
+#### [MAP](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
 
 #### Street view: 
 ![Example run!](assets/lightmode.png)

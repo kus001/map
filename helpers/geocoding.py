@@ -183,8 +183,7 @@ def get_coordinates(address):
         clean_address,
         timeout=2.5,
         viewbox=WATERLOO_REGION_VIEWBOX,
-        bounded=False,
-        country_codes="ca",
+        bounded=False
     )
 
     if location is None:
@@ -209,7 +208,7 @@ def explain_address_problem(address, default="Address couldn't be found."):
 
 
 @lru_cache(maxsize=256)
-def _search_places_cached(query, limit):
+def _search_places_cached(query, limit) -> tuple:
     clean_query = re.sub(r"\s+", " ", str(query).strip())
     if len(clean_query) < 2:
         return tuple()

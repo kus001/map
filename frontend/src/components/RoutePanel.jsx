@@ -13,7 +13,8 @@ import {
   formatDistance,
   formatDuration,
 } from "../utils/format.js";
-import { map } from "leaflet";
+
+const PAGE_CLOCK_MS = Date.now();
 
 const MODE_INFO = {
   driving: { name: "Driving route", Icon: IoCarOutline },
@@ -214,7 +215,6 @@ export default function RoutePanel({
   error,
   darkMode,
   timingMode,
-  departureTime
 }) {
   const mode = displayedMode || data?.mode || "driving";
 
@@ -245,6 +245,15 @@ export default function RoutePanel({
   const steps = activeRoute?.steps || activeRoute?.stops || [];
   const realtime = activeRoute?.realtime;
   const alerts = data?.alerts ?? [];
+  const arrivalLabel = route => {
+    if (route.arrival_estimate_datetime) {
+      const computed = new Date(route.arrival_estimate_datetime);
+      if (!Number.isNaN(computed.getTime())) return computed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+    const startingTime = route.departure_datetime || data?.requested_departure_datetime;
+    const initialMs = startingTime ? new Date(startingTime).getTime() : PAGE_CLOCK_MS;
+    return new Date(initialMs + Number(route.duration_min || 0) * 60000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
   const scheduledDeparture = formatScheduledDeparture(
     data.requested_departure_datetime || data.departure_datetime
   );
@@ -265,9 +274,6 @@ export default function RoutePanel({
       ? transitNavigationSummary(navigationInfo)
       : null;
 
-  const departureDateObject = new Date();
-  const [hours, minutes] = departureTime.split(':');
-  departureDateObject.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
   return (
     <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
@@ -346,7 +352,14 @@ export default function RoutePanel({
         </div>
       )}
 
-      {scheduledDeparture && (
+      {mode === "transit" && timingMode === "arrive_by" && data?.arrive_by_datetime && (
+        <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${darkMode ? "border-blue/40 bg-blue/10 text-darkmode-gray" : "border-green/30 bg-green/10 text-green-dark"}`}>
+          <MdCalendarMonth className="mr-2 inline text-base" />
+          Arrive by {formatScheduledDeparture(data.arrive_by_datetime)} · Suggested leave time {formatScheduledDeparture(activeRoute.departure_datetime)}
+        </div>
+      )}
+
+      {scheduledDeparture && timingMode !== "arrive_by" && (
         <div
           className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
             darkMode
@@ -401,6 +414,12 @@ export default function RoutePanel({
         </div>
       )}
 
+      {mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
+        <div className="mb-3 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+          <strong>Transfer warning:</strong> connection buffers are estimates; allow extra time for walking and delays.
+        </div>
+      )}
+
       {mode === "transit" && alerts.length > 0 && (
         <div className="mb-3 space-y-2">
           {alerts.map(alert => (
@@ -434,6 +453,9 @@ export default function RoutePanel({
           const transitSummary = transitLegs.filter(
             (value, index) => index === 0 || transitLegs[index - 1] !== value
           );
+          const transferRisk = route.transfer_reliability;
+          if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
+          if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
           if (
             data.routes.length > 1 &&
@@ -486,11 +508,7 @@ export default function RoutePanel({
                     }`}
                   >
                     {formatDuration(route.duration_min)}{" • "}
-                    {
-                      timingMode === "now" ?
-                      new Date(new Date().getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
-                      : new Date(departureDateObject.getTime() + route.duration_min * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
-                    }
+                    {arrivalLabel(route)}
                     {/*returns arrival time*/}
                   </div>
 
@@ -515,6 +533,19 @@ export default function RoutePanel({
                     </div>
                   )}
 
+                  {mode === "transit" && transferRisk?.status && transferRisk.status !== "direct" && (
+                    <div className={`mt-1 text-[11px] font-semibold ${
+                      ["critical", "tight"].includes(transferRisk.status)
+                        ? "text-amber-500"
+                        : darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                    }`}>
+                      {transferRisk.label}
+                      {transferRisk.transfers?.length ? ` · ${transferRisk.transfers.map(item => `${item.margin_min} min buffer`).join(" / ")}` : ""}
+                    </div>
+                  )}
+                  {mode === "transit" && timingMode === "arrive_by" && route.departure_datetime && (
+                    <div className="mt-1 text-[11px] opacity-80">Leave {formatScheduledDeparture(route.departure_datetime)} · Arrive {formatScheduledDeparture(route.arrival_estimate_datetime)}</div>
+                  )}
                   {mode === "transit" && transitSummary.length > 0 && (
                     <div
                       className={`mt-1 line-clamp-1 text-xs font-semibold ${

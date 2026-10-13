@@ -309,7 +309,7 @@ def _candidate_score(query_street, candidate_street):
 
 # Fuzzy matching is only for typos. 0.6 was loose enough to turn one street into a
 # different, similarly spelled one; 0.85 only forgives a letter or two.
-FUZZY_CUTOFF = 0.85
+FUZZY_CUTOFF = 0.6
 FUZZY_MARGIN = 0.05
 
 

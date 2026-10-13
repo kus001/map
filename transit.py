@@ -153,14 +153,16 @@ def access_walk_minutes(distance_m) -> float:
 
 
 def dist_m(a: tuple[float, float], b: tuple[float, float]) -> float:
-    """Distance between two points"""
+    """Approximate distance between two points in metres."""
     lat1, lon1 = map(float, a[:2])
     lat2, lon2 = map(float, b[:2])
 
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
+    avg_lat = math.radians((lat1 + lat2) / 2)
 
-    return math.sqrt(dlat**2 + dlon**2)
+    dx = math.radians(lon2 - lon1) * 6_371_000 * math.cos(avg_lat)
+    dy = math.radians(lat2 - lat1) * 6_371_000
+
+    return math.hypot(dx, dy)
 
 
 def polyline_distance_m(points) -> float:
@@ -1854,7 +1856,7 @@ def get_transit_route(
     total_time = max(0.0, float(search_time) + walk_adjustment)
 
     # "Fastest" means fastest: if walking the whole way beats transit, return the walk.
-    if excluded_route_keys is None:
+    if preference_key == "fastest" and excluded_route_keys is None:
         if access_walk_minutes(dist_m(start, end)) <= total_time:
             direct_walk = walking_geometry(start, end)
             if direct_walk["duration_min"] <= total_time:

@@ -90,7 +90,7 @@ _scheduled_trip_cache_lock = threading.Lock()
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 
 
-def ensure_transit_loaded(verbose=False) -> float:
+def ensure_transit_loaded(verbose: bool=False) -> float:
     "Load the heavy transit graph only when transit is actually needed."
     global _data, graph, stops, _realtime_started
 
@@ -152,28 +152,21 @@ def access_walk_minutes(distance_m) -> float:
     return float(distance_m) / ACCESS_WALK_SPEED_MPS / 60
 
 
-def haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
-    """Higher accuracy distance between two points"""
+def dist_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Distance between two points"""
     lat1, lon1 = map(float, a[:2])
     lat2, lon2 = map(float, b[:2])
-    radius = 6_371_000.0
 
-    p1 = math.radians(lat1)
-    p2 = math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
 
-    h = (
-        math.sin(dp / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    )
-    return 2 * radius * math.asin(math.sqrt(h))
+    return math.sqrt(dlat**2 + dlon**2)
 
 
 def polyline_distance_m(points) -> float:
     if not points or len(points) < 2:
         return 0.0
-    return sum(haversine_m(points[i - 1], points[i]) for i in range(1, len(points)))
+    return sum(dist_m(points[i - 1], points[i]) for i in range(1, len(points)))
 
 
 def point_along_polyline(points, fraction):
@@ -185,7 +178,7 @@ def point_along_polyline(points, fraction):
 
     fraction = max(0.0, min(1.0, float(fraction)))
     lengths = [
-        haversine_m(points[index - 1], points[index])
+        dist_m(points[index - 1], points[index])
         for index in range(1, len(points))
     ]
     total = sum(lengths)
@@ -463,7 +456,7 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
                     start = stops[from_stop]
                     lat = float(start[0]) + (float(end[0])-float(start[0]))*fraction
                     lon = float(start[1]) + (float(end[1])-float(start[1]))*fraction
-                    if haversine_m((lat, lon), (latitude, longitude)) > radius_m:
+                    if dist_m((lat, lon), (latitude, longitude)) > radius_m:
                         continue
                     route, headsign = route_details(edge)
                     veh_key = (agency, trip_id)
@@ -484,7 +477,7 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
                 break
         if len(vehicles) >= limit * 3:
             break
-    results = sorted(vehicles.values(), key=lambda v: haversine_m(
+    results = sorted(vehicles.values(), key=lambda v: dist_m(
         (v["lat"], v["lon"]), (latitude, longitude)))[:limit]
     with _nearby_vehicle_lock:
         _nearby_vehicle_cache[key] = results
@@ -786,7 +779,7 @@ def _straight_walk(start, end, straight_distance, fallback_min):
 async def walking_geometry_async(client, start, end, fallback_min=None) -> dict:
     start = coord(start)
     end = coord(end)
-    straight_distance = haversine_m(start, end)
+    straight_distance = dist_m(start, end)
 
     if fallback_min is None:
         fallback_min = access_walk_minutes(straight_distance)
@@ -808,7 +801,7 @@ def walking_geometry(start, end, fallback_min=None) -> dict:
     """Synchronous wrapper kept for existing callers."""
     start = coord(start)
     end = coord(end)
-    straight_distance = haversine_m(start, end)
+    straight_distance = dist_m(start, end)
 
     if fallback_min is None:
         fallback_min = access_walk_minutes(straight_distance)
@@ -1014,7 +1007,7 @@ def search_transit(
         best = float("inf")
         for goal_id, option in ends.items():
             target = coord(stops[goal_id])
-            straight_km = haversine_m(here, target) / 1000
+            straight_km = dist_m(here, target) / 1000
             end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
             # Still admissible: ride time is a lower bound, penalties are >= 0.
             optimistic = straight_km / HEURISTIC_SPEED_KMH * 60 + end_real + end_pen
@@ -1363,7 +1356,7 @@ async def _fetch_walks_async(jobs):
                 except Exception:
                     return key, {
                         "coordinates": [list(start), list(end)],
-                        "distance_m": haversine_m(start, end),
+                        "distance_m": dist_m(start, end),
                         "duration_min": fallback,
                     }
 
@@ -1861,8 +1854,8 @@ def get_transit_route(
     total_time = max(0.0, float(search_time) + walk_adjustment)
 
     # "Fastest" means fastest: if walking the whole way beats transit, return the walk.
-    if preference_key == "fastest" and excluded_route_keys is None:
-        if access_walk_minutes(haversine_m(start, end)) <= total_time:
+    if excluded_route_keys is None:
+        if access_walk_minutes(dist_m(start, end)) <= total_time:
             direct_walk = walking_geometry(start, end)
             if direct_walk["duration_min"] <= total_time:
                 return get_walking_route(

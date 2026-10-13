@@ -509,7 +509,7 @@ export default function SearchPanel({
               : "border-button-light bg-green/5"
           }`}
         >
-          <div className="grid grid-cols-2 gap-1 rounded-lg p-0.5">
+          <div className="grid grid-cols-3 gap-1 rounded-lg p-0.5">
             <button
               type="button"
               onClick={() => onTimingModeChange("now")}
@@ -547,9 +547,27 @@ export default function SearchPanel({
               <MdCalendarMonth />
               Schedule
             </button>
+            <button
+              type="button"
+              onClick={() => onTimingModeChange("arrive_by")}
+              aria-pressed={timingMode === "arrive_by"}
+              className={`flex h-9 items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition ${
+                timingMode === "arrive_by"
+                  ? darkMode
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white"
+                      : "bg-blue text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-button-darkest hover:bg-white"
+              }`}
+            >
+              <MdAccessTime /> Arrive by
+            </button>
           </div>
-  
-          {timingMode === "scheduled" && (
+
+          {(timingMode === "scheduled" || timingMode === "arrive_by") && (
             <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
               <input
                 type="date"
@@ -587,7 +605,9 @@ export default function SearchPanel({
           ? "Finding route..."
           : mode === "transit" && timingMode === "scheduled"
             ? "Find Scheduled Route"
-            : "Find Route"}
+            : mode === "transit" && timingMode === "arrive_by"
+              ? "Find Arrival Route"
+              : "Find Route"}
       </Button>
     </div>
   );

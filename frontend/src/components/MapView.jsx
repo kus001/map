@@ -317,117 +317,115 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   );
 }
 
-function TransitStopMarker({ stop, darkMode }) {
+function TransitStopMarker({ stop }) {
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [boardLoadedAt, setBoardLoadedAt] = useState(0);
+  const [loadedAt, setLoadedAt] = useState(0);
+  const pendingRef = useRef(false);
 
   async function loadBoard() {
-    const freshEnough = board && Date.now() - boardLoadedAt < 30000;
-    if (stop.agency !== "go" || loading || freshEnough) {
-      return;
-    }
-
+    if (pendingRef.current || (board && Date.now() - loadedAt < 30000)) return;
+    pendingRef.current = true;
     setLoading(true);
     try {
-      const response = await fetch(
-        `/api/transit/live-departures?agency=go&stop_id=${encodeURIComponent(
-          stop.raw_id || stop.id
-        )}&limit=4`
-      );
+      const query = new URLSearchParams({ stop_id: stop.id, limit: "8" });
+      const response = await fetch(`/api/transit/stop-board?${query}`);
       const result = await response.json();
-      setBoard(result);
-      setBoardLoadedAt(Date.now());
+      setBoard(response.ok ? result : { success: false, error: result.error });
+      setLoadedAt(Date.now());
     } catch (error) {
-      console.warn("Could not load GO live departures:", error);
-      setBoard({ success: false, connected: false, error: "request_failed" });
-      setBoardLoadedAt(Date.now());
+      console.warn("Stop departures unavailable:", error);
+      setBoard({ success: false, error: "Could not load departures" });
+      setLoadedAt(Date.now());
     } finally {
+      pendingRef.current = false;
       setLoading(false);
     }
   }
 
   const goStop = stop.agency === "go";
-  const departures = board?.departures ?? [];
+  const trainStop = stop.agency === "grt_trains";
+  const departures = board?.departures || [];
 
   return (
     <CircleMarker
       center={stop.coordinates}
-      radius={goStop ? 5 : 4}
+      radius={goStop ? 6 : trainStop ? 5 : 4}
       pathOptions={{
-        color: "#FFFFFF",
-        weight: 2,
-        fillColor: goStop ? "#007A53" : MODE_COLORS.transit,
-        fillOpacity: 1,
+        color: "#FFFFFF", weight: 1.5,
+        fillColor: goStop ? "#007A53" : trainStop ? "#0083B8" : MODE_COLORS.transit,
+        fillOpacity: 0.9,
       }}
       eventHandlers={{ popupopen: loadBoard }}
     >
-      <Popup minWidth={goStop ? 250 : 120}>
-        <div className={darkMode ? "text-charcoal" : ""}>
-          <div className="font-semibold">{stop.name}</div>
-          {goStop && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                  GO live departures
+      <Popup minWidth={265} maxWidth={315}>
+        <div className="text-charcoal">
+          <div className="font-bold text-sm">{stop.name}</div>
+          <div className="mt-0.5 text-[10px] text-slate-600">
+            {goStop ? "GO Transit" : "GRT"} · Next departures
+          </div>
+          {loading && <div className="mt-2 text-xs">Checking departures…</div>}
+          {!loading && board?.error && <div className="mt-2 text-xs text-amber-700">{board.error}</div>}
+          {!loading && board?.success && departures.length === 0 &&
+            <div className="mt-2 text-xs text-slate-600">No upcoming departures in the timetable window.</div>}
+          {departures.length > 0 && (
+            <div className="mt-2 max-h-56 overflow-auto space-y-1">
+              {departures.map((item, index) => (
+                <div key={`${item.trip_id}-${index}`} className="rounded-md bg-slate-100 px-2 py-1.5 text-[11px]">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-semibold">{item.route} {item.direction ? `→ ${item.direction}` : ""}</span>
+                    <span className="shrink-0 font-bold">{item.expected_time || item.scheduled_time}</span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-slate-600">
+                    {item.cancelled ? "Cancelled" : item.realtime ? "Live prediction" : "Scheduled"}
+                    {item.delay_min >= 1 ? ` · +${Math.round(item.delay_min)} min` : ""}
+                    {Number.isFinite(item.minutes_until) ? ` · in ${Math.max(0, item.minutes_until)} min` : ""}
+                  </div>
                 </div>
-                {boardLoadedAt > 0 && !loading && (
-                  <div className="text-[9px] text-slate-500">30 s refresh</div>
-                )}
-              </div>
-
-              {loading && <div className="mt-1 text-xs">Loading live times…</div>}
-
-              {!loading && board && !board.connected && (
-                <div className="mt-1 text-xs leading-4 text-slate-600">
-                  {board.configured === false
-                    ? "Add METROLINX_API_KEY on the server to enable GO live times."
-                    : "GO live times are temporarily unavailable."}
-                </div>
-              )}
-
-              {!loading && departures.length > 0 && (
-                <div className="mt-1.5 space-y-1.5">
-                  {departures.map((departure, index) => (
-                    <div
-                      key={`${departure.trip_number || departure.line_code}-${index}`}
-                      className="rounded-md bg-slate-100 px-2 py-1.5 text-xs"
-                    >
-                      <div className="flex items-center justify-between gap-3 font-semibold">
-                        <span>
-                          {departure.line_code || departure.line_name || "GO"}
-                          {departure.direction ? ` → ${departure.direction}` : ""}
-                        </span>
-                        <span>{departure.computed_time || departure.scheduled_time}</span>
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-slate-600">
-                        <span>{departure.status || "Scheduled"}</span>
-                        {Math.abs(departure.delay_min || 0) >= 1 && (
-                          <span>
-                            {departure.delay_min > 0 ? "+" : ""}
-                            {Math.round(departure.delay_min)} min
-                          </span>
-                        )}
-                        {(departure.actual_platform || departure.scheduled_platform) && (
-                          <span>
-                            Platform {departure.actual_platform || departure.scheduled_platform}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!loading && board?.connected && departures.length === 0 && (
-                <div className="mt-1 text-xs text-slate-600">No upcoming GO service returned.</div>
-              )}
+              ))}
             </div>
           )}
+          <div className="mt-2 text-[9px] text-slate-500">Live only when a fresh trip update is available · reopen after 30s to refresh</div>
         </div>
       </Popup>
     </CircleMarker>
   );
+}
+
+function NearbyTransitStopLayer({ enabled, selectedStops }) {
+  const map = useMap();
+  const [viewport, setViewport] = useState(() => {
+    const center = map.getCenter();
+    return { lat: center.lat, lon: center.lng, zoom: map.getZoom() };
+  });
+  const [nearby, setNearby] = useState([]);
+  const selectedIds = new Set((selectedStops || []).map(stop => stop.id));
+
+  useMapEvents({
+    moveend: () => {
+      const center = map.getCenter();
+      setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
+    },
+  });
+
+  useEffect(() => {
+    if (!enabled || !viewport || viewport.zoom < 13) {
+      return;
+    }
+    const controller = new AbortController();
+    const query = new URLSearchParams({
+      lat: String(viewport.lat), lon: String(viewport.lon), radius: "2500"
+    });
+    fetch(`/api/transit/stops?${query}`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : { stops: [] })
+      .then(result => setNearby(result.stops || []))
+      .catch(error => { if (error.name !== "AbortError") console.warn("Stop map layer:", error); });
+    return () => controller.abort();
+  }, [enabled, viewport]);
+
+  if (!enabled || !viewport || viewport.zoom < 13) return null;
+  return nearby.filter(stop => validCoordinate(stop.coordinates) && !selectedIds.has(stop.id))
+    .map(stop => <TransitStopMarker key={`nearby-stop-${stop.id}`} stop={stop} />);
 }
 
 function TransitSegments({ route, darkMode, mapStyle }) {
@@ -790,10 +788,15 @@ export default function MapView({
         selectedVehicles={route?.live_vehicles || []}
       />
 
+      <NearbyTransitStopLayer
+        enabled={mode === "transit"}
+        selectedStops={route?.transit_stops || []}
+      />
+
       {(route?.transit_stops ?? [])
         .filter(stop => validCoordinate(stop.coordinates))
         .map(stop => (
-          <TransitStopMarker key={stop.id} stop={stop} darkMode={darkMode} />
+          <TransitStopMarker key={stop.id} stop={stop} />
         ))}
 
       {(route?.live_vehicles ?? [])

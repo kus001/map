@@ -16,7 +16,7 @@ const PREFERENCES_KEY = "map-router-preferences-v1";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
-const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
+const VALID_TIMING_MODES = new Set(["now", "scheduled", "arrive_by"]);
 const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 
 // Capture the page-load time outside React rendering. React's purity lint rule
@@ -379,7 +379,7 @@ export default function App() {
   }, [selectedRoute]);
 
   function getDepartureDateTime(requestedTimingMode = timingMode) {
-    if (requestedTimingMode !== "scheduled") {
+    if (!["scheduled", "arrive_by"].includes(requestedTimingMode)) {
       return null;
     }
 
@@ -395,7 +395,7 @@ export default function App() {
     }
 
     if (parsed.getTime() < Date.now() - 2 * 60 * 1000) {
-      throw new Error("Scheduled departure must be in the future.");
+      throw new Error("Choose a future departure or arrival time.");
     }
 
     return value;
@@ -454,9 +454,11 @@ export default function App() {
     setLoading(true);
     setError(false);
     setStatus(
-      effectiveTimingMode === "scheduled"
-        ? "Finding your scheduled route..."
-        : "Finding route..."
+      effectiveTimingMode === "arrive_by"
+        ? "Finding a journey that arrives before your deadline..."
+        : effectiveTimingMode === "scheduled"
+          ? "Finding your scheduled route..."
+          : "Finding route..."
     );
 
     const routeStartedMs = performance.now();
@@ -471,6 +473,7 @@ export default function App() {
           mode: requestedMode,
           route_type: requestedCyclingType,
           departure_datetime: departureDatetime,
+          timing_mode: effectiveTimingMode,
           transit_preference: requestedTransitPreference,
           driving_provider: requestedDrivingProvider || (requestedMode === "driving" && !googleFailed && import.meta.env.VITE_GOOGLE_MAPS_KEY ? "google" : "osrm"),
           start_coordinates: requestedUseCurrentLocation
@@ -545,7 +548,9 @@ export default function App() {
         const count = result.routes?.length || 1;
         const prefix = `${count} transit route${count === 1 ? "" : "s"} found`;
 
-        if (effectiveTimingMode === "scheduled") {
+        if (effectiveTimingMode === "arrive_by") {
+          setStatus(`${prefix} • arrival deadline applied`);
+        } else if (effectiveTimingMode === "scheduled") {
           setStatus(`${prefix} • scheduled`);
         } else if (realtime?.available && realtime?.used_live_updates) {
           setStatus(`${prefix} • live predictions used`);
@@ -1014,7 +1019,7 @@ export default function App() {
   }
 
   function changeTimingMode(nextMode) {
-    if (nextMode === "scheduled") {
+    if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
 
       if (Number.isNaN(selected.getTime()) || selected.getTime() < Date.now()) {
@@ -1234,7 +1239,7 @@ export default function App() {
       params.set("transit", "balanced");
       params.set("timing", timingMode);
 
-      if (timingMode === "scheduled") {
+      if (timingMode === "scheduled" || timingMode === "arrive_by") {
         params.set("date", departureDate);
         params.set("time", departureTime);
       }

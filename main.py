@@ -348,6 +348,32 @@ def nearby_transit_vehicles():
                     "live_count": len(unique_live),
                     "estimated_count": sum(bool(v.get("estimated")) for v in live.values())})
 
+@app.get("/api/transit/stops")
+def transit_stops_nearby():
+    try:
+        lat = float(request.args['lat'])
+        lon = float(request.args['lon'])
+        radius = float(request.args.get('radius', 2500))
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError('Invalid coordinates')
+        from transit import nearby_transit_stops
+        return jsonify({'success': True, 'stops': nearby_transit_stops(lat, lon, radius)})
+    except (ValueError, TypeError, KeyError):
+        return jsonify({'success': False, 'error': 'Invalid map center.'}), 400
+
+
+@app.get("/api/transit/stop-board")
+def transit_stop_board():
+    stop_id = str(request.args.get('stop_id') or '')
+    if not stop_id or len(stop_id) > 160:
+        return jsonify({'success': False, 'error': 'stop_id is required.'}), 400
+    from transit import stop_departure_board
+    result = stop_departure_board(stop_id)
+    if result is None:
+        return jsonify({'success': False, 'error': 'Unknown transit stop.'}), 404
+    return jsonify({'success': True, **result})
+
+
 @app.route("/api/routes", methods=["POST"])
 def routes():
     payload = request.get_json(silent=True)
@@ -376,6 +402,11 @@ def routes():
     if transit_preference not in VALID_TRANSIT_PREFERENCES:
         return jsonify({"success": False, "error": "Invalid transit preference.", "code": "invalid_request"}), 400
 
+    timing_mode = str(payload.get("timing_mode") or "now").lower()
+    if timing_mode not in {"now", "scheduled", "arrive_by"}:
+        return jsonify({"success": False, "error": "Invalid timing mode.", "code": "invalid_request"}), 400
+    if timing_mode == "arrive_by" and mode != "transit":
+        return jsonify({"success": False, "error": "Arrive By is supported for transit only."}), 400
     try:
         departure_datetime = parse_departure_datetime(payload.get("departure_datetime")) if mode == "transit" else None
     except (ValueError, TypeError) as error:
@@ -412,7 +443,8 @@ def routes():
                 timing=timing, transit_preference=transit_preference,
                 start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates,
-            )
+                arrive_by=departure_datetime if timing_mode == "arrive_by" else None,
+                )
         if not isinstance(result, dict):
             raise TypeError("Routing provider did not return a response object")
     except Exception:
@@ -433,7 +465,7 @@ def routes():
         result["requested_departure_datetime"] = (
             departure_datetime.isoformat() if departure_datetime else None
         )
-        result["timing_mode"] = "scheduled" if departure_datetime else "now"
+        result["timing_mode"] = timing_mode if mode == "transit" else "now"
 
     if PRINT_ROUTE_TIMING:
         print_timing_report(mode, timing, total_us)

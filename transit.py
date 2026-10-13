@@ -21,6 +21,8 @@ from helpers._transit.go_realtime import (
     start_gtfs_background_refresh,
 )
 from helpers._transit.gtfs_metadata import shape_for_trip
+from helpers._transit.advanced_planning import latest_departure_before, connection_reliability
+from helpers._transit.stop_boards import upcoming_departures
 from helpers._transit.make_graph import make_graph
 from helpers._transit.realtime import (
     adjusted_arrival,
@@ -1386,6 +1388,49 @@ def fetch_walks(jobs):
     return run_async(_fetch_walks_async(jobs))
 
 
+def nearby_transit_stops(lat, lon, radius_m=3000, limit=35):
+    """Stops around map center; cached graph and bounded response size."""
+    ensure_transit_loaded()
+    radius_m = max(300, min(5000, float(radius_m)))
+    limit = max(1, min(50, int(limit)))
+    nearest = nearest_stops(stops, float(lat), float(lon), amount_of_stops=limit * 3)
+    answer = []
+    for distance, (stop_id, info) in nearest:
+        if distance > radius_m:
+            continue
+        agency = stop_agency(stop_id)
+        if agency not in ("grt_busses", "grt_trains", "go"):
+            continue
+        if not graph.get(stop_id):
+            continue
+        answer.append({"id": stop_id, "raw_id": raw_stop_id(stop_id),
+                       "agency": agency, "name": info[2] or raw_stop_id(stop_id),
+                       "coordinates": coord(info), "distance_m": round(distance)})
+        if len(answer) >= limit:
+            break
+    return answer
+
+
+def stop_departure_board(stop_id, limit=8, now=None):
+    ensure_transit_loaded()
+    if stop_id not in stops:
+        return None
+    now = normalize_departure_datetime(now)
+    service_date, service_seconds = gtfs_service_clock(now)
+    realtime = combine_realtime(realtime_snapshot(), go_gtfs_snapshot())
+    # Use the source's own freshness flag; stale updates must not appear LIVE.
+    schedule = upcoming_departures(
+        stop_id, graph, service_date=service_date, service_seconds=service_seconds,
+        active_trip=trip_active, realtime=realtime, route_details=route_details,
+        raw_stop_id=raw_stop_id, adjusted_departure=adjusted_departure,
+        limit=max(1,min(12,int(limit))),
+    )
+    return {"stop_id": stop_id, "name": stops[stop_id][2] or stop_id,
+            "agency": stop_agency(stop_id), "departures": schedule,
+            "live_count": sum(1 for item in schedule if item['realtime']),
+            "source": "GTFS schedule + available realtime updates"}
+
+
 def get_transit_route(
     start_address,
     end_address,
@@ -1396,6 +1441,7 @@ def get_transit_route(
     end_coordinates=None,
     excluded_route_keys=None,
     include_alternatives=True,
+    arrive_by=None,
 ) -> dict:
     ensure_transit_loaded()
 
@@ -1448,6 +1494,31 @@ def get_transit_route(
 
     preference_key, preference = transit_preference_profile(transit_preference)
 
+    requested_arrival = normalize_departure_datetime(arrive_by) if arrive_by else None
+    arrive_search_path = None
+    if requested_arrival is not None:
+        # Search only the timetable graph, not external pedestrian geometry.
+        # The Fastest profile establishes feasibility; then the chosen profile
+        # is applied at the latest feasible departure.
+        fastest_profile = TRANSIT_PREFERENCES["fastest"]
+
+        def probe(candidate_time):
+            return search_transit(
+                start_options, end_options, routing_realtime,
+                departure_datetime=candidate_time,
+                soft_walk_m=fastest_profile["soft_walk_m"],
+                walk_penalty=fastest_profile["walk_penalty"],
+                max_nearby_stops=fastest_profile["max_nearby_stops"],
+                excluded_route_keys=excluded_route_keys,
+            )
+
+        found = latest_departure_before(requested_arrival, probe)
+        if found is None:
+            return {"success": False,
+                    "error": "No transit journey could reach your destination before this time (searched the previous 6 hours)."}
+        requested_departure, arrive_search_path = found
+        mark("arrive_by_search")
+
     path, search_time, best_start, best_end = search_transit(
         start_options,
         end_options,
@@ -1458,6 +1529,13 @@ def get_transit_route(
         max_nearby_stops=preference["max_nearby_stops"],
         excluded_route_keys=excluded_route_keys,
     )
+
+    # A preferred route may walk less but arrive past the requested deadline.
+    # In that case use the feasible fastest journey found in the bounded search.
+    if requested_arrival is not None:
+        if (path is None or requested_departure + timedelta(minutes=float(search_time))
+                > requested_arrival - timedelta(minutes=2)):
+            path, search_time, best_start, best_end = arrive_search_path
 
     mark("routing")
 
@@ -1864,9 +1942,18 @@ def get_transit_route(
         "departure_datetime": requested_departure.isoformat(),
         "transit_preference": preference_key,
         "transit_preference_label": preference["label"],
+        "transfer_reliability": connection_reliability(steps),
+        "arrival_estimate_datetime": (requested_departure + timedelta(minutes=total_time)).isoformat(),
+        "arrive_by_datetime": requested_arrival.isoformat() if requested_arrival else None,
         "access_walk_limit_m": preference["soft_walk_m"] or None,
         "access_walk_limit_expanded": False,
     }
+
+    if requested_arrival is not None:
+        # The road-following geometry can slightly increase walking time. Do
+        # not present a journey as on-time if it now misses the deadline.
+        if requested_departure + timedelta(minutes=total_time) > requested_arrival:
+            return {"success": False, "error": "No route meets your arrival deadline after accounting for walking time."}
 
     alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)
     mark("formatting")
@@ -1894,11 +1981,19 @@ def get_transit_route(
                 end_coordinates=end,
                 excluded_route_keys=exclusion,
                 include_alternatives=False,
+                arrive_by=None,
             )
             if not alternate.get("success") or not alternate.get("routes"):
                 continue
 
             candidate = alternate["routes"][0]
+            if requested_arrival is not None and (
+                requested_departure + timedelta(minutes=float(candidate.get("duration_min", 99999)))
+                > requested_arrival
+            ):
+                continue
+            if requested_arrival is not None:
+                candidate["arrive_by_datetime"] = requested_arrival.isoformat()
             signature = route_signature(candidate)
             if not signature or signature in signatures:
                 continue
@@ -1929,6 +2024,8 @@ def get_transit_route(
         "alerts": alerts,
         "departure_datetime": requested_departure.isoformat(),
         "transit_preference": preference_key,
+        "arrive_by_datetime": requested_arrival.isoformat() if requested_arrival else None,
+        "arrival_estimate_datetime": route["arrival_estimate_datetime"],
         "fastest_route_number": fastest["route_number"],
         "shortest_route_number": shortest["route_number"],
     }

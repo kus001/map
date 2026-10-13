@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import threading
+import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -59,27 +60,34 @@ def parse_coordinates(value):
         lon = float(value[1])
     except (TypeError, ValueError):
         return None
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+    if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     return [lat, lon]
 
 
-def print_timing_report(mode, timing, total_microseconds):
-    """Pretty terminal timing output for local testing."""
+def summarize_route_timing(timing, total_us):
+    """Convert cumulative provider checkpoints into exclusive stage durations."""
     if timing is None:
-        return
+        return {"routing": round(total_us / 1000, 1)}
 
-    report = {}
-    for key, value in timing.items():
-        if key == "start":
+    stages = {}
+    previous = 0
+    for stage, timestamp_us in timing.items():
+        if stage == "start":
             continue
-        report[key] = f"{value / 1000:.3f} ms"
+        elapsed = max(0, int(timestamp_us) - previous)
+        stages[stage] = round(elapsed / 1000, 1)
+        previous = max(previous, int(timestamp_us))
+    remainder = max(0, int(total_us) - previous)
+    if remainder >= 1000 or not stages:
+        stages["other"] = round(remainder / 1000, 2)
+    return stages
 
-    report["total_request"] = f"{total_microseconds / 1000:.3f} ms"
 
-    print(f"\n[{mode.upper()} ROUTE TIMING]")
-    print(json.dumps(report, indent=4))
-    print()
+def print_timing_report(mode, timing, total_microseconds):
+    report = summarize_route_timing(timing, total_microseconds)
+    report["total_request"] = round(total_microseconds / 1000, 1)
+    print(f"\n[{mode.upper()} ROUTE TIMING] {json.dumps(report, sort_keys=True)}", flush=True)
 
 
 @app.route("/api/health", methods=["GET"])
@@ -342,89 +350,112 @@ def nearby_transit_vehicles():
 
 @app.route("/api/routes", methods=["POST"])
 def routes():
-    payload = request.get_json() or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "error": "Expected a JSON object.", "code": "invalid_request"}), 400
 
-    start = str(payload.get("start", "")).strip()
-    destination = str(payload.get("destination", "")).strip()
+    start = payload.get("start")
+    destination = payload.get("destination")
+    if not isinstance(start, str) or not start.strip() or len(start) > 500:
+        return jsonify({"success": False, "error": "Starting location is required (maximum 500 characters).", "code": "invalid_request"}), 400
+    if not isinstance(destination, str) or not destination.strip() or len(destination) > 500:
+        return jsonify({"success": False, "error": "Destination is required (maximum 500 characters).", "code": "invalid_request"}), 400
+    start = start.strip()
+    destination = destination.strip()
+
+    for field in ("start_coordinates", "destination_coordinates"):
+        if payload.get(field) is not None and parse_coordinates(payload[field]) is None:
+            return jsonify({"success": False, "error": f"Invalid {field}.", "code": "invalid_request"}), 400
     start_coordinates = parse_coordinates(payload.get("start_coordinates"))
     destination_coordinates = parse_coordinates(payload.get("destination_coordinates"))
     mode = str(payload.get("mode", "driving")).strip().lower()
-    transit_preference = "balanced"
+    if mode not in {"driving", "walking", "cycling", "transit"}:
+        return jsonify({"success": False, "error": f"Unsupported travel mode: {mode}", "code": "invalid_request"}), 400
 
-    if not start:
-        return jsonify({"success": False, "error": "Starting location is required."}), 400
-
-    if not destination:
-        return jsonify({"success": False, "error": "Destination is required."}), 400
+    transit_preference = str(payload.get("transit_preference") or "balanced").strip().lower()
+    if transit_preference not in VALID_TRANSIT_PREFERENCES:
+        return jsonify({"success": False, "error": "Invalid transit preference.", "code": "invalid_request"}), 400
 
     try:
-        departure_datetime = parse_departure_datetime(
-            payload.get("departure_datetime")
-        )
-    except ValueError as error:
-        return jsonify({"success": False, "error": str(error)}), 400
+        departure_datetime = parse_departure_datetime(payload.get("departure_datetime")) if mode == "transit" else None
+    except (ValueError, TypeError) as error:
+        return jsonify({"success": False, "error": str(error), "code": "invalid_request"}), 400
 
     request_started = us()
-    timing = {"start": request_started} if PRINT_ROUTE_TIMING and mode == "transit" else None
-
-    if mode == "driving":
-        result = get_driving_route(
-            start, destination,
-            start_coordinates=start_coordinates,
-            end_coordinates=destination_coordinates,
-            provider="google" if payload.get("driving_provider") == "google" else "osrm",
-        )
-
-    elif mode == "walking":
-        result = get_walking_route(start, destination, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
-
-    elif mode == "cycling":
-        route_type = str(payload.get("route_type", "regular")).strip().lower()
-        if route_type not in VALID_CYCLING_TYPES:
-            route_type = "regular"
-        result = get_cycling_route(start, destination, route_type=route_type, start_coordinates=start_coordinates, end_coordinates=destination_coordinates)
-
-    elif mode == "transit":
-        # Keep transit lazy in normal/server mode so the large graph is not loaded
-        # unless somebody actually asks for a transit route.
-        from transit import get_transit_route
-
-        result = get_transit_route(
-            start,
-            destination,
-            departure_datetime=departure_datetime,
-            timing=timing,
-            transit_preference=transit_preference,
-            start_coordinates=start_coordinates,
-            end_coordinates=destination_coordinates,
-        )
-
-    else:
+    timing = {"start": request_started}
+    try:
+        if mode == "driving":
+            result = get_driving_route(
+                start, destination, start_coordinates=start_coordinates,
+                end_coordinates=destination_coordinates,
+                provider="google" if payload.get("driving_provider") == "google" else "osrm",
+                timing=timing,
+            )
+        elif mode == "walking":
+            result = get_walking_route(
+                start, destination, start_coordinates=start_coordinates,
+                end_coordinates=destination_coordinates, timing=timing,
+            )
+        elif mode == "cycling":
+            route_type = str(payload.get("route_type", "regular")).strip().lower()
+            if route_type not in VALID_CYCLING_TYPES:
+                route_type = "regular"
+            result = get_cycling_route(
+                start, destination, route_type=route_type,
+                start_coordinates=start_coordinates,
+                end_coordinates=destination_coordinates, timing=timing,
+            )
+        else:
+            from transit import get_transit_route
+            result = get_transit_route(
+                start, destination, departure_datetime=departure_datetime,
+                timing=timing, transit_preference=transit_preference,
+                start_coordinates=start_coordinates,
+                end_coordinates=destination_coordinates,
+            )
+        if not isinstance(result, dict):
+            raise TypeError("Routing provider did not return a response object")
+    except Exception:
+        # Avoid exposing tracebacks or API tokens to the browser. Keep full details
+        # in the server log for debugging instead.
+        app.logger.exception("Unexpected %s route error", mode)
         return jsonify({
             "success": False,
-            "error": f"Unsupported travel mode: {mode}",
-        }), 400
+            "error": "Routing encountered an unexpected error. Please retry shortly.",
+            "code": "internal_error",
+        }), 500
 
-    total_microseconds = us() - request_started
-    result["server_time_ms"] = round(total_microseconds / 1000, 1)
-    if total_microseconds > 3_000_000 and not PRINT_ROUTE_TIMING:
-        # Slow-route diagnostics are printed even in production so expensive
-        # geocoding/providers can be identified without guessing from the UI.
-        print(f"[SLOW ROUTE] {mode}: {total_microseconds / 1_000_000:.2f}s", flush=True)
-
-    if PRINT_ROUTE_TIMING:
-        if timing is not None:
-            print_timing_report(mode, timing, total_microseconds)
-        else:
-            print(f"[{mode.upper()} ROUTE] {total_microseconds / 1000:.3f} ms")
-
+    total_us = max(0, us() - request_started)
+    stages = summarize_route_timing(timing, total_us)
+    result["server_time_ms"] = round(total_us / 1000, 1)
+    result["server_timing_ms"] = stages
     if result.get("success"):
         result["requested_departure_datetime"] = (
             departure_datetime.isoformat() if departure_datetime else None
         )
         result["timing_mode"] = "scheduled" if departure_datetime else "now"
 
-    return jsonify(result), (200 if result.get("success") else 404)
+    if PRINT_ROUTE_TIMING:
+        print_timing_report(mode, timing, total_us)
+    elif total_us >= 3_000_000:
+        print(f"[SLOW ROUTE] {mode}: {total_us / 1_000_000:.2f}s; "
+              f"stages={json.dumps(stages)}", flush=True)
+
+    # Upstream routing outages and genuinely missing routes are different failures.
+    error = str(result.get("error") or "")
+    unavailable = any(value in error.lower() for value in (
+        "server error", "routing unavailable", "routing server returned invalid",
+    ))
+    status_code = 200 if result.get("success") else (503 if unavailable else 404)
+    if not result.get("success"):
+        result["code"] = "provider_unavailable" if unavailable else "route_not_found"
+    response = jsonify(result)
+    response.status_code = status_code
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name.replace('_', '-').replace(' ', '-')};dur={value}"
+        for name, value in stages.items()
+    )
+    return response
 
 
 def _preload_transit_graph():

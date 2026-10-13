@@ -23,6 +23,12 @@ const MODES = [
   { id: "transit", label: "Transit", Icon: MdDirectionsTransit },
 ];
 
+const TRANSIT_PREFERENCES = [
+  { id: "balanced", label: "Balanced" },
+  { id: "less_walking", label: "Less walking" },
+  { id: "fastest", label: "Fastest" },
+];
+
 const BIKE_TYPES = [
   { id: "regular", label: "Regular" },
   { id: "road", label: "Road" },
@@ -295,6 +301,8 @@ export default function SearchPanel({
   setDestination,
   mode,
   cyclingType,
+  transitPreference = "balanced",
+  onTransitPreferenceChange = () => {},
   onModeChange,
   onCyclingTypeChange,
   onSearch,
@@ -456,6 +464,40 @@ export default function SearchPanel({
               {option.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {mode === "transit" && (
+        <div className="soft-enter mt-3">
+          <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+            darkMode ? "text-darkmode-gray" : "text-button-darkest"
+          }`}>
+            Transit preference
+          </div>
+          <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Transit preference">
+            {TRANSIT_PREFERENCES.map(option => (
+              <button
+                type="button"
+                key={option.id}
+                disabled={loading}
+                onClick={() => onTransitPreferenceChange(option.id)}
+                aria-pressed={transitPreference === option.id}
+                className={`rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                  transitPreference === option.id
+                    ? darkMode
+                      ? mapStyle === "hybrid"
+                        ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light"
+                        : "border-blue bg-blue/15 text-blue-light"
+                      : "border-green bg-green/15 text-green"
+                    : darkMode
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10"
+                      : "border-button-light bg-white text-charcoal hover:bg-green/10"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

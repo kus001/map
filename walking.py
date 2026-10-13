@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 
 from helpers.geocoding import explain_address_problem, get_coordinates
+from helpers.time_management import us
 from helpers.fast_osrm import osrm_route, convert_osrm
 
 load_dotenv()
@@ -49,9 +50,15 @@ def get_walking_route(
     end_address,
     start_coordinates=None,
     end_coordinates=None,
+    timing=None,
 ):
+    def mark(stage):
+        if timing is not None:
+            timing[stage] = us() - timing["start"]
+
     start = _resolve_coordinates(start_address, start_coordinates)
     end = _resolve_coordinates(end_address, end_coordinates)
+    mark("geocoding")
 
     if start is None:
         return {
@@ -79,7 +86,10 @@ def get_walking_route(
 
     try:
         fast = osrm_route("walking", *key)
-        return convert_osrm("walking", fast, start_address, end_address, start, end)
+        mark("provider")
+        converted = convert_osrm("walking", fast, start_address, end_address, start, end)
+        mark("formatting")
+        return converted
     except (requests.RequestException, ValueError, KeyError, TypeError):
         # Do not make a successful route depend on any one free routing provider.
         pass
@@ -89,6 +99,7 @@ def get_walking_route(
 
     try:
         data = _ors_walking(*key)
+        mark("provider")
     except requests.RequestException as error:
         return {"success": False, "error": f"Walking routing server error: {error}"}
     except ValueError:
@@ -143,6 +154,7 @@ def get_walking_route(
         "route_coordinates": route_coordinates,
     }
 
+    mark("formatting")
     return {
         "success": True,
         "mode": "walking",

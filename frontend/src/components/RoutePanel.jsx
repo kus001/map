@@ -13,7 +13,6 @@ import {
   formatDistance,
   formatDuration,
 } from "../utils/format.js";
-import { map } from "leaflet";
 
 const MODE_INFO = {
   driving: { name: "Driving route", Icon: IoCarOutline },

@@ -81,4 +81,5 @@ transit_data/GTFS_Files/*/stop_times.txt
 Thumbs.db
 Desktop.ini
 
-# Keep frontend/package-lock.json tracked for reproducible installs.
+# ignore test files
+test.*

@@ -16,7 +16,7 @@ const PREFERENCES_KEY = "map-router-preferences-v1";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
-const VALID_TIMING_MODES = new Set(["now", "scheduled"]);
+const VALID_TIMING_MODES = new Set(["now", "scheduled", "arrive_by"]);
 const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 
 // Capture the page-load time outside React rendering. React's purity lint rule
@@ -379,7 +379,7 @@ export default function App() {
   }, [selectedRoute]);
 
   function getDepartureDateTime(requestedTimingMode = timingMode) {
-    if (requestedTimingMode !== "scheduled") {
+    if (!["scheduled", "arrive_by"].includes(requestedTimingMode)) {
       return null;
     }
 
@@ -395,7 +395,7 @@ export default function App() {
     }
 
     if (parsed.getTime() < Date.now() - 2 * 60 * 1000) {
-      throw new Error("Scheduled departure must be in the future.");
+      throw new Error("Choose a future departure or arrival time.");
     }
 
     return value;
@@ -404,6 +404,7 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
+    requestedTransitPreference = transitPreference,
     requestedDrivingProvider = null,
     requestedStart = start,
     requestedDestination = destination,
@@ -453,9 +454,11 @@ export default function App() {
     setLoading(true);
     setError(false);
     setStatus(
-      effectiveTimingMode === "scheduled"
-        ? "Finding your scheduled route..."
-        : "Finding route..."
+      effectiveTimingMode === "arrive_by"
+        ? "Finding a journey that arrives before your deadline..."
+        : effectiveTimingMode === "scheduled"
+          ? "Finding your scheduled route..."
+          : "Finding route..."
     );
 
     const routeStartedMs = performance.now();
@@ -470,7 +473,8 @@ export default function App() {
           mode: requestedMode,
           route_type: requestedCyclingType,
           departure_datetime: departureDatetime,
-          transit_preference: "balanced",
+          timing_mode: effectiveTimingMode,
+          transit_preference: requestedTransitPreference,
           driving_provider: requestedDrivingProvider || (requestedMode === "driving" && !googleFailed && import.meta.env.VITE_GOOGLE_MAPS_KEY ? "google" : "osrm"),
           start_coordinates: requestedUseCurrentLocation
             ? effectiveCurrentLocation
@@ -479,18 +483,29 @@ export default function App() {
         }),
       });
 
-      const result = await response.json();
-      console.info(
-        `[MAP] ${requestedMode}: ${(performance.now() - routeStartedMs).toFixed(0)} ms total, ` +
-        `${result.server_time_ms ?? "?"} ms server (remaining time is transport/rendering)`
-      );
+      // A reverse proxy or temporarily unavailable backend may respond with HTML.
+      // Keep that from turning into an unhelpful JSON parse error.
+      const rawResponse = await response.text();
+      let result;
+      try {
+        result = JSON.parse(rawResponse);
+      } catch {
+        throw new Error(
+          response.ok
+            ? "The routing service returned an invalid response. Please try again."
+            : `Routing service unavailable (HTTP ${response.status}). Please try again.`
+        );
+      }
+      const elapsedMs = Math.round(performance.now() - routeStartedMs);
+      console.info(`[MAP] ${requestedMode}: ${elapsedMs} ms end-to-end; ` +
+        `${result.server_time_ms ?? "?"} ms server; stages:`, result.server_timing_ms || {});
 
       if (requestId !== searchRequestId.current) {
         return;
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || "Route could not be found.");
+        throw new Error(result?.error || `Route could not be found (HTTP ${response.status}).`);
       }
 
       const displayedResult =
@@ -507,7 +522,8 @@ export default function App() {
       setData(displayedResult);
       setStartMapCoordinate(result.start?.coordinates || null);
       setDestinationMapCoordinate(result.end?.coordinates || null);
-      setSelectedRouteNumber(result.fastest_route_number || 1);
+      // Transit route #1 is ranked for the chosen preference, not necessarily fastest.
+      setSelectedRouteNumber(requestedMode === "transit" ? 1 : (result.fastest_route_number || 1));
       setRouteFocusKey(key => key + 1);
 
       const scheduledSuffix =
@@ -532,7 +548,9 @@ export default function App() {
         const count = result.routes?.length || 1;
         const prefix = `${count} transit route${count === 1 ? "" : "s"} found`;
 
-        if (effectiveTimingMode === "scheduled") {
+        if (effectiveTimingMode === "arrive_by") {
+          setStatus(`${prefix} • arrival deadline applied`);
+        } else if (effectiveTimingMode === "scheduled") {
           setStatus(`${prefix} • scheduled`);
         } else if (realtime?.available && realtime?.used_live_updates) {
           setStatus(`${prefix} • live predictions used`);
@@ -1001,7 +1019,7 @@ export default function App() {
   }
 
   function changeTimingMode(nextMode) {
-    if (nextMode === "scheduled") {
+    if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
 
       if (Number.isNaN(selected.getTime()) || selected.getTime() < Date.now()) {
@@ -1221,7 +1239,7 @@ export default function App() {
       params.set("transit", "balanced");
       params.set("timing", timingMode);
 
-      if (timingMode === "scheduled") {
+      if (timingMode === "scheduled" || timingMode === "arrive_by") {
         params.set("date", departureDate);
         params.set("time", departureTime);
       }

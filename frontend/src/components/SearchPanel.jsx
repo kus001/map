@@ -23,6 +23,12 @@ const MODES = [
   { id: "transit", label: "Transit", Icon: MdDirectionsTransit },
 ];
 
+const TRANSIT_PREFERENCES = [
+  { id: "balanced", label: "Balanced" },
+  { id: "less_walking", label: "Less walking" },
+  { id: "fastest", label: "Fastest" },
+];
+
 const BIKE_TYPES = [
   { id: "regular", label: "Regular" },
   { id: "road", label: "Road" },
@@ -295,6 +301,8 @@ export default function SearchPanel({
   setDestination,
   mode,
   cyclingType,
+  transitPreference = "balanced",
+  onTransitPreferenceChange = () => {},
   onModeChange,
   onCyclingTypeChange,
   onSearch,
@@ -460,6 +468,40 @@ export default function SearchPanel({
       )}
 
       {mode === "transit" && (
+        <div className="soft-enter mt-3">
+          <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+            darkMode ? "text-darkmode-gray" : "text-button-darkest"
+          }`}>
+            Transit preference
+          </div>
+          <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Transit preference">
+            {TRANSIT_PREFERENCES.map(option => (
+              <button
+                type="button"
+                key={option.id}
+                disabled={loading}
+                onClick={() => onTransitPreferenceChange(option.id)}
+                aria-pressed={transitPreference === option.id}
+                className={`rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                  transitPreference === option.id
+                    ? darkMode
+                      ? mapStyle === "hybrid"
+                        ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light"
+                        : "border-blue bg-blue/15 text-blue-light"
+                      : "border-green bg-green/15 text-green"
+                    : darkMode
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10"
+                      : "border-button-light bg-white text-charcoal hover:bg-green/10"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mode === "transit" && (
       <div
           className={`mt-4 rounded-xl border p-2.5 ${
             darkMode
@@ -467,7 +509,7 @@ export default function SearchPanel({
               : "border-button-light bg-green/5"
           }`}
         >
-          <div className="grid grid-cols-2 gap-1 rounded-lg p-0.5">
+          <div className="grid grid-cols-3 gap-1 rounded-lg p-0.5">
             <button
               type="button"
               onClick={() => onTimingModeChange("now")}
@@ -505,9 +547,27 @@ export default function SearchPanel({
               <MdCalendarMonth />
               Schedule
             </button>
+            <button
+              type="button"
+              onClick={() => onTimingModeChange("arrive_by")}
+              aria-pressed={timingMode === "arrive_by"}
+              className={`flex h-9 items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition ${
+                timingMode === "arrive_by"
+                  ? darkMode
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple text-white"
+                      : "bg-blue text-white"
+                    : "bg-green text-white"
+                  : darkMode
+                    ? "text-darkmode-gray hover:bg-blue/10"
+                    : "text-button-darkest hover:bg-white"
+              }`}
+            >
+              <MdAccessTime /> Arrive by
+            </button>
           </div>
-  
-          {timingMode === "scheduled" && (
+
+          {(timingMode === "scheduled" || timingMode === "arrive_by") && (
             <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
               <input
                 type="date"
@@ -545,7 +605,9 @@ export default function SearchPanel({
           ? "Finding route..."
           : mode === "transit" && timingMode === "scheduled"
             ? "Find Scheduled Route"
-            : "Find Route"}
+            : mode === "transit" && timingMode === "arrive_by"
+              ? "Find Arrival Route"
+              : "Find Route"}
       </Button>
     </div>
   );

@@ -4,6 +4,7 @@ from functools import lru_cache
 import requests
 
 from helpers.geocoding import explain_address_problem, get_coordinates
+from helpers.time_management import us
 
 OSRM_URL = os.getenv("MAP_DRIVING_OSRM_URL", "https://router.project-osrm.org/route/v1/driving").rstrip("/")
 REQUEST_TIMEOUT = (1.8, 4.0)
@@ -48,9 +49,15 @@ def get_driving_route(
     start_coordinates=None,
     end_coordinates=None,
     provider="osrm",
+    timing=None,
 ):
+    def mark(stage):
+        if timing is not None:
+            timing[stage] = us() - timing["start"]
+
     start = _resolve_coordinates(start_address, start_coordinates)
     end = _resolve_coordinates(end_address, end_coordinates)
+    mark("geocoding")
 
     if start is None:
         return {
@@ -73,7 +80,9 @@ def get_driving_route(
         # to a Google map. No Google content is drawn on a MapTiler basemap.
         from google_driving import google_driving_route
         try:
-            return google_driving_route(start_address, end_address, start, end)
+            google_result = google_driving_route(start_address, end_address, start, end)
+            mark("provider")
+            return google_result
         except (requests.RequestException, ValueError, RuntimeError) as error:
             print(f"[MAP] Google traffic routing unavailable, using OSRM: {error}")
 
@@ -90,6 +99,7 @@ def get_driving_route(
 
     try:
         data = _osrm_route(*cache_key)
+        mark("provider")
     except requests.RequestException as error:
         return {"success": False, "error": f"Driving routing server error: {error}"}
     except ValueError:
@@ -153,6 +163,7 @@ def get_driving_route(
     fastest_route = min(routes, key=lambda route: route["duration_min"])
     shortest_route = min(routes, key=lambda route: route["distance_km"])
 
+    mark("formatting")
     return {
         "success": True,
         "mode": "driving",

@@ -11,6 +11,84 @@ import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 
+// A slow walking API should not keep the whole journey loading.
+function walkId(start, end) {
+  return [...start, ...end].map(value => Number(value).toFixed(6)).join(",");
+}
+
+function transferCheck(steps) {
+  let lastRide = null;
+  let walking = 0;
+  const transfers = [];
+  for (const step of steps) {
+    if (step.type === "transit") {
+      if (lastRide) {
+        const arrive = clockMinutes(lastRide.arrival_time);
+        let depart = clockMinutes(step.departure_time);
+        if (arrive != null && depart != null) {
+          if (arrive >= 18 * 60 && depart <= 6 * 60) depart += 1440;
+          const minutes = Math.round((depart - arrive - walking) * 10) / 10;
+          const status = minutes < 4 ? "critical" : minutes < 8 ? "tight"
+            : minutes < 12 ? "moderate" : "comfortable";
+          const label = { critical: "Connection at risk", tight: "Tight transfer",
+            moderate: "Limited buffer", comfortable: "Comfortable transfer" }[status];
+          transfers.push({ from_route: lastRide.route, to_route: step.route,
+            stop: step.from, margin_min: minutes, status, label,
+            live_adjusted: Boolean(lastRide.realtime || step.realtime) });
+        }
+      }
+      lastRide = step;
+      walking = 0;
+    } else if (lastRide && (step.type === "walk" || step.type === "transfer")) {
+      walking += Number(step.duration_min || 0);
+    }
+  }
+  if (!transfers.length) return { status: "direct", label: "No connections", transfers: [] };
+  const ranks = { critical: 0, tight: 1, moderate: 2, comfortable: 3 };
+  const worst = transfers.reduce((a, b) => ranks[a.status] <= ranks[b.status] ? a : b);
+  return { status: worst.status, label: worst.label, transfers };
+}
+
+function applyWalkShapes(route, shapes) {
+  if (!route?.pending_walks?.length) return route;
+  const available = Object.keys(shapes);
+  if (!available.length) return route;
+
+  const segments = (route.segments || []).map(segment => {
+    const shape = shapes[segment.walk_id];
+    return shape?.coordinates?.length
+      ? { ...segment, coordinates: shape.coordinates }
+      : segment;
+  });
+  let timeChange = 0;
+  let distanceChange = 0;
+  const steps = (route.steps || []).map(step => {
+    const shape = shapes[step.walk_id];
+    if (!shape?.coordinates?.length) return step;
+    timeChange += Number(shape.duration_min || 0) - Number(step.duration_min || 0);
+    distanceChange += Number(shape.distance_m || 0) - Number(step.distance_m || 0);
+    return { ...step, duration_min: shape.duration_min,
+      distance_m: shape.distance_m, directions: shape.steps || [],
+      coordinates: shape.coordinates[0] || step.coordinates };
+  });
+  const stillWaiting = route.pending_walks.filter(
+    item => !shapes[walkId(item.start, item.end)]
+  );
+  const duration = Math.max(0, Number(route.duration_min || 0) + timeChange);
+  let arrival = route.arrival_estimate_datetime;
+  if (route.departure_datetime && timeChange) {
+    const t = new Date(route.departure_datetime).getTime();
+    if (Number.isFinite(t)) arrival = new Date(t + duration * 60000).toISOString();
+  }
+  return { ...route, segments, steps, stops: steps,
+    pending_walks: stillWaiting,
+    route_coordinates: segments.flatMap(segment => segment.coordinates || []),
+    duration_min: duration,
+    distance_km: Math.max(0, Number(route.distance_km || 0) + distanceChange / 1000),
+    arrival_estimate_datetime: arrival,
+    transfer_reliability: transferCheck(steps) };
+}
+
 const PREFERENCES_KEY = "map-router-preferences-v1";
 
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
@@ -197,7 +275,7 @@ function impossibleTransitConnection(steps) {
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
-  const [sidePanel, setIsSidePanel] = useState();
+  const [sidePanel, setIsSidePanel] = useState(false);
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -335,6 +413,52 @@ export default function App() {
     departureDate,
     departureTime,
   ]);
+
+  const walkRequests = useMemo(() => {
+    if (data?.mode !== "transit") return "";
+    const legs = new Map();
+    for (const route of data.routes || []) {
+      for (const leg of route.pending_walks || []) {
+        legs.set(walkId(leg.start, leg.end), leg);
+      }
+    }
+    return JSON.stringify([...legs.values()]);
+  }, [data]);
+
+  useEffect(() => {
+    if (!walkRequests || walkRequests === "[]") return undefined;
+    const pairs = JSON.parse(walkRequests);
+    const searchId = searchRequestId.current;
+    let cancelled = false;
+    const controllers = [];
+    const timers = [1900, 3900, 6900].map(delay => window.setTimeout(async () => {
+      if (cancelled || searchId !== searchRequestId.current) return;
+      const controller = new AbortController();
+      controllers.push(controller);
+      try {
+        const response = await fetch("/api/transit/walk-shapes", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          signal: controller.signal, body: JSON.stringify({ pairs }),
+        });
+        if (!response.ok) return;
+        const found = await response.json();
+        if (cancelled || searchId !== searchRequestId.current || !found.success) return;
+        const shapes = found.shapes || {};
+        if (Object.keys(shapes).length) {
+          setData(previous => previous?.mode === "transit"
+            ? { ...previous, routes: (previous.routes || []).map(route => applyWalkShapes(route, shapes)) }
+            : previous);
+        }
+      } catch (error) {
+        if (error?.name !== "AbortError") console.warn("Walking map details unavailable", error);
+      }
+    }, delay));
+    return () => {
+      cancelled = true;
+      timers.forEach(window.clearTimeout);
+      controllers.forEach(controller => controller.abort());
+    };
+  }, [walkRequests, routeFocusKey]);
 
   const selectedRoute = useMemo(
     () =>
@@ -544,21 +668,8 @@ export default function App() {
           requestedCyclingType.slice(1);
         setStatus(`${typeName} cycling route found${scheduledSuffix}`);
       } else if (requestedMode === "transit") {
-        const realtime = result.routes?.[0]?.realtime;
         const count = result.routes?.length || 1;
-        const prefix = `${count} transit route${count === 1 ? "" : "s"} found`;
-
-        if (effectiveTimingMode === "arrive_by") {
-          setStatus(`${prefix} • arrival deadline applied`);
-        } else if (effectiveTimingMode === "scheduled") {
-          setStatus(`${prefix} • scheduled`);
-        } else if (realtime?.available && realtime?.used_live_updates) {
-          setStatus(`${prefix} • live predictions used`);
-        } else if (realtime?.available) {
-          setStatus(`${prefix} • live feed connected`);
-        } else {
-          setStatus(`${prefix} • scheduled data`);
-        }
+        setStatus(`${count} transit route${count === 1 ? "" : "s"} found`);
       } else {
         setStatus(`Route found${scheduledSuffix}`);
       }
@@ -1328,13 +1439,13 @@ export default function App() {
       }`}
     >
       <aside
-        className={`z-[1000] flex h-dvh w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x resize-none overflow-auto flex-shrink-0 flex-col border-r shadow-xl ${sidePanel ? "hidden!" : ""} ${
+        className={`map-sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x"} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-y-auto max-[760px]:rounded-2xl max-[760px]:border`}
+        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-y-auto max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"}`}
       >
         <header className="px-5 pb-4 pt-4">
           <div className="flex items-center justify-between">
@@ -1473,7 +1584,8 @@ export default function App() {
         <button
           type="button"
           onClick={() => setIsSidePanel(value => !value)}
-          title="Open/close menu"
+          title={sidePanel ? "Open menu" : "Close menu"}
+          aria-label={sidePanel ? "Open menu" : "Close menu"}
           className={`rounded-lg absolute top-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${overlayVisible ? "left-4 md:left-87.5" : "left-4"} ${
             darkMode
               ? mapStyle === "hybrid"

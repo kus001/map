@@ -4,6 +4,8 @@ from functools import lru_cache
 from heapq import nsmallest
 from pathlib import Path
 
+from helpers._transit import shape_index
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GTFS_ROOT = PROJECT_ROOT / "transit_data" / "GTFS_Files"
 
@@ -82,8 +84,13 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
     """Find one trip without loading every GTFS trip into a giant Python dict."""
     agency = str(agency)
     trip_id = str(trip_id)
+    if agency == "ttc" and trip_id.startswith("ttc:"):
+        trip_id = trip_id[4:]
     route_hint = str(route_hint or "").strip().lower()
     headsign_hint = str(headsign_hint or "").strip().lower()
+
+    if shape_index.database(agency) is not None:
+        return shape_index.trip(agency, trip_id)
 
     folder = GTFS_ROOT / agency
     trips_path = folder / "trips.txt"
@@ -112,6 +119,9 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
 @lru_cache(maxsize=64)
 def _load_shape(agency, shape_id) -> tuple:
     """Load only the requested shape instead of every shape in an agency feed."""
+    if shape_index.database(agency) is not None:
+        return shape_index.shape(agency, shape_id)
+
     path = GTFS_ROOT / agency / "shapes.txt"
     if not path.exists() or not shape_id:
         return ()
@@ -158,6 +168,12 @@ def shape_for_trip(
     route_hint="",
     headsign_hint="",
 ):
+    # TTC's GTFS is large: don't scan its trips/shapes files per route request.
+    # The compact schedule includes the stops, so those draw the route for now.
+    if agency == "ttc":
+        return None, {"route_short_name": str(route_hint or ""),
+                      "headsign": str(headsign_hint or ""),
+                      "route_type": "", "route_color": ""}
     meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
     if not meta or not meta.get("shape_id"):
         return None, meta

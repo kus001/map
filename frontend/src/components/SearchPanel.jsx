@@ -3,7 +3,7 @@ import { BsPersonWalking } from "react-icons/bs";
 import { GoDot } from "react-icons/go";
 import { HiArrowsUpDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline } from "react-icons/io5";
+import { IoCarOutline, IoChevronDown } from "react-icons/io5";
 import {
   MdAccessTime,
   MdCalendarMonth,
@@ -25,7 +25,7 @@ const MODES = [
 
 const TRANSIT_PREFERENCES = [
   { id: "balanced", label: "Balanced" },
-  { id: "less_walking", label: "Less walking" },
+  { id: "less_walking", label: "Less walk" },
   { id: "fastest", label: "Fastest" },
 ];
 
@@ -321,6 +321,9 @@ export default function SearchPanel({
   onStartCoordinate = () => {},
   onDestinationCoordinate = () => {},
 }) {
+  const [preferenceOpen, setPreferenceOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
       ? mapStyle === "hybrid"
@@ -401,8 +404,7 @@ export default function SearchPanel({
             darkMode ? "text-darkmode-gray/70" : "text-button-darkest"
           }`}
         >
-          {"Tip: right-click the map to choose A or B.\n"}
-          Last built at: {import.meta.env.VITE_BUILD_TIME || "now!"}
+          Tip: right-click to set your start or destination.
         </span>
 
         <button
@@ -468,13 +470,16 @@ export default function SearchPanel({
       )}
 
       {mode === "transit" && (
-        <div className="soft-enter mt-3">
-          <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${
-            darkMode ? "text-darkmode-gray" : "text-button-darkest"
-          }`}>
-            Transit preference
-          </div>
-          <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Transit preference">
+        <div className="mt-3 space-y-2">
+          <section className={`rounded-xl border ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light/50 bg-white"}`}>
+            <button type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm"
+              onClick={() => setPreferenceOpen(open => !open)} aria-expanded={preferenceOpen}>
+              <span><span className="font-semibold">Route preference</span><span className="ml-2 opacity-75">{TRANSIT_PREFERENCES.find(item => item.id === transitPreference)?.label || "Balanced"}</span></span>
+              <IoChevronDown className={`shrink-0 transition-transform duration-200 ${preferenceOpen ? "rotate-180" : ""}`} />
+            </button>
+            <div className={`transit-dropdown ${preferenceOpen ? "is-open" : ""}`}>
+              <div className="transit-dropdown-inner px-3 pb-3">
+          <div className="grid grid-cols-3 gap-1.5 min-w-0" role="group" aria-label="Transit preference">
             {TRANSIT_PREFERENCES.map(option => (
               <button
                 type="button"
@@ -482,7 +487,7 @@ export default function SearchPanel({
                 disabled={loading}
                 onClick={() => onTransitPreferenceChange(option.id)}
                 aria-pressed={transitPreference === option.id}
-                className={`rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                className={`min-w-0 whitespace-nowrap rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
                   transitPreference === option.id
                     ? darkMode
                       ? mapStyle === "hybrid"
@@ -498,22 +503,22 @@ export default function SearchPanel({
               </button>
             ))}
           </div>
-        </div>
-      )}
-
-      {mode === "transit" && (
-      <div
-          className={`mt-4 rounded-xl border p-2.5 ${
-            darkMode
-              ? "border-button bg-charcoal-light/60"
-              : "border-button-light bg-green/5"
-          }`}
-        >
-          <div className="grid grid-cols-3 gap-1 rounded-lg p-0.5">
+              </div>
+            </div>
+          </section>
+          <section className={`rounded-xl border ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light/50 bg-white"}`}>
+            <button type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm"
+              onClick={() => setTimeOpen(open => !open)} aria-expanded={timeOpen}>
+              <span><span className="font-semibold">Departure time</span><span className="ml-2 opacity-75">{timingMode === "scheduled" ? `Depart at ${departureDate} ${departureTime}` : timingMode === "arrive_by" ? `Arrive by ${departureDate} ${departureTime}` : "Leave now"}</span></span>
+              <IoChevronDown className={`shrink-0 transition-transform duration-200 ${timeOpen ? "rotate-180" : ""}`} />
+            </button>
+            <div className={`transit-dropdown ${timeOpen ? "is-open" : ""}`}>
+              <div className="transit-dropdown-inner px-3 pb-3">
+          <div className="grid min-w-0 grid-cols-3 gap-1 rounded-lg p-0.5">
             <button
               type="button"
               onClick={() => onTimingModeChange("now")}
-              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "now"
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -526,13 +531,13 @@ export default function SearchPanel({
               }`}
             >
               <MdAccessTime />
-              Leave now
+              Now
             </button>
   
             <button
               type="button"
               onClick={() => onTimingModeChange("scheduled")}
-              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "scheduled"
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -545,13 +550,13 @@ export default function SearchPanel({
               }`}
             >
               <MdCalendarMonth />
-              Schedule
+              Depart at
             </button>
             <button
               type="button"
               onClick={() => onTimingModeChange("arrive_by")}
               aria-pressed={timingMode === "arrive_by"}
-              className={`flex h-9 items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "arrive_by"
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -589,6 +594,9 @@ export default function SearchPanel({
               />
             </div>
           )}
+              </div>
+            </div>
+          </section>
         </div>
       )}
 

@@ -243,7 +243,6 @@ export default function RoutePanel({
     data.routes.find(route => route.route_number === selectedRouteNumber) ||
     data.routes[0];
   const steps = activeRoute?.steps || activeRoute?.stops || [];
-  const realtime = activeRoute?.realtime;
   const alerts = data?.alerts ?? [];
   const arrivalLabel = route => {
     if (route.arrival_estimate_datetime) {
@@ -257,7 +256,6 @@ export default function RoutePanel({
   const scheduledDeparture = formatScheduledDeparture(
     data.requested_departure_datetime || data.departure_datetime
   );
-  const hasGoStep = steps.some(step => step?.agency === "go");
   const navigationOffRouteThreshold = Math.max(
     70,
     Number(navigationAccuracy || 0) * 2
@@ -282,7 +280,7 @@ export default function RoutePanel({
           error
             ? "border-red-300 bg-red-50 text-red-700"
             : darkMode
-              ? "border-button bg-charcoal-light text-darkmode-gray"
+              ? "border-button bg-charcoal-light text-white"
               : "border-button-light bg-white text-button-darkest"
         }`}
       >
@@ -363,7 +361,7 @@ export default function RoutePanel({
         <div
           className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
             darkMode
-              ? "border-green/40 bg-green/10 text-green-light"
+              ? "border-hybrid-purple/50 bg-hybrid-purple/15 text-white"
               : "border-green/30 bg-green/10 text-green-dark"
           }`}
         >
@@ -372,47 +370,7 @@ export default function RoutePanel({
         </div>
       )}
 
-      {mode === "transit" && realtime && (
-        <div
-          className={`mb-3 rounded-xl border px-3 py-2 text-xs font-semibold ${
-            realtime.available
-              ? "border-green/40 bg-green/10 text-green-dark"
-              : darkMode
-                ? "border-button bg-charcoal-light text-darkmode-gray"
-                : "border-button-light bg-white text-button-darkest"
-          }`}
-        >
-          {realtime.available
-            ? `Live ${
-                realtime.live_sources?.length
-                  ? realtime.live_sources.join(" + ")
-                  : "transit"
-              } connected${
-                realtime.grt_connected && realtime.feed_age_seconds != null
-                  ? ` • GRT ${realtime.feed_age_seconds}s old`
-                  : ""
-              }${realtime.used_live_updates ? " • live prediction used" : ""}`
-            : realtime.suppressed_for_scheduled_trip
-              ? "Future trip — using the scheduled timetable until closer to departure"
-              : realtime.scheduled_vehicle_fallback
-                ? "Realtime vehicle GPS unavailable — showing scheduled vehicle estimates"
-                : "Realtime unavailable — using scheduled transit data"}
-        </div>
-      )}
 
-      {mode === "transit" && hasGoStep && realtime?.go_configured === false && (
-        <div
-          className={`mb-3 rounded-xl border px-3 py-2 text-xs ${
-            darkMode
-              ? "border-button bg-charcoal-light text-darkmode-gray"
-              : "border-button-light bg-white text-button-darkest"
-          }`}
-        >
-          GO routing is working from the timetable. Add a server-side
-          <span className="font-mono font-semibold"> METROLINX_API_KEY </span>
-          to enable live GO delays, vehicles, alerts, and station departure boards.
-        </div>
-      )}
 
       {mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
         <div className="mb-3 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
@@ -527,7 +485,7 @@ export default function RoutePanel({
                   </div>
 
                   {mode === "driving" && data.routing_provider === "google" && (
-                    <div className="mt-1 text-xs font-semibold text-green-dark">
+                    <div className={`mt-1 text-xs font-semibold ${darkMode ? "text-hybrid-purple-light" : "text-green-dark"}`}>
                       Google traffic-aware ETA
                       {route.traffic_delay_min > 0.5 && ` • +${Math.round(route.traffic_delay_min)} min traffic`}
                     </div>
@@ -573,7 +531,7 @@ export default function RoutePanel({
                 </div>
 
                 {labels.length > 0 && (
-                  <div className="text-right text-[10px] font-bold tracking-wide text-green">
+                  <div className={`text-right text-[10px] font-bold tracking-wide ${darkMode ? "text-hybrid-purple-light" : "text-green"}`}>
                     {labels.join(" • ")}
                   </div>
                 )}
@@ -652,7 +610,7 @@ export default function RoutePanel({
         <div
           className={`rounded-xl border p-4 text-sm ${
             darkMode
-              ? "border-button bg-charcoal-light text-darkmode-gray"
+              ? "border-button bg-charcoal-light text-white"
               : "border-button-light bg-white text-button-darkest"
           }`}
         >

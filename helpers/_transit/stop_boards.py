@@ -25,8 +25,13 @@ def upcoming_departures(stop_id, graph, *, service_date, service_seconds, active
                 continue
             # Only imminent events matter. Times on an individual route list are
             # sorted by the GTFS builder, but this is safe if a feed isn't sorted.
-            times = [float(edge.get('departure_time') or -1) for edge in edges]
-            sorted_times = all(times[i] <= times[i+1] for i in range(len(times)-1))
+            compact_times = getattr(edges, 'deps', None)
+            if compact_times is not None:
+                # Compact graph: departures are already a sorted int array.
+                times, sorted_times = compact_times, True
+            else:
+                times = [float(edge.get('departure_time') or -1) for edge in edges]
+                sorted_times = all(times[i] <= times[i+1] for i in range(len(times)-1))
             selected = edges[max(0, bisect_left(times, service_seconds-3600)-2):] if sorted_times else edges
             for trip in selected:
                 trip_id = str(trip.get('trip_id') or '')

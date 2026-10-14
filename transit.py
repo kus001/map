@@ -48,8 +48,8 @@ ORS_WALKING_URL = (
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 
-MAX_NEARBY_STOPS = 250
-FASTEST_NEARBY_STOPS = 600
+MAX_NEARBY_STOPS = 32
+FASTEST_NEARBY_STOPS = 64
 TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
@@ -89,6 +89,57 @@ _realtime_started = False
 _scheduled_trip_cache = OrderedDict()
 _scheduled_trip_cache_lock = threading.Lock()
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
+_ttc_lock = threading.Lock()
+_ttc_loaded = False
+
+
+def _in_toronto(point):
+    lat, lon = point[:2]
+    return 43.54 <= lat <= 43.92 and -79.72 <= lon <= -79.05
+
+
+def maybe_load_ttc(*points):
+    """Keep TTC out of RAM until a search involves Toronto."""
+    global _ttc_loaded
+    from helpers._transit.ttc_setup import CACHE
+    if _ttc_loaded or not CACHE.exists() or not any(_in_toronto(p) for p in points if p):
+        return
+    with _ttc_lock:
+        if _ttc_loaded:
+            return
+        import pickle
+        with CACHE.open("rb") as file:
+            ttc = pickle.load(file)
+        ensure_transit_loaded()
+
+        # Join TTC to GO at nearby platforms, without comparing every stop to every other.
+        go_index = {}
+        for sid, pos in stops.items():
+            if not sid.startswith("go:") or not _in_toronto(pos):
+                continue
+            key = (round(pos[0] * 1000), round(pos[1] * 1000))
+            go_index.setdefault(key, []).append((sid, pos))
+        for sid, pos in ttc.node_positions.items():
+            key = (round(pos[0] * 1000), round(pos[1] * 1000))
+            for x in range(key[0] - 2, key[0] + 3):
+                for y in range(key[1] - 2, key[1] + 3):
+                    for go_id, go_pos in go_index.get((x, y), []):
+                        distance = dist_m(pos, go_pos)
+                        if distance <= 160:
+                            leg = [{"distance": distance / 75}]
+                            graph.setdefault(sid, {}).setdefault(go_id, {})["__walk__"] = leg
+                            graph.setdefault(go_id, {}).setdefault(sid, {})["__walk__"] = leg
+        for sid, neighbors in ttc.graph.items():
+            old = graph.setdefault(sid, {})
+            for neighbor, routes in neighbors.items():
+                old.setdefault(neighbor, {}).update(routes)
+        stops.update(ttc.node_positions)
+        _data.trip_to_service.update(ttc.trip_to_service)
+        _data.calendar.update(ttc.calendar)
+        _data.calendar_dates.update(ttc.calendar_dates)
+        _ACTIVE_SERVICE_CACHE.clear()
+        _ttc_loaded = True
+        print(f"TTC loaded on demand: {len(ttc.node_positions):,} stops", flush=True)
 
 
 def ensure_transit_loaded(verbose: bool=False) -> float:
@@ -435,7 +486,7 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
             break
         from_stop = entry[0]
         agency = stop_agency(from_stop)
-        if agency not in ("grt_busses", "grt_trains", "go"):
+        if agency not in ("grt_busses", "grt_trains", "go", "ttc"):
             continue
         for to_stop, route_options in graph.get(from_stop, {}).items():
             end = stops.get(to_stop)
@@ -599,6 +650,8 @@ def vehicle_label(agency, route_type=None):
         return "bus"
     if agency == "go":
         return "train/bus"
+    if agency == "ttc":
+        return "TTC"
     return "transit"
 
 
@@ -786,6 +839,7 @@ def _straight_walk(start, end, straight_distance, fallback_min):
 async def walking_geometry_async(client, start, end, fallback_min=None) -> dict:
     start = coord(start)
     end = coord(end)
+    maybe_load_ttc(start, end)
     straight_distance = dist_m(start, end)
 
     if fallback_min is None:
@@ -1484,10 +1538,11 @@ def fetch_walks(jobs):
     return run_async(_fetch_walks_async(jobs))
 
 
-def nearby_transit_stops(lat, lon, radius_m=3000, limit=35):
+def nearby_transit_stops(lat, lon, radius_m=3000, limit=25):
     """Stops around map center; cached graph and bounded response size."""
     ensure_transit_loaded()
-    radius_m = max(300, min(5000, float(radius_m)))
+    maybe_load_ttc((float(lat), float(lon)))
+    radius_m = max(300, min(1500, float(radius_m)))
     limit = max(1, min(50, int(limit)))
     nearest = nearest_stops(stops, float(lat), float(lon), amount_of_stops=limit * 3)
     answer = []
@@ -1495,7 +1550,7 @@ def nearby_transit_stops(lat, lon, radius_m=3000, limit=35):
         if distance > radius_m:
             continue
         agency = stop_agency(stop_id)
-        if agency not in ("grt_busses", "grt_trains", "go"):
+        if agency not in ("grt_busses", "grt_trains", "go", "ttc"):
             continue
         if not graph.get(stop_id):
             continue
@@ -1509,6 +1564,8 @@ def nearby_transit_stops(lat, lon, radius_m=3000, limit=35):
 
 def stop_departure_board(stop_id, limit=8, now=None):
     ensure_transit_loaded()
+    if stop_id.startswith("ttc:"):
+        maybe_load_ttc((43.66, -79.39))
     if stop_id not in stops:
         return None
     now = normalize_departure_datetime(now)

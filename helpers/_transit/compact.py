@@ -1,0 +1,218 @@
+"""Compact, list-compatible storage for the per-edge trip lists in the transit graph.
+
+The old graph kept every (stop -> stop, route) timetable as a Python list of dicts:
+about 2.1 million dicts (~330 bytes each, ~700 MB resident). Here each timetable is
+four typed arrays (about 16 bytes per trip-hop) and an edge dict is only built when
+somebody actually reads that entry.
+
+``CompactTrips`` behaves like the old list for everything the router does:
+``len()``, iteration, ``[i]``, ``[a:b]`` slices, and ``bisect`` over ``.deps``.
+It also carries its own ``schedule`` view, so ``schedule_info()`` becomes a
+constant-time attribute lookup instead of rebuilding a ``times`` list and a
+``by_trip`` dict on every edge visit.
+"""
+from array import array
+
+
+class TripPools:
+    """Interned data shared by every CompactTrips in one graph."""
+
+    def __init__(self, trip_ids=None, routes=None, trip_route=None):
+        self.trip_ids = trip_ids if trip_ids is not None else []   # tid -> trip_id str
+        self.routes = routes if routes is not None else []         # rid -> route dict
+        self.trip_route = trip_route if trip_route is not None else array("H")  # tid -> rid
+        self._index = None                                         # trip_id str -> tid
+
+    @property
+    def index(self):
+        if self._index is None or len(self._index) != len(self.trip_ids):
+            self._index = {t: i for i, t in enumerate(self.trip_ids)}
+        return self._index
+
+    def __reduce__(self):
+        return (TripPools, (self.trip_ids, self.routes, self.trip_route))
+
+
+class _Schedule:
+    """Dict-like view used by transit.py: schedule["trips" | "times" | "by_trip"]."""
+
+    __slots__ = ("trips",)
+
+    def __init__(self, trips):
+        self.trips = trips
+
+    def __getitem__(self, key):
+        if key == "trips":
+            return self.trips
+        if key == "times":
+            return self.trips.deps
+        if key == "by_trip":
+            return self.trips
+        raise KeyError(key)
+
+
+class _Window:
+    """Lazy half-open slice of a CompactTrips (so `trips[i:]` never copies the tail)."""
+
+    __slots__ = ("_t", "_a", "_b")
+
+    def __init__(self, trips, start, stop):
+        self._t, self._a, self._b = trips, start, max(start, stop)
+
+    def __len__(self):
+        return self._b - self._a
+
+    def __iter__(self):
+        edge = self._t._edge
+        for i in range(self._a, self._b):
+            yield edge(i)
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            start, stop, step = key.indices(len(self))
+            if step != 1:
+                return [self[i] for i in range(start, stop, step)]
+            return _Window(self._t, self._a + start, self._a + stop)
+        n = len(self)
+        if key < 0:
+            key += n
+        if not 0 <= key < n:
+            raise IndexError(key)
+        return self._t._edge(self._a + key)
+
+
+class CompactTrips:
+    __slots__ = ("deps", "arrs", "tids", "dists", "pools", "schedule")
+
+    def __init__(self, deps, arrs, tids, dists, pools):
+        self.deps = deps      # array('i') departure seconds, sorted ascending
+        self.arrs = arrs      # array('i') arrival seconds at the next stop
+        self.tids = tids      # array('i') index into pools.trip_ids
+        self.dists = dists    # array('f') original "distance" value (minutes)
+        self.pools = pools
+        self.schedule = _Schedule(self)
+
+    def __reduce__(self):
+        return (CompactTrips, (self.deps, self.arrs, self.tids, self.dists, self.pools))
+
+    def __len__(self):
+        return len(self.deps)
+
+    def _edge(self, i):
+        pools = self.pools
+        tid = self.tids[i]
+        return {
+            "distance": self.dists[i],
+            "trip_id": pools.trip_ids[tid],
+            "departure_time": self.deps[i],
+            "arrival_time": self.arrs[i],
+            "route": pools.routes[pools.trip_route[tid]],
+        }
+
+    def __iter__(self):
+        edge = self._edge
+        for i in range(len(self.deps)):
+            yield edge(i)
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            start, stop, step = key.indices(len(self.deps))
+            if step != 1:
+                return [self._edge(i) for i in range(start, stop, step)]
+            return _Window(self, start, stop)
+        n = len(self.deps)
+        if key < 0:
+            key += n
+        if not 0 <= key < n:
+            raise IndexError(key)
+        return self._edge(key)
+
+    # `by_trip.get(trip_id)` replacement: a C-speed scan over an int array.
+    def get(self, trip_id, default=None):
+        tid = self.pools.index.get(trip_id)
+        if tid is None:
+            return default
+        try:
+            return self._edge(self.tids.index(tid))
+        except ValueError:
+            return default
+
+    def edges_for_trips(self, wanted_trip_ids):
+        """Yield edge dicts only for the given trip-id strings, without building the rest."""
+        index = self.pools.index
+        wanted = {index[t] for t in wanted_trip_ids if t in index}
+        if not wanted:
+            return
+        for i, tid in enumerate(self.tids):
+            if tid in wanted:
+                yield self._edge(i)
+
+
+def is_compact(graph):
+    for neighbors in graph.values():
+        for route_options in neighbors.values():
+            for key, trips in route_options.items():
+                if key != "__walk__":
+                    return isinstance(trips, CompactTrips)
+    return True
+
+
+def compact_graph(graph, verify=False):
+    """Convert every non-walk edge list of `graph` to CompactTrips, in place.
+
+    With verify=True each list is rebuilt and compared against the original before the
+    original is dropped (float32 `distance` compared with a small tolerance).
+    Returns (pools, number_of_trip_hops).
+    """
+    pools = TripPools()
+    trip_index = {}
+    route_index = {}
+    total = 0
+
+    def tid_for(edge):
+        trip_id = edge["trip_id"]
+        tid = trip_index.get(trip_id)
+        if tid is None:
+            route = edge["route"]
+            rkey = tuple(sorted(route.items()))
+            rid = route_index.get(rkey)
+            if rid is None:
+                rid = len(pools.routes)
+                pools.routes.append(route)
+                route_index[rkey] = rid
+            tid = len(pools.trip_ids)
+            trip_index[trip_id] = tid
+            pools.trip_ids.append(trip_id)
+            pools.trip_route.append(rid)
+        return tid
+
+    for neighbors in graph.values():
+        for route_options in neighbors.values():
+            for key in list(route_options):
+                trips = route_options[key]
+                if key == "__walk__" or isinstance(trips, CompactTrips):
+                    continue
+                deps, arrs, tids, dists = (
+                    array("i"), array("i"), array("i"), array("f"),
+                )
+                for edge in trips:
+                    deps.append(edge["departure_time"])
+                    arrs.append(edge["arrival_time"])
+                    tids.append(tid_for(edge))
+                    dists.append(edge["distance"])
+                compact = CompactTrips(deps, arrs, tids, dists, pools)
+                if verify:
+                    rebuilt = list(compact)
+                    assert len(rebuilt) == len(trips)
+                    for old, new in zip(trips, rebuilt):
+                        assert old["trip_id"] == new["trip_id"]
+                        assert old["departure_time"] == new["departure_time"]
+                        assert old["arrival_time"] == new["arrival_time"]
+                        assert old["route"] == new["route"]
+                        assert abs(old["distance"] - new["distance"]) < 1e-4
+                        assert set(old) == set(new)
+                total += len(trips)
+                route_options[key] = compact
+
+    pools._index = None
+    return pools, total

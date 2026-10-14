@@ -28,6 +28,7 @@ from helpers._transit.realtime import (
     adjusted_arrival,
     adjusted_departure,
     matching_alerts,
+    trip_update,
     snapshot as realtime_snapshot,
     start_background_refresh,
     vehicle_for_trip,
@@ -252,7 +253,11 @@ def _load_scheduled_trip_hops(trip_keys):
 
             for to_stop, route_options in neighbors.items():
                 for trips in route_options.values():
-                    for edge in trips:
+                    if hasattr(trips, "edges_for_trips"):
+                        candidates = trips.edges_for_trips(wanted)
+                    else:
+                        candidates = trips
+                    for edge in candidates:
                         trip_id = str(edge.get("trip_id") or "")
                         if trip_id not in wanted:
                             continue
@@ -824,6 +829,11 @@ MAX_SCHEDULE_CACHE_ENTRIES = 256
 
 def schedule_info(trips):
     """Return binary-search helpers without allowing the cache to grow forever."""
+    # Compact graphs carry their own constant-time schedule view (no per-visit rebuild).
+    compact_schedule = getattr(trips, "schedule", None)
+    if compact_schedule is not None:
+        return compact_schedule
+
     key = id(trips)
     cached = _SCHEDULE_CACHE.get(key)
     if cached is not None:
@@ -857,9 +867,29 @@ def schedule_info(trips):
     return info
 
 
-@lru_cache(maxsize=20_000)
+_ACTIVE_SERVICE_CACHE = {}
+
+
+def _active_services(date):
+    entry = _ACTIVE_SERVICE_CACHE.get(date)
+    if entry is None:
+        if len(_ACTIVE_SERVICE_CACHE) >= 8:
+            _ACTIVE_SERVICE_CACHE.clear()
+        entry = (_data.active_service_ids(date),)   # tuple so None can be cached
+        _ACTIVE_SERVICE_CACHE[date] = entry
+    return entry[0]
+
+
 def trip_active(trip_id, date):
-    return _data.is_trip_active(trip_id, date)
+    """Same answer as _data.is_trip_active, but one set lookup per call (the old
+    20k-entry LRU thrashed against 124k trips and re-ran strftime each miss)."""
+    active = _active_services(date)
+    if active is None:
+        return True
+    service_id = _data.trip_to_service.get(trip_id)
+    if service_id is None:
+        return True
+    return service_id in active
 
 
 def access_walk_cost(distance_m, soft_walk_m, walk_penalty):
@@ -893,6 +923,60 @@ def transit_preference_profile(value) -> tuple[str, dict]:
     return key, TRANSIT_PREFERENCES[key]
 
 
+def _candidate_trip_realtime_compact(
+    trips, agency, from_stop, to_stop, earliest, date, realtime
+):
+    """Array-based twin of the realtime branch below (identical selection rules).
+
+    Trips with no realtime update (the vast majority) are decided from the int
+    arrays alone; an edge dict is only built for trips that have an update and for
+    the single winner.
+    """
+    deps, arrs, tids = trips.deps, trips.arrs, trips.tids
+    trip_ids = trips.pools.trip_ids
+    limit = earliest + 2 * 3600
+    from_raw, to_raw = raw_stop_id(from_stop), raw_stop_id(to_stop)
+    best = None
+    best_departure = float("inf")
+    active_services = _active_services(date)          # hoisted out of the hot loop
+    service_of = _data.trip_to_service.get
+
+    for i in range(bisect_left(deps, earliest - 2 * 3600), len(deps)):
+        static_departure = deps[i]
+        if static_departure > limit and best is not None:
+            break
+
+        trip_id = trip_ids[tids[i]]
+        if active_services is not None:
+            service_id = service_of(trip_id)
+            if service_id is not None and service_id not in active_services:
+                continue
+
+        if trip_update(realtime, agency, trip_id) is None:
+            departure, dep_delay, live_dep = float(static_departure), 0.0, False
+            if departure < earliest or departure >= best_departure:
+                continue
+            arrival, arr_delay, live_arr = float(arrs[i]), 0.0, False
+        else:
+            trip = trips._edge(i)
+            departure, dep_delay, live_dep = adjusted_departure(
+                realtime, agency, trip, from_raw
+            )
+            if departure is None or departure < earliest or departure >= best_departure:
+                continue
+            arrival, arr_delay, live_arr = adjusted_arrival(
+                realtime, agency, trip, to_raw
+            )
+
+        best_departure = departure
+        best = (i, departure, arrival, dep_delay, live_dep or live_arr, arr_delay)
+
+    if best is None:
+        return None
+    i, departure, arrival, dep_delay, live, arr_delay = best
+    return (trips._edge(i), departure, arrival, dep_delay, live, arr_delay)
+
+
 def _candidate_trip(
     schedule,
     agency,
@@ -906,6 +990,10 @@ def _candidate_trip(
     times = schedule["times"]
 
     if realtime.get("available") and agency in {"grt_busses", "grt_trains", "go"}:
+        if hasattr(schedule["trips"], "tids"):
+            return _candidate_trip_realtime_compact(
+                schedule["trips"], agency, from_stop, to_stop, earliest, date, realtime
+            )
         # Search a little before the scheduled time because a late vehicle may have had
         # an earlier static departure while still being catchable now.
         index = bisect_left(times, earliest - 2 * 3600)
@@ -1001,19 +1089,32 @@ def search_transit(
 
     heuristic_cache = {}
 
+    # Per-goal constants, computed once instead of on every heuristic() call.
+    # The distance maths below mirrors dist_m() operation for operation, so results
+    # are bit-identical to calling dist_m(here, target).
+    goal_terms = []
+    for goal_id, option in ends.items():
+        g_lat, g_lon = coord(stops[goal_id])
+        end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
+        goal_terms.append((g_lat, g_lon, end_real, end_pen))
+
+    _cos, _hypot, _rad = math.cos, math.hypot, math.radians
+
     def heuristic(stop_id):
         cached = heuristic_cache.get(stop_id)
         if cached is not None:
             return cached
-        here = coord(stops[stop_id])
+        lat1, lon1 = coord(stops[stop_id])
         best = float("inf")
-        for goal_id, option in ends.items():
-            target = coord(stops[goal_id])
-            straight_km = dist_m(here, target) / 1000
-            end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
+        for g_lat, g_lon, end_real, end_pen in goal_terms:
+            avg_lat = _rad((lat1 + g_lat) / 2)
+            dx = _rad(g_lon - lon1) * 6_371_000 * _cos(avg_lat)
+            dy = _rad(g_lat - lat1) * 6_371_000
+            straight_km = _hypot(dx, dy) / 1000
             # Still admissible: ride time is a lower bound, penalties are >= 0.
             optimistic = straight_km / HEURISTIC_SPEED_KMH * 60 + end_real + end_pen
-            best = min(best, optimistic)
+            if optimistic < best:
+                best = optimistic
         heuristic_cache[stop_id] = best
         return best
 

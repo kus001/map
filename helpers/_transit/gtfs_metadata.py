@@ -82,6 +82,8 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
     """Find one trip without loading every GTFS trip into a giant Python dict."""
     agency = str(agency)
     trip_id = str(trip_id)
+    if agency == "ttc" and trip_id.startswith("ttc:"):
+        trip_id = trip_id[4:]
     route_hint = str(route_hint or "").strip().lower()
     headsign_hint = str(headsign_hint or "").strip().lower()
 
@@ -158,6 +160,12 @@ def shape_for_trip(
     route_hint="",
     headsign_hint="",
 ):
+    # TTC's GTFS is large: don't scan its trips/shapes files per route request.
+    # The compact schedule includes the stops, so those draw the route for now.
+    if agency == "ttc":
+        return None, {"route_short_name": str(route_hint or ""),
+                      "headsign": str(headsign_hint or ""),
+                      "route_type": "", "route_color": ""}
     meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
     if not meta or not meta.get("shape_id"):
         return None, meta

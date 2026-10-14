@@ -317,108 +317,143 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   );
 }
 
-function TransitStopMarker({ stop }) {
+function StopBoard({ stop }) {
   const [board, setBoard] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadedAt, setLoadedAt] = useState(0);
-  const pendingRef = useRef(false);
 
-  async function loadBoard() {
-    if (pendingRef.current || (board && Date.now() - loadedAt < 30000)) return;
-    pendingRef.current = true;
-    setLoading(true);
-    try {
-      const query = new URLSearchParams({ stop_id: stop.id, limit: "8" });
-      const response = await fetch(`/api/transit/stop-board?${query}`);
-      const result = await response.json();
-      setBoard(response.ok ? result : { success: false, error: result.error });
-      setLoadedAt(Date.now());
-    } catch (error) {
-      console.warn("Stop departures unavailable:", error);
-      setBoard({ success: false, error: "Could not load departures" });
-      setLoadedAt(Date.now());
-    } finally {
-      pendingRef.current = false;
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = new URLSearchParams({ stop_id: stop.id, limit: "8" });
+    fetch(`/api/transit/stop-board?${query}`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        return response.ok ? result : { error: result.error || "Departures unavailable" };
+      })
+      .then(setBoard)
+      .catch(error => {
+        if (error.name !== "AbortError") setBoard({ error: "Could not load departures" });
+      });
+    return () => controller.abort();
+  }, [stop.id]);
 
-  const goStop = stop.agency === "go";
-  const trainStop = stop.agency === "grt_trains";
   const departures = board?.departures || [];
+  return (
+    <div className="stop-board min-w-[230px] text-slate-900">
+      <div className="text-sm font-bold leading-snug">{stop.name}</div>
+      <div className="mt-1 text-xs text-slate-600">
+        {stop.agency === "go" ? "GO Transit" : stop.agency === "ttc" ? "TTC" : "GRT"} · Departures
+      </div>
+      {!board && <div className="mt-3 text-xs">Loading times…</div>}
+      {board?.error && <div className="mt-3 text-xs text-amber-800">{board.error}</div>}
+      {board && !board.error && departures.length === 0 && (
+        <div className="mt-3 text-xs text-slate-700">No departures listed for this stop right now.</div>
+      )}
+      {departures.length > 0 && (
+        <div className="mt-2 max-h-60 space-y-1.5 overflow-y-auto">
+          {departures.map((item, i) => (
+            <div key={`${item.trip_id}-${i}`} className="rounded-lg bg-slate-100 px-2.5 py-2 text-xs">
+              <div className="flex justify-between gap-2 font-semibold">
+                <span>{item.route} {item.direction ? `→ ${item.direction}` : ""}</span>
+                <span className="whitespace-nowrap">{item.expected_time || item.scheduled_time}</span>
+              </div>
+              {item.boarding_stop && (
+                <div className="mt-1 text-[11px] text-slate-700">Nearby boarding stop: {item.boarding_stop}</div>
+              )}
+              <div className="mt-1 text-[11px] text-slate-700">
+                {item.cancelled ? "Cancelled" : item.realtime ? "Live" : "Scheduled"}
+                {item.delay_min >= 1 ? ` · +${Math.round(item.delay_min)} min` : ""}
+                {Number.isFinite(item.minutes_until) ? ` · in ${Math.max(0, item.minutes_until)} min` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
+function TransitStopMarker({ stop, showDot }) {
+  const [open, setOpen] = useState(false);
   return (
     <CircleMarker
       center={stop.coordinates}
-      radius={goStop ? 6 : trainStop ? 5 : 4}
+      radius={showDot ? 5 : 12}
       pathOptions={{
-        color: "#FFFFFF", weight: 1.5,
-        fillColor: goStop ? "#007A53" : trainStop ? "#0083B8" : MODE_COLORS.transit,
-        fillOpacity: 0.9,
+        color: showDot ? "#FFFFFF" : "transparent",
+        weight: showDot ? 1.5 : 0,
+        fillColor: "#8A6F4D",
+        fillOpacity: showDot ? 0.9 : 0,
       }}
-      eventHandlers={{ popupopen: loadBoard }}
+      eventHandlers={{
+        popupopen: () => setOpen(true),
+        popupclose: () => setOpen(false),
+        click: event => L.DomEvent.stopPropagation(event.originalEvent),
+      }}
     >
-      <Popup minWidth={265} maxWidth={315}>
-        <div className="text-charcoal">
-          <div className="font-bold text-sm">{stop.name}</div>
-          <div className="mt-0.5 text-[10px] text-slate-600">
-            {goStop ? "GO Transit" : stop.agency === "ttc" ? "TTC" : "GRT"} · Next departures
-          </div>
-          {loading && <div className="mt-2 text-xs">Checking departures…</div>}
-          {!loading && board?.error && <div className="mt-2 text-xs text-amber-700">{board.error}</div>}
-          {!loading && board?.success && departures.length === 0 &&
-            <div className="mt-2 text-xs text-slate-600">No upcoming departures in the timetable window.</div>}
-          {departures.length > 0 && (
-            <div className="mt-2 max-h-56 overflow-auto space-y-1">
-              {departures.map((item, index) => (
-                <div key={`${item.trip_id}-${index}`} className="rounded-md bg-slate-100 px-2 py-1.5 text-[11px]">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-semibold">{item.route} {item.direction ? `→ ${item.direction}` : ""}</span>
-                    <span className="shrink-0 font-bold">{item.expected_time || item.scheduled_time}</span>
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-slate-600">
-                    {item.cancelled ? "Cancelled" : item.realtime ? "Live prediction" : "Scheduled"}
-                    {item.delay_min >= 1 ? ` · +${Math.round(item.delay_min)} min` : ""}
-                    {Number.isFinite(item.minutes_until) ? ` · in ${Math.max(0, item.minutes_until)} min` : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-2 text-[9px] text-slate-500">Live only when a fresh trip update is available · reopen after 30s to refresh</div>
-        </div>
+      <Popup className="transit-board-popup" minWidth={265} maxWidth={330}>
+        {open ? <StopBoard stop={stop} /> : null}
       </Popup>
     </CircleMarker>
   );
 }
 
-function NearbyTransitStopLayer({ enabled, selectedStops }) {
+function TransitStops({ enabled, selectedStops = [], mapStyle }) {
   const map = useMap();
   const [viewport, setViewport] = useState(() => {
     const center = map.getCenter();
     return { lat: center.lat, lon: center.lng, zoom: map.getZoom() };
   });
   const [nearby, setNearby] = useState([]);
-  const selectedIds = new Set((selectedStops || []).map(stop => stop.id));
+  const [tileStop, setTileStop] = useState(null);
+
+  const stops = useMemo(() => {
+    const combined = [];
+    for (const stop of [...selectedStops, ...nearby]) {
+      if (!validCoordinate(stop.coordinates)) continue;
+      // Adjacent platforms can share nearly identical GTFS points.
+      const duplicate = combined.some(item =>
+        item.id === stop.id || (
+          item.agency === stop.agency &&
+          map.distance(item.coordinates, stop.coordinates) < 12 &&
+          item.name === stop.name
+        )
+      );
+      if (!duplicate) combined.push(stop);
+    }
+    return combined;
+  }, [selectedStops, nearby, map]);
 
   useMapEvents({
-    moveend: () => {
+    moveend() {
       const center = map.getCenter();
       setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
     },
-    zoomend: () => {
+    zoomend() {
       const center = map.getCenter();
       setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
+    },
+    click(event) {
+      if (!enabled || map.getZoom() < 16) return;
+      const clickPoint = map.latLngToContainerPoint(event.latlng);
+      let nearest = null;
+      let pixels = 38;
+      for (const stop of stops) {
+        const separation = clickPoint.distanceTo(map.latLngToContainerPoint(stop.coordinates));
+        if (separation < pixels && map.distance(stop.coordinates, event.latlng) < 95) {
+          pixels = separation;
+          nearest = stop;
+        }
+      }
+      if (nearest) setTileStop({ stop: nearest, position: event.latlng });
     },
   });
 
   useEffect(() => {
-    if (!enabled || !viewport || viewport.zoom < 16) {
+    if (!enabled || viewport.zoom < 16) {
       return;
     }
     const controller = new AbortController();
     const query = new URLSearchParams({
-      lat: String(viewport.lat), lon: String(viewport.lon), radius: "800"
+      lat: String(viewport.lat), lon: String(viewport.lon), radius: "800",
     });
     fetch(`/api/transit/stops?${query}`, { signal: controller.signal })
       .then(response => response.ok ? response.json() : { stops: [] })
@@ -427,9 +462,30 @@ function NearbyTransitStopLayer({ enabled, selectedStops }) {
     return () => controller.abort();
   }, [enabled, viewport]);
 
-  if (!enabled || !viewport || viewport.zoom < 16) return null;
-  return nearby.filter(stop => validCoordinate(stop.coordinates) && !selectedIds.has(stop.id))
-    .map(stop => <TransitStopMarker key={`nearby-stop-${stop.id}`} stop={stop} />);
+  if (!enabled || viewport.zoom < 16) return null;
+  return (
+    <>
+      {stops.map(stop => {
+        const majorStop = /station|terminal|centre|center|mall|exchange|hub/i.test(stop.name || "");
+        // Large stations usually have a symbol in the basemap already.
+        // At close zoom, smaller curbside stops get a dot if no tile icon is shown.
+        const showDot = mapStyle === "satellite" || (!majorStop && viewport.zoom >= 18);
+        return <TransitStopMarker key={stop.id} stop={stop} showDot={showDot} />;
+      })}
+      {tileStop && (
+        <Popup
+          key={`${tileStop.stop.id}-${tileStop.position.lat.toFixed(5)}`}
+          position={tileStop.position}
+          className="transit-board-popup"
+          minWidth={265}
+          maxWidth={330}
+          eventHandlers={{ remove: () => setTileStop(null) }}
+        >
+          <StopBoard stop={tileStop.stop} />
+        </Popup>
+      )}
+    </>
+  );
 }
 
 function TransitSegments({ route, darkMode, mapStyle }) {
@@ -528,18 +584,6 @@ function getBaseLayer(mapStyle, darkMode) {
   };
 }
 
-
-function RouteStopLayer({ stops }) {
-  const map = useMap();
-  const [zoom, setZoom] = useState(map.getZoom());
-
-  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
-  if (zoom < 16) return null;
-
-  return (stops || []).filter(stop => validCoordinate(stop.coordinates)).map(stop => (
-    <TransitStopMarker key={stop.id} stop={stop} />
-  ));
-}
 
 export default function MapView({
   data,
@@ -718,12 +762,11 @@ export default function MapView({
         </>
       ) : null}
 
-      <NearbyTransitStopLayer
+      <TransitStops
         enabled={mode === "transit"}
         selectedStops={route?.transit_stops || []}
+        mapStyle={mapStyle}
       />
-
-      <RouteStopLayer stops={route?.transit_stops || []} />
 
       {(route?.live_vehicles ?? [])
         .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]) &&

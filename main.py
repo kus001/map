@@ -90,6 +90,19 @@ def print_timing_report(mode, timing, total_microseconds):
     print(f"\n[{mode.upper()} ROUTE TIMING] {json.dumps(report, sort_keys=True)}", flush=True)
 
 
+
+
+@app.post("/api/transit/walk-shapes")
+def finished_transit_walks():
+    """Read already-fetched walking geometry; never makes outbound requests."""
+    payload = request.get_json(silent=True) or {}
+    pairs = payload.get("pairs", [])
+    if not isinstance(pairs, list):
+        return jsonify({"success": False, "error": "Expected a list of walking legs."}), 400
+    from transit import ready_walks
+    return jsonify({"success": True, "shapes": ready_walks(pairs)})
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"success": True, "message": "Map routing API is running."})
@@ -494,6 +507,9 @@ def _preload_transit_graph():
     try:
         from transit import ensure_transit_loaded
         ensure_transit_loaded()
+        # Build/recheck small GTFS disk indexes before users request geometry.
+        from helpers._transit.shape_index import prewarm
+        prewarm()
     except Exception as error:
         if DEV_MODE:
             print(f"Transit preload skipped: {error}")

@@ -25,7 +25,7 @@ const MODES = [
 
 const TRANSIT_PREFERENCES = [
   { id: "balanced", label: "Balanced" },
-  { id: "less_walking", label: "Less walking" },
+  { id: "less_walking", label: "Less walk" },
   { id: "fastest", label: "Fastest" },
 ];
 
@@ -474,7 +474,7 @@ export default function SearchPanel({
           }`}>
             Transit preference
           </div>
-          <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Transit preference">
+          <div className="grid grid-cols-3 gap-1.5 min-w-0" role="group" aria-label="Transit preference">
             {TRANSIT_PREFERENCES.map(option => (
               <button
                 type="button"
@@ -482,7 +482,7 @@ export default function SearchPanel({
                 disabled={loading}
                 onClick={() => onTransitPreferenceChange(option.id)}
                 aria-pressed={transitPreference === option.id}
-                className={`rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                className={`min-w-0 whitespace-nowrap rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
                   transitPreference === option.id
                     ? darkMode
                       ? mapStyle === "hybrid"
@@ -509,11 +509,11 @@ export default function SearchPanel({
               : "border-button-light bg-green/5"
           }`}
         >
-          <div className="grid grid-cols-3 gap-1 rounded-lg p-0.5">
+          <div className="grid min-w-0 grid-cols-3 gap-1 rounded-lg p-0.5">
             <button
               type="button"
               onClick={() => onTimingModeChange("now")}
-              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "now"
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -526,13 +526,13 @@ export default function SearchPanel({
               }`}
             >
               <MdAccessTime />
-              Leave now
+              Now
             </button>
   
             <button
               type="button"
               onClick={() => onTimingModeChange("scheduled")}
-              className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "scheduled"
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -545,13 +545,13 @@ export default function SearchPanel({
               }`}
             >
               <MdCalendarMonth />
-              Schedule
+              Depart at
             </button>
             <button
               type="button"
               onClick={() => onTimingModeChange("arrive_by")}
               aria-pressed={timingMode === "arrive_by"}
-              className={`flex h-9 items-center justify-center gap-1 rounded-lg text-[11px] font-semibold transition ${
+              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
                 timingMode === "arrive_by"
                   ? darkMode
                     ? mapStyle === "hybrid"

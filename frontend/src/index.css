@@ -180,3 +180,30 @@ button {
 .map-picker-popup .leaflet-popup-content {
   margin: 12px 14px;
 }
+
+/* Timetable popups stay readable against the dark map. */
+.map-dark-ui .transit-board-popup .leaflet-popup-content-wrapper,
+.map-dark-ui .transit-board-popup .leaflet-popup-tip {
+  background: #f8fafc;
+  color: #17212c;
+}
+.transit-board-popup .leaflet-popup-content {
+  margin: 13px 15px;
+}
+
+.transit-dropdown {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms ease;
+}
+.transit-dropdown.is-open {
+  grid-template-rows: 1fr;
+}
+.transit-dropdown-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transit-dropdown, .map-sidebar { transition: none !important; }
+}

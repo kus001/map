@@ -5,6 +5,8 @@ import time
 import threading
 from collections import OrderedDict
 from bisect import bisect_left
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta
 from functools import lru_cache
 from heapq import heappop, heappush
@@ -657,7 +659,9 @@ def vehicle_label(agency, route_type=None):
 
 _WALK_CACHE = OrderedDict()
 MAX_WALK_CACHE_ENTRIES = 512
-MAX_CONCURRENT_WALK_REQUESTS = 8
+MAX_CONCURRENT_WALK_REQUESTS = 6
+WALK_BATCH_BUDGET_SECONDS = max(0.3, float(os.getenv("TRANSIT_WALK_BUDGET_SECONDS", "0.4")))
+WALK_BACKGROUND_SECONDS = 7.0
 
 
 def run_async(coro):
@@ -695,7 +699,7 @@ def _walk_client():
             "Authorization": ORS_API_KEY or "",
             "Accept": "application/json, application/geo+json",
         },
-        timeout=12,
+        timeout=httpx.Timeout(1.3, connect=0.55),
     )
 
 
@@ -801,6 +805,7 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
 
             result = {
                 "coordinates": coordinates,
+                "geometry_source": "pedestrian_network",
                 "distance_m": float(summary.get("distance", 0)),
                 "duration_min": float(summary.get("duration", 0)) / 60,
                 "steps": _ors_walk_directions(feature, coordinates),
@@ -809,14 +814,45 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
             result = None
 
     if result is None:
-        # No ORS key, or ORS failed / rate-limited: fall back to public OSRM so
-        # walking legs still get real streets and turns instead of a straight line.
+        # Use the walking router without spawning background threads. Timeouts
+        # can now actually cancel the request when a public service hangs.
         try:
-            result = await asyncio.to_thread(
-                _osrm_walk, start_lat, start_lon, end_lat, end_lon
+            from helpers.fast_osrm import WALK_URL
+            response = await client.get(
+                f"{WALK_URL}/{start_lon},{start_lat};{end_lon},{end_lat}",
+                params={"overview": "full", "geometries": "geojson",
+                        "steps": "true", "alternatives": "false"},
             )
+            response.raise_for_status()
+            body = response.json()
+            if body.get("code") == "Ok" and body.get("routes"):
+                route = body["routes"][0]
+                geometry = route.get("geometry", {}).get("coordinates", [])
+                points = [[float(lat), float(lon)] for lon, lat in geometry]
+                directions = []
+                for leg in route.get("legs", []):
+                    for step in leg.get("steps", []):
+                        maneuver = step.get("maneuver") or {}
+                        if maneuver.get("type") == "arrive":
+                            continue
+                        location = maneuver.get("location") or []
+                        directions.append({
+                            "instruction": "", "type": maneuver.get("type", "continue"),
+                            "modifier": maneuver.get("modifier", ""),
+                            "road": step.get("name", ""), "name": step.get("name", ""),
+                            "distance_m": float(step.get("distance", 0) or 0),
+                            "duration_min": float(step.get("duration", 0) or 0) / 60,
+                            "coordinates": [float(location[1]), float(location[0])]
+                            if len(location) >= 2 else None,
+                        })
+                if len(points) >= 2:
+                    result = {"coordinates": points,
+                              "geometry_source": "pedestrian_network",
+                              "distance_m": float(route.get("distance", 0)),
+                              "duration_min": float(route.get("duration", 0)) / 60,
+                              "steps": directions}
         except Exception:
-            return None
+            result = None
 
     # Failures are not cached, so a temporary routing error doesn't stick.
     _WALK_CACHE[key] = result
@@ -833,6 +869,7 @@ def _straight_walk(start, end, straight_distance, fallback_min):
         "coordinates": [start, end],
         "distance_m": straight_distance,
         "duration_min": float(fallback_min),
+        "geometry_source": "straight_estimate",
     }
 
 
@@ -1503,39 +1540,124 @@ def group_path(path):
 
 async def _fetch_walks_async(jobs):
     gate = asyncio.Semaphore(MAX_CONCURRENT_WALK_REQUESTS)
+    results = {}
 
     async with _walk_client() as client:
-
         async def one(key, start, end, fallback):
             async with gate:
                 try:
-                    return key, await walking_geometry_async(client, start, end, fallback)
+                    results[key] = await walking_geometry_async(client, start, end, fallback)
                 except Exception:
-                    return key, {
-                        "coordinates": [list(start), list(end)],
-                        "distance_m": dist_m(start, end),
-                        "duration_min": fallback,
-                    }
+                    pass
 
-        pairs = await asyncio.gather(
-            *(one(key, *job) for key, job in jobs.items())
-        )
+        pending = [asyncio.create_task(one(key, *job)) for key, job in jobs.items()]
+        done, waiting = await asyncio.wait(pending, timeout=WALK_BACKGROUND_SECONDS)
+        for task in waiting:
+            task.cancel()
+        if waiting:
+            await asyncio.gather(*waiting, return_exceptions=True)
 
-    return dict(pairs)
+    # A slow public router must not hold up the transit result. Cached/fast
+    # sidewalk paths still show the full geometry and walking directions.
+    for key, (start, end, fallback) in jobs.items():
+        if key not in results:
+            length = dist_m(start, end)
+            results[key] = _straight_walk(list(start), list(end), length, fallback)
+    return results
+
+
+_walk_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="map-walks")
+_walk_batches = {}
+_walk_batch_lock = threading.Lock()
+
+
+_walk_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="map-walks")
+_walk_batches = {}
+_walk_batch_lock = threading.Lock()
 
 
 def fetch_walks(jobs):
     if not jobs:
         return {}
-
     if not TRANSIT_DETAILED_WALKS:
-        # No network involved (straight-line estimates), so skip the event loop.
-        return {
-            key: walking_geometry(start, end, fallback)
-            for key, (start, end, fallback) in jobs.items()
-        }
+        return {key: walking_geometry(start, end, fallback)
+                for key, (start, end, fallback) in jobs.items()}
 
-    return run_async(_fetch_walks_async(jobs))
+    # DNS and network teardown can exceed an async timeout. Keep that work
+    # outside the Flask request thread with a strictly limited worker pool.
+    waiting = {key: job for key, job in jobs.items()
+               if _WALK_CACHE.get(_walk_key(job[0], job[1])) is None}
+    future = None
+    if waiting:
+        signature = tuple(sorted(waiting))
+        with _walk_batch_lock:
+            for old_key, old_future in list(_walk_batches.items()):
+                if old_future.done():
+                    del _walk_batches[old_key]
+            future = _walk_batches.get(signature)
+            if future is None and len(_walk_batches) < 3:
+                future = _walk_pool.submit(run_async, _fetch_walks_async(waiting))
+                _walk_batches[signature] = future
+        if future is not None:
+            try:
+                future.result(timeout=WALK_BATCH_BUDGET_SECONDS)
+            except Exception:
+                pass
+
+    results = {}
+    for key, (start, end, fallback) in jobs.items():
+        cached = _WALK_CACHE.get(_walk_key(start, end))
+        results[key] = cached or _straight_walk(
+            list(start), list(end), dist_m(start, end), fallback
+        )
+    return results
+
+
+def ready_walks(pairs):
+    """Read completed sidewalk requests. No network work happens here."""
+    output = {}
+    for item in (pairs or [])[:30]:
+        if not isinstance(item, dict):
+            continue
+        a, b = item.get('start'), item.get('end')
+        if not isinstance(a, list) or not isinstance(b, list) or len(a) < 2 or len(b) < 2:
+            continue
+        try:
+            key = _walk_key(a, b)
+        except (TypeError, ValueError):
+            continue
+        route = _WALK_CACHE.get(key)
+        if route and route.get('coordinates'):
+            output[','.join(f'{v:.6f}' for v in key)] = route
+    return output
+
+
+def _walk_key(start, end):
+    return tuple(round(float(v), 6) for v in (*start[:2], *end[:2]))
+
+
+def _walk_id(start, end):
+    return ','.join(f'{v:.6f}' for v in _walk_key(start, end))
+
+
+def _path_walk_jobs(path, start, end, best_start, best_end):
+    groups = group_path(path)
+    jobs = {}
+    if dist_m(start, stop_coords(path[0])) > 45:
+        jobs['start'] = (start, stop_coords(path[0]), access_walk_minutes(best_start[0]))
+    if dist_m(end, stop_coords(path[-1])) > 75:
+        jobs['end'] = (stop_coords(path[-1]), end, access_walk_minutes(best_end[0]))
+    for i, group in enumerate(groups):
+        if group["type"] == "walking" and dist_m(group["from_coords"], group["to_coords"]) > 35:
+            jobs[f"leg:{i}"] = (group["from_coords"], group["to_coords"], group["ride_min"])
+    return jobs
+
+
+def _path_signature(path):
+    # Distinguishes different services without drawing/formatting their geometry.
+    return tuple((str(group['agency']), str(group['route']),
+                  str(group['from_name']), str(group['to_name']))
+                 for group in group_path(path) if group['type'] == 'transit')
 
 
 def nearby_transit_stops(lat, lon, radius_m=3000, limit=25):
@@ -1578,6 +1700,25 @@ def stop_departure_board(stop_id, limit=8, now=None):
         raw_stop_id=raw_stop_id, adjusted_departure=adjusted_departure,
         limit=max(1,min(12,int(limit))),
     )
+    # Arrival-only terminal points can share a boarding platform close by.
+    if not schedule:
+        centre = coord(stops[stop_id])
+        for metres, (other_id, other_info) in nearest_stops(stops, *centre, amount_of_stops=16):
+            if metres > 90:
+                break
+            if other_id == stop_id or stop_agency(other_id) != stop_agency(stop_id):
+                continue
+            nearby = upcoming_departures(
+                other_id, graph, service_date=service_date, service_seconds=service_seconds,
+                active_trip=trip_active, realtime=realtime, route_details=route_details,
+                raw_stop_id=raw_stop_id, adjusted_departure=adjusted_departure, limit=8,
+            )
+            if nearby:
+                for item in nearby:
+                    item['boarding_stop'] = other_info[2] or raw_stop_id(other_id)
+                schedule = nearby
+                break
+
     return {"stop_id": stop_id, "name": stops[stop_id][2] or stop_id,
             "agency": stop_agency(stop_id), "departures": schedule,
             "live_count": sum(1 for item in schedule if item['realtime']),
@@ -1595,6 +1736,9 @@ def get_transit_route(
     excluded_route_keys=None,
     include_alternatives=True,
     arrive_by=None,
+    _shared=None,
+    _picked=None,
+    _walks=None,
 ) -> dict:
     ensure_transit_loaded()
 
@@ -1627,10 +1771,13 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
-    grt_realtime = realtime_snapshot()
-    go_realtime = go_gtfs_snapshot()
-    realtime = combine_realtime(grt_realtime, go_realtime)
-    current_time = datetime.now(TRANSIT_TIMEZONE)
+    if _shared is None:
+        grt_realtime = realtime_snapshot()
+        go_realtime = go_gtfs_snapshot()
+        realtime = combine_realtime(grt_realtime, go_realtime)
+        current_time = datetime.now(TRANSIT_TIMEZONE)
+    else:
+        grt_realtime, go_realtime, realtime, current_time = _shared
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
         <= REALTIME_SCHEDULE_WINDOW_HOURS * 3600
@@ -1648,47 +1795,50 @@ def get_transit_route(
     preference_key, preference = transit_preference_profile(transit_preference)
 
     requested_arrival = normalize_departure_datetime(arrive_by) if arrive_by else None
-    arrive_search_path = None
-    if requested_arrival is not None:
-        # Search only the timetable graph, not external pedestrian geometry.
-        # The Fastest profile establishes feasibility; then the chosen profile
-        # is applied at the latest feasible departure.
-        fastest_profile = TRANSIT_PREFERENCES["fastest"]
+    if _picked is not None:
+        path, search_time, best_start, best_end = _picked
+    else:
+        arrive_search_path = None
+        if requested_arrival is not None:
+            # Search only the timetable graph, not external pedestrian geometry.
+            # The Fastest profile establishes feasibility; then the chosen profile
+            # is applied at the latest feasible departure.
+            fastest_profile = TRANSIT_PREFERENCES["fastest"]
 
-        def probe(candidate_time):
-            return search_transit(
-                start_options, end_options, routing_realtime,
-                departure_datetime=candidate_time,
-                soft_walk_m=fastest_profile["soft_walk_m"],
-                walk_penalty=fastest_profile["walk_penalty"],
-                max_nearby_stops=fastest_profile["max_nearby_stops"],
-                excluded_route_keys=excluded_route_keys,
-            )
+            def probe(candidate_time):
+                return search_transit(
+                    start_options, end_options, routing_realtime,
+                    departure_datetime=candidate_time,
+                    soft_walk_m=fastest_profile["soft_walk_m"],
+                    walk_penalty=fastest_profile["walk_penalty"],
+                    max_nearby_stops=fastest_profile["max_nearby_stops"],
+                    excluded_route_keys=excluded_route_keys,
+                )
 
-        found = latest_departure_before(requested_arrival, probe)
-        if found is None:
-            return {"success": False,
-                    "error": "No transit journey could reach your destination before this time (searched the previous 6 hours)."}
-        requested_departure, arrive_search_path = found
-        mark("arrive_by_search")
+            found = latest_departure_before(requested_arrival, probe)
+            if found is None:
+                return {"success": False,
+                        "error": "No transit journey could reach your destination before this time (searched the previous 6 hours)."}
+            requested_departure, arrive_search_path = found
+            mark("arrive_by_search")
 
-    path, search_time, best_start, best_end = search_transit(
-        start_options,
-        end_options,
-        routing_realtime,
-        departure_datetime=requested_departure,
-        soft_walk_m=preference["soft_walk_m"],
-        walk_penalty=preference["walk_penalty"],
-        max_nearby_stops=preference["max_nearby_stops"],
-        excluded_route_keys=excluded_route_keys,
-    )
+        path, search_time, best_start, best_end = search_transit(
+            start_options,
+            end_options,
+            routing_realtime,
+            departure_datetime=requested_departure,
+            soft_walk_m=preference["soft_walk_m"],
+            walk_penalty=preference["walk_penalty"],
+            max_nearby_stops=preference["max_nearby_stops"],
+            excluded_route_keys=excluded_route_keys,
+        )
 
-    # A preferred route may walk less but arrive past the requested deadline.
-    # In that case use the feasible fastest journey found in the bounded search.
-    if requested_arrival is not None:
-        if (path is None or requested_departure + timedelta(minutes=float(search_time))
-                > requested_arrival - timedelta(minutes=2)):
-            path, search_time, best_start, best_end = arrive_search_path
+        # A preferred route may walk less but arrive past the requested deadline.
+        # In that case use the feasible fastest journey found in the bounded search.
+        if requested_arrival is not None:
+            if (path is None or requested_departure + timedelta(minutes=float(search_time))
+                    > requested_arrival - timedelta(minutes=2)):
+                path, search_time, best_start, best_end = arrive_search_path
 
     mark("routing")
 
@@ -1698,32 +1848,52 @@ def get_transit_route(
     if not any(is_transit_edge(path[i][2] or {}) for i in range(1, len(path))):
         return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
 
+    prepared = []
+    if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
+        signatures = {_path_signature(path)}
+        tried = set()
+        pending = [{key} for key in route_keys_for_path(path)]
+        # Search only here. Geometry is fetched once for all accepted routes.
+        while pending and len(prepared) + 1 < MAX_TRANSIT_ALTERNATIVES:
+            banned = pending.pop(0)
+            if frozenset(banned) in tried:
+                continue
+            tried.add(frozenset(banned))
+            found = search_transit(
+                start_options, end_options, routing_realtime,
+                departure_datetime=requested_departure,
+                soft_walk_m=preference["soft_walk_m"],
+                walk_penalty=preference["walk_penalty"],
+                max_nearby_stops=preference["max_nearby_stops"],
+                excluded_route_keys=banned,
+            )
+            other_path, other_time, other_start, other_end = found
+            if not other_path or not any(is_transit_edge(item[2] or {}) for item in other_path[1:]):
+                continue
+            if requested_arrival and requested_departure + timedelta(minutes=other_time) > requested_arrival:
+                continue
+            signature = _path_signature(other_path)
+            if not signature or signature in signatures:
+                continue
+            signatures.add(signature)
+            prepared.append(found)
+            for key in route_keys_for_path(other_path):
+                pending.append(set(banned) | {key})
+        mark("alternatives_search")
+
     groups = group_path(path)
     first = path[0]
     last = path[-1]
-
-    walk_jobs = {
-        "start": (
-            start,
-            stop_coords(first),
-            access_walk_minutes(best_start[0]),
-        ),
-        "end": (
-            stop_coords(last),
-            end,
-            access_walk_minutes(best_end[0]),
-        ),
-    }
-
-    for index, group in enumerate(groups):
-        if group["type"] == "walking":
-            walk_jobs[f"leg:{index}"] = (
-                group["from_coords"],
-                group["to_coords"],
-                group["ride_min"],
-            )
-
-    walks = fetch_walks(walk_jobs)
+    walk_jobs = _path_walk_jobs(path, start, end, best_start, best_end)
+    if _walks is None:
+        all_jobs = {}
+        for candidate in [(path, search_time, best_start, best_end), *prepared]:
+            for job in _path_walk_jobs(candidate[0], start, end, candidate[2], candidate[3]).values():
+                all_jobs.setdefault(_walk_key(job[0], job[1]), job)
+        results = fetch_walks(all_jobs)
+        _walks = results
+    walks = {key: _walks.get(_walk_key(job[0], job[1]))
+             for key, job in walk_jobs.items()}
     mark("walking_geometry")
 
     segments = []
@@ -1738,17 +1908,24 @@ def get_transit_route(
     used_stop_ids = set()
     used_trip_ids = set()
     total_distance = 0.0
-    walk_adjustment = 0.0
+    start_is_stop = dist_m(start, stop_coords(first)) <= 45
+    end_is_stop = dist_m(end, stop_coords(last)) <= 75
+    walk_adjustment = (
+        -(access_walk_minutes(best_start[0]) if start_is_stop else 0.0)
+        -(access_walk_minutes(best_end[0]) if end_is_stop else 0.0)
+    )
 
     start_walk = walks.get("start")
     if start_walk and start_walk["distance_m"] > 10:
         first_name = stop_name(first)
         segments.append(
-            {"type": "walking", "coordinates": start_walk["coordinates"]}
+            {"type": "walking", "coordinates": start_walk["coordinates"],
+             "walk_id": _walk_id(*walk_jobs['start'][:2])}
         )
         steps.append(
             {
                 "type": "walk",
+                "walk_id": _walk_id(*walk_jobs['start'][:2]),
                 "instruction": f"Walk {max(1, round(start_walk['duration_min']))} min to {first_name}",
                 "from": start_address,
                 "to": first_name,
@@ -1766,6 +1943,9 @@ def get_transit_route(
 
     for index, group in enumerate(groups):
         if group["type"] == "walking":
+            if dist_m(group["from_coords"], group["to_coords"]) <= 35:
+                walk_adjustment -= group["ride_min"]
+                continue
             walk = walks.get(f"leg:{index}") or walking_geometry(
                 group["from_coords"], group["to_coords"], group["ride_min"]
             )
@@ -1773,10 +1953,12 @@ def get_transit_route(
             distance = float(walk["distance_m"])
             transfer = duration <= 0.15 or distance <= 25
 
-            segments.append({"type": "walking", "coordinates": walk["coordinates"]})
+            walk_id = _walk_id(*walk_jobs[f'leg:{index}'][:2])
+            segments.append({"type": "walking", "coordinates": walk["coordinates"], "walk_id": walk_id})
             steps.append(
                 {
                     "type": "transfer" if transfer else "walk",
+                    "walk_id": walk_id,
                     "instruction": (
                         f"Transfer at {group['to_name']}"
                         if transfer
@@ -1963,13 +2145,6 @@ def get_transit_route(
                     }
                 )
                 used_vehicle_keys.add(vehicle_key)
-        elif realtime_allowed and vehicle_key not in used_vehicle_keys:
-            scheduled = scheduled_vehicle_positions(
-                [step], realtime=routing_realtime, now=current_time
-            )
-            if scheduled:
-                live_vehicles.append(scheduled[0])
-                used_vehicle_keys.add(vehicle_key)
 
         for stop in group["stops"]:
             stop_id = str(stop[0])
@@ -1987,10 +2162,12 @@ def get_transit_route(
     end_walk = walks.get("end")
     if end_walk and end_walk["distance_m"] > 10:
         last_name = stop_name(last)
-        segments.append({"type": "walking", "coordinates": end_walk["coordinates"]})
+        segments.append({"type": "walking", "coordinates": end_walk["coordinates"],
+                         "walk_id": _walk_id(*walk_jobs['end'][:2])})
         steps.append(
             {
                 "type": "walk",
+                "walk_id": _walk_id(*walk_jobs['end'][:2]),
                 "instruction": f"Walk {max(1, round(end_walk['duration_min']))} min from {last_name} to {end_address}",
                 "from": last_name,
                 "to": end_address,
@@ -2091,6 +2268,12 @@ def get_transit_route(
         "transit_stops": transit_stops,
         "live_vehicles": live_vehicles,
         "route_coordinates": route_coordinates,
+        "pending_walks": [
+            {"start": list(job[0]), "end": list(job[1])}
+            for key, job in walk_jobs.items()
+            if TRANSIT_DETAILED_WALKS and walks.get(key, {}).get("geometry_source") == "straight_estimate"
+            and dist_m(job[0], job[1]) > 35
+        ],
         "realtime": realtime_info,
         "departure_datetime": requested_departure.isoformat(),
         "transit_preference": preference_key,
@@ -2112,58 +2295,25 @@ def get_transit_route(
     mark("formatting")
 
     routes = [route]
-    if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
-        signatures = {route_signature(route)}
-        attempted_exclusions = set()
-        queue_exclusions = [{key} for key in route_keys_for_path(path)]
-
-        while queue_exclusions and len(routes) < MAX_TRANSIT_ALTERNATIVES:
-            exclusion = queue_exclusions.pop(0)
-            frozen = frozenset(exclusion)
-            if frozen in attempted_exclusions:
-                continue
-            attempted_exclusions.add(frozen)
-
+    if prepared:
+        shared = (grt_realtime, go_realtime, realtime, current_time)
+        for picked in prepared:
             alternate = get_transit_route(
-                start_address,
-                end_address,
+                start_address, end_address,
                 departure_datetime=requested_departure,
                 timing=None,
                 transit_preference=preference_key,
-                start_coordinates=start,
-                end_coordinates=end,
-                excluded_route_keys=exclusion,
+                start_coordinates=start, end_coordinates=end,
                 include_alternatives=False,
-                arrive_by=None,
+                arrive_by=requested_arrival,
+                _shared=shared, _picked=picked, _walks=_walks,
             )
             if not alternate.get("success") or not alternate.get("routes"):
                 continue
-
             candidate = alternate["routes"][0]
-            if requested_arrival is not None and (
-                requested_departure + timedelta(minutes=float(candidate.get("duration_min", 99999)))
-                > requested_arrival
-            ):
-                continue
-            if requested_arrival is not None:
-                candidate["arrive_by_datetime"] = requested_arrival.isoformat()
-            signature = route_signature(candidate)
-            if not signature or signature in signatures:
-                continue
-
-            signatures.add(signature)
             candidate["route_number"] = len(routes) + 1
             routes.append(candidate)
-
-            # If the alternative itself uses another service, try excluding that
-            # next. This often produces a third genuinely different option.
-            candidate_keys = {
-                (str(step.get("agency") or ""), str(step.get("route") or ""))
-                for step in candidate.get("steps", [])
-                if step.get("type") == "transit" and step.get("route")
-            }
-            for key in candidate_keys:
-                queue_exclusions.append(set(exclusion) | {key})
+    mark("alternatives_format")
 
     fastest = min(routes, key=lambda item: float(item.get("duration_min", float("inf"))))
     shortest = min(routes, key=lambda item: float(item.get("distance_km", float("inf"))))

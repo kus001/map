@@ -362,7 +362,7 @@ function TransitStopMarker({ stop }) {
         <div className="text-charcoal">
           <div className="font-bold text-sm">{stop.name}</div>
           <div className="mt-0.5 text-[10px] text-slate-600">
-            {goStop ? "GO Transit" : "GRT"} · Next departures
+            {goStop ? "GO Transit" : stop.agency === "ttc" ? "TTC" : "GRT"} · Next departures
           </div>
           {loading && <div className="mt-2 text-xs">Checking departures…</div>}
           {!loading && board?.error && <div className="mt-2 text-xs text-amber-700">{board.error}</div>}
@@ -406,15 +406,19 @@ function NearbyTransitStopLayer({ enabled, selectedStops }) {
       const center = map.getCenter();
       setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
     },
+    zoomend: () => {
+      const center = map.getCenter();
+      setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
+    },
   });
 
   useEffect(() => {
-    if (!enabled || !viewport || viewport.zoom < 13) {
+    if (!enabled || !viewport || viewport.zoom < 16) {
       return;
     }
     const controller = new AbortController();
     const query = new URLSearchParams({
-      lat: String(viewport.lat), lon: String(viewport.lon), radius: "2500"
+      lat: String(viewport.lat), lon: String(viewport.lon), radius: "800"
     });
     fetch(`/api/transit/stops?${query}`, { signal: controller.signal })
       .then(response => response.ok ? response.json() : { stops: [] })
@@ -423,7 +427,7 @@ function NearbyTransitStopLayer({ enabled, selectedStops }) {
     return () => controller.abort();
   }, [enabled, viewport]);
 
-  if (!enabled || !viewport || viewport.zoom < 13) return null;
+  if (!enabled || !viewport || viewport.zoom < 16) return null;
   return nearby.filter(stop => validCoordinate(stop.coordinates) && !selectedIds.has(stop.id))
     .map(stop => <TransitStopMarker key={`nearby-stop-${stop.id}`} stop={stop} />);
 }
@@ -525,85 +529,16 @@ function getBaseLayer(mapStyle, darkMode) {
 }
 
 
-function NearbyVehicleLayer({ enabled, selectedVehicles }) {
+function RouteStopLayer({ stops }) {
   const map = useMap();
-  const [viewport, setViewport] = useState(() => {
-    const center = map.getCenter();
-    const bounds = map.getBounds();
-    return { lat: center.lat, lon: center.lng,
-      radius: Math.min(15000, Math.max(1000, map.distance(center, bounds.getNorthWest()))) };
-  });
-  const [vehicles, setVehicles] = useState([]);
-  const selectedKeys = new Set(
-    (selectedVehicles || []).map(v => `${v.agency}:${v.trip_id}`)
-  );
+  const [zoom, setZoom] = useState(map.getZoom());
 
-  useMapEvents({
-    moveend: () => {
-      const center = map.getCenter();
-      const bounds = map.getBounds();
-      setViewport({ lat: center.lat, lon: center.lng,
-        radius: Math.min(15000, Math.max(1000, map.distance(center, bounds.getNorthWest()))) });
-    },
-  });
+  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
+  if (zoom < 16) return null;
 
-  useEffect(() => {
-    if (!enabled || !viewport) return;
-    let active = true;
-    let controller;
-    async function refresh() {
-      controller?.abort();
-      controller = new AbortController();
-      try {
-        const q = new URLSearchParams({ lat: String(viewport.lat),
-          lon: String(viewport.lon), radius: String(Math.round(viewport.radius)) });
-        const response = await fetch(`/api/transit/vehicles?${q}`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const result = await response.json();
-        if (active && result.success) setVehicles(result.vehicles || []);
-      } catch (error) {
-        if (error.name !== "AbortError") console.warn("Vehicle map refresh:", error);
-      }
-    }
-    refresh();
-    const intervalId = window.setInterval(refresh, 20000);
-    return () => {
-      active = false;
-      controller?.abort();
-      window.clearInterval(intervalId);
-    };
-  }, [enabled, viewport]);
-
-  if (!enabled) return null;
-  return <>
-    {vehicles.filter(v =>
-      validCoordinate([v.lat, v.lon]) && !selectedKeys.has(`${v.agency}:${v.trip_id}`)
-    ).map(v => (
-      <CircleMarker
-        key={`nearby-${v.agency}-${v.trip_id}`}
-        center={[v.lat, v.lon]}
-        radius={v.estimated ? 5.5 : 7}
-        pathOptions={{
-          color: "#FFFFFF", weight: v.estimated ? 2 : 3,
-          fillColor: v.estimated ? "#64748B" : "#D97706",
-          fillOpacity: v.estimated ? 0.85 : 1,
-          dashArray: v.estimated ? "4 3" : undefined,
-        }}
-      >
-        <Popup>
-          <div className="font-semibold">
-            {v.agency === "go" ? "GO Transit" : "GRT"}
-            {v.route ? ` • ${v.route}` : ""}
-          </div>
-          <div>{v.estimated ? "Scheduled estimate — not GPS" : "Live GPS position"}</div>
-          {v.headsign && <div>toward {v.headsign}</div>}
-          {v.estimated && <div className="text-xs">Approximate position between scheduled stops.</div>}
-        </Popup>
-      </CircleMarker>
-    ))}
-  </>;
+  return (stops || []).filter(stop => validCoordinate(stop.coordinates)).map(stop => (
+    <TransitStopMarker key={stop.id} stop={stop} />
+  ));
 }
 
 export default function MapView({
@@ -783,24 +718,18 @@ export default function MapView({
         </>
       ) : null}
 
-      <NearbyVehicleLayer
-        enabled={mode === "transit"}
-        selectedVehicles={route?.live_vehicles || []}
-      />
-
       <NearbyTransitStopLayer
         enabled={mode === "transit"}
         selectedStops={route?.transit_stops || []}
       />
 
-      {(route?.transit_stops ?? [])
-        .filter(stop => validCoordinate(stop.coordinates))
-        .map(stop => (
-          <TransitStopMarker key={stop.id} stop={stop} />
-        ))}
+      <RouteStopLayer stops={route?.transit_stops || []} />
 
       {(route?.live_vehicles ?? [])
-        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]))
+        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]) &&
+          (route?.steps || []).some(step => step.type === "transit" &&
+            String(step.agency) === String(vehicle.agency) &&
+            String(step.trip_id) === String(vehicle.trip_id)))
         .map(vehicle => {
           const estimated = Boolean(vehicle.estimated);
           const delayAdjusted = vehicle.position_source === "schedule_adjusted";
@@ -821,7 +750,7 @@ export default function MapView({
             >
               <Popup>
                 <div className="font-semibold">
-                  {vehicle.agency === "go" ? "GO Transit" : "GRT"} • {
+                  {vehicle.agency === "go" ? "GO Transit" : vehicle.agency === "ttc" ? "TTC" : "GRT"} • {
                     estimated ? "Scheduled estimate" : "Live"
                   } {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
                 </div>

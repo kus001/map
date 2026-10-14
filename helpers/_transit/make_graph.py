@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from helpers._transit.compact import compact_graph, is_compact
 from helpers._transit.download_gtfs import download_gtfs
 from helpers.distance import find_dist
 from helpers.time_management import delta_time_in_minutes, time_to_seconds
@@ -238,6 +239,13 @@ def add_multiple_agencies_to_graph(
         trip_to_service = getattr(loaded, "trip_to_service", {})
         calendar = getattr(loaded, "calendar", {})
         calendar_dates = getattr(loaded, "calendar_dates", {})
+
+        # One-time migration of an old list-of-dicts pickle. This needs the old (large)
+        # in-memory graph once; run `python -m helpers._transit.compact` on a bigger
+        # machine and commit the result to avoid that peak on a small server.
+        if not is_compact(graph):
+            compact_graph(graph)
+            _write_graph(graph_path)
         return
 
     for agency in agencies:
@@ -258,7 +266,14 @@ def add_multiple_agencies_to_graph(
                     )
                 )
 
-    with graph_path.open("wb") as file:
+    # Replace the ~2M per-trip dicts with typed arrays (about 40x less RAM).
+    compact_graph(graph)
+    _write_graph(graph_path)
+
+
+def _write_graph(graph_path):
+    tmp_path = graph_path.with_suffix(graph_path.suffix + ".tmp")
+    with tmp_path.open("wb") as file:
         pickle.dump(
             Graph(
                 graph,
@@ -268,7 +283,9 @@ def add_multiple_agencies_to_graph(
                 calendar_dates,
             ),
             file,
+            protocol=pickle.HIGHEST_PROTOCOL,
         )
+    tmp_path.replace(graph_path)
 
 
 class Graph:
@@ -292,16 +309,7 @@ class Graph:
     def get_position(self, stop_id):
         return self.node_positions.get(stop_id, (None, None))
 
-    def is_trip_active(self, trip_id, check_date):
-        # Older prebuilt graph caches may not include service calendars. In that case,
-        # keep trips available instead of incorrectly removing every route.
-        if not self.trip_to_service and not self.calendar and not self.calendar_dates:
-            return True
-
-        service_id = self.trip_to_service.get(trip_id)
-        if service_id is None:
-            return True
-
+    def is_service_active(self, service_id, check_date):
         date_str = check_date.strftime("%Y%m%d")
         exception = self.calendar_dates.get((service_id, date_str))
 
@@ -315,6 +323,29 @@ class Graph:
             return False
 
         return cal["days"][check_date.weekday()]
+
+    def active_service_ids(self, check_date):
+        """Set of service ids running on check_date, or None meaning "no calendar
+        data, treat every trip as active" (same rule as is_trip_active)."""
+        if not self.trip_to_service and not self.calendar and not self.calendar_dates:
+            return None
+        return {
+            sid
+            for sid in set(self.trip_to_service.values())
+            if self.is_service_active(sid, check_date)
+        }
+
+    def is_trip_active(self, trip_id, check_date):
+        # Older prebuilt graph caches may not include service calendars. In that case,
+        # keep trips available instead of incorrectly removing every route.
+        if not self.trip_to_service and not self.calendar and not self.calendar_dates:
+            return True
+
+        service_id = self.trip_to_service.get(trip_id)
+        if service_id is None:
+            return True
+
+        return self.is_service_active(service_id, check_date)
 
 
 def make_graph():

@@ -23,7 +23,7 @@ fi
 
 echo
 echo "Pulling new code..."
-git restore .
+git restore . ':(exclude)**/.env' ':(exclude)**/.env.*'
 git pull --ff-only
 
 echo

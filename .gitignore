@@ -61,8 +61,7 @@ logs/
 tmp/
 temp/
 
-# Large, frequently updated GTFS stop time feeds
-# Keep other static GTFS resources and the transit graph available to deployments.
+# Large GTFS files
 transit_data/GTFS_Files/*
 
 # IDEs and OS files

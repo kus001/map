@@ -61,13 +61,9 @@ logs/
 tmp/
 temp/
 
-# Generated geocoding caches
-transit_data/address_index_cache_*.pkl
-transit_data/geocode_cache.json
-
 # Large, frequently updated GTFS stop time feeds
 # Keep other static GTFS resources and the transit graph available to deployments.
-transit_data/GTFS_Files/*/stop_times.txt
+transit_data/GTFS_Files/*
 
 # Local databases (if added later)
 *.sqlite

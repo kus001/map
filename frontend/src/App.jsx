@@ -1513,7 +1513,7 @@ export default function App() {
                 darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
-              Kmaps
+              kmaps
             </a>
 
             <button

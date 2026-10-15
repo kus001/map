@@ -2425,7 +2425,7 @@ if __name__ == "__main__":
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
 
     print(bold("=" * 64))
-    print(bold("Map Router - LOCAL TRANSIT TEST"))
+    print(bold("kmaps - LOCAL TRANSIT TEST"))
     print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)

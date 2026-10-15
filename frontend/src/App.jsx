@@ -613,7 +613,7 @@ export default function App() {
         );
       }
       const elapsedMs = Math.round(performance.now() - routeStartedMs);
-      console.info(`[MAP] ${requestedMode}: ${elapsedMs} ms end-to-end; ` +
+      console.info(`[kmaps] ${requestedMode}: ${elapsedMs} ms end-to-end; ` +
         `${result.server_time_ms ?? "?"} ms server; stages:`, result.server_timing_ms || {});
 
       if (requestId !== searchRequestId.current) {
@@ -1492,7 +1492,7 @@ export default function App() {
                 darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
-              Map Router
+              kmaps
             </a>
 
             <button

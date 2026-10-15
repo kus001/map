@@ -589,7 +589,7 @@ if __name__ == "__main__":
 
     if DEV_MODE:
         print("=" * 64)
-        print("Map Router - LOCAL DEVELOPMENT MODE")
+        print("kmaps - LOCAL DEVELOPMENT MODE")
         print(f"http://{host}:{port}")
         print("Debug: ON | Auto reload: ON | Route timing: ON")
         print("Transit graph remains lazy-loaded until transit is first used.")
@@ -605,7 +605,7 @@ if __name__ == "__main__":
         debug = os.getenv("FLASK_DEBUG", "0") == "1"
 
         print("=" * 64)
-        print("Map Router - LOW-MEMORY SERVER MODE")
+        print("kmaps - LOW-MEMORY SERVER MODE")
         print(f"http://{host}:{port}")
         print("Use `python main.py --dev` for local debug/reload/timing mode.")
         print("=" * 64)

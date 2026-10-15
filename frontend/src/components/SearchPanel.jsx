@@ -3,10 +3,8 @@ import { BsPersonWalking } from "react-icons/bs";
 import { GoDot } from "react-icons/go";
 import { HiArrowsUpDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline, IoChevronDown } from "react-icons/io5";
+import { IoCarOutline } from "react-icons/io5";
 import {
-  MdAccessTime,
-  MdCalendarMonth,
   MdDirectionsTransit,
   MdMyLocation,
 } from "react-icons/md";
@@ -21,12 +19,6 @@ const MODES = [
   { id: "walking", label: "Walk", Icon: BsPersonWalking },
   { id: "cycling", label: "Bike", Icon: IoMdBicycle },
   { id: "transit", label: "Transit", Icon: MdDirectionsTransit },
-];
-
-const TRANSIT_PREFERENCES = [
-  { id: "balanced", label: "Balanced" },
-  { id: "less_walking", label: "Less walk" },
-  { id: "fastest", label: "Fastest" },
 ];
 
 const BIKE_TYPES = [
@@ -301,8 +293,6 @@ export default function SearchPanel({
   setDestination,
   mode,
   cyclingType,
-  transitPreference = "balanced",
-  onTransitPreferenceChange = () => {},
   onModeChange,
   onCyclingTypeChange,
   onSearch,
@@ -321,8 +311,6 @@ export default function SearchPanel({
   onStartCoordinate = () => {},
   onDestinationCoordinate = () => {},
 }) {
-  const [preferenceOpen, setPreferenceOpen] = useState(false);
-  const [timeOpen, setTimeOpen] = useState(false);
 
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
     darkMode
@@ -470,133 +458,30 @@ export default function SearchPanel({
       )}
 
       {mode === "transit" && (
-        <div className="mt-3 space-y-2">
-          <section className={`rounded-xl border ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light/50 bg-white"}`}>
-            <button type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm"
-              onClick={() => setPreferenceOpen(open => !open)} aria-expanded={preferenceOpen}>
-              <span><span className="font-semibold">Route preference</span><span className="ml-2 opacity-75">{TRANSIT_PREFERENCES.find(item => item.id === transitPreference)?.label || "Balanced"}</span></span>
-              <IoChevronDown className={`shrink-0 transition-transform duration-200 ${preferenceOpen ? "rotate-180" : ""}`} />
-            </button>
-            <div className={`transit-dropdown ${preferenceOpen ? "is-open" : ""}`}>
-              <div className="transit-dropdown-inner px-3 pb-3">
-          <div className="grid grid-cols-3 gap-1.5 min-w-0" role="group" aria-label="Transit preference">
-            {TRANSIT_PREFERENCES.map(option => (
-              <button
-                type="button"
-                key={option.id}
-                disabled={loading}
-                onClick={() => onTransitPreferenceChange(option.id)}
-                aria-pressed={transitPreference === option.id}
-                className={`min-w-0 whitespace-nowrap rounded-lg border px-1 py-2 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
-                  transitPreference === option.id
-                    ? darkMode
-                      ? mapStyle === "hybrid"
-                        ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light"
-                        : "border-blue bg-blue/15 text-blue-light"
-                      : "border-green bg-green/15 text-green"
-                    : darkMode
-                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10"
-                      : "border-button-light bg-white text-charcoal hover:bg-green/10"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-              </div>
-            </div>
-          </section>
-          <section className={`rounded-xl border ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light/50 bg-white"}`}>
-            <button type="button" className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm"
-              onClick={() => setTimeOpen(open => !open)} aria-expanded={timeOpen}>
-              <span><span className="font-semibold">Departure time</span><span className="ml-2 opacity-75">{timingMode === "scheduled" ? `Depart at ${departureDate} ${departureTime}` : timingMode === "arrive_by" ? `Arrive by ${departureDate} ${departureTime}` : "Leave now"}</span></span>
-              <IoChevronDown className={`shrink-0 transition-transform duration-200 ${timeOpen ? "rotate-180" : ""}`} />
-            </button>
-            <div className={`transit-dropdown ${timeOpen ? "is-open" : ""}`}>
-              <div className="transit-dropdown-inner px-3 pb-3">
-          <div className="grid min-w-0 grid-cols-3 gap-1 rounded-lg p-0.5">
-            <button
-              type="button"
-              onClick={() => onTimingModeChange("now")}
-              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
-                timingMode === "now"
-                  ? darkMode
-                    ? mapStyle === "hybrid"
-                      ? "bg-hybrid-purple text-white shadow-sm active:bg-hybrid-purple-dark"
-                      : "bg-blue text-white shadow-sm active:bg-blue-dark"
-                    : "bg-green text-white shadow-sm active:bg-green-dark"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-button-darkest hover:bg-white"
-              }`}
-            >
-              <MdAccessTime />
-              Now
-            </button>
-  
-            <button
-              type="button"
-              onClick={() => onTimingModeChange("scheduled")}
-              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
-                timingMode === "scheduled"
-                  ? darkMode
-                    ? mapStyle === "hybrid"
-                      ? "bg-hybrid-purple text-white shadow-sm active:bg-hybrid-purple"
-                      : "bg-blue text-white shadow-sm active:bg-blue-dark"
-                    : "bg-green text-white shadow-sm active:bg-green-dark"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-button-darkest hover:bg-white"
-              }`}
-            >
-              <MdCalendarMonth />
-              Depart at
-            </button>
-            <button
-              type="button"
-              onClick={() => onTimingModeChange("arrive_by")}
-              aria-pressed={timingMode === "arrive_by"}
-              className={`flex h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1 text-[11px] font-semibold transition ${
-                timingMode === "arrive_by"
-                  ? darkMode
-                    ? mapStyle === "hybrid"
-                      ? "bg-hybrid-purple text-white"
-                      : "bg-blue text-white"
-                    : "bg-green text-white"
-                  : darkMode
-                    ? "text-darkmode-gray hover:bg-blue/10"
-                    : "text-button-darkest hover:bg-white"
-              }`}
-            >
-              <MdAccessTime /> Arrive by
-            </button>
-          </div>
-
-          {(timingMode === "scheduled" || timingMode === "arrive_by") && (
-            <div className="soft-enter mt-2 grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                value={departureDate}
-                min={todayInputValue()}
-                disabled={loading}
-                onChange={event => onDepartureDateChange(event.target.value)}
-                className={fieldClass}
-                aria-label="Departure date"
-              />
-  
-              <input
-                type="time"
-                value={departureTime}
-                disabled={loading}
+        <div className={`mt-3 rounded-xl border p-3 ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light bg-white"}`}>
+          <label htmlFor="transit-time" className="mb-2 block text-xs font-semibold">
+            Plan your journey
+          </label>
+          <select
+            id="transit-time"
+            value={timingMode}
+            onChange={event => onTimingModeChange(event.target.value)}
+            className={`w-full rounded-lg border px-3 py-2.5 text-sm ${darkMode ? "border-button bg-charcoal text-darkmode-gray" : "border-button-light bg-white text-charcoal"}`}
+          >
+            <option value="now">Leave now</option>
+            <option value="scheduled">Depart at a time</option>
+            <option value="arrive_by">Arrive by a time</option>
+          </select>
+          {timingMode !== "now" && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <input type="date" value={departureDate} min={todayInputValue()}
+                disabled={loading} onChange={event => onDepartureDateChange(event.target.value)}
+                className={fieldClass} aria-label="Journey date" />
+              <input type="time" value={departureTime} disabled={loading}
                 onChange={event => onDepartureTimeChange(event.target.value)}
-                className={fieldClass}
-                aria-label="Departure time"
-              />
+                className={fieldClass} aria-label="Journey time" />
             </div>
           )}
-              </div>
-            </div>
-          </section>
         </div>
       )}
 

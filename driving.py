@@ -48,7 +48,6 @@ def get_driving_route(
     alternatives=3,
     start_coordinates=None,
     end_coordinates=None,
-    provider="osrm",
     timing=None,
 ):
     def mark(stage):
@@ -74,17 +73,6 @@ def get_driving_route(
                 end_address, "Destination couldn't be found."
             ),
         }
-
-    if provider == "google":
-        # Google Routes content is only returned when the React UI can switch
-        # to a Google map. No Google content is drawn on a MapTiler basemap.
-        from google_driving import google_driving_route
-        try:
-            google_result = google_driving_route(start_address, end_address, start, end)
-            mark("provider")
-            return google_result
-        except (requests.RequestException, ValueError, RuntimeError) as error:
-            print(f"[MAP] Google traffic routing unavailable, using OSRM: {error}")
 
     start_lat, start_lon = map(float, start)
     end_lat, end_lon = map(float, end)

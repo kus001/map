@@ -401,17 +401,31 @@ export default function RoutePanel({
         </div>
       )}
 
+      {mode === "transit" && data.alternatives_loading && (
+        <div className="mb-2 text-xs opacity-80" role="status">Finding other transit options…</div>
+      )}
       <div className="space-y-2">
         {data.routes.map(route => {
           const selected = route.route_number === activeRoute.route_number;
           const labels = [];
           const transitLegs = (route.steps || [])
             .filter(step => step?.type === "transit")
-            .map(step => String(step.route || step.vehicle || "Transit"));
+            .map(step => ({
+              name: String(step.route || "Transit"),
+              color: /^#[0-9a-fA-F]{6}$/.test(step.route_color || "") ? step.route_color : null,
+            }));
           const transitSummary = transitLegs.filter(
-            (value, index) => index === 0 || transitLegs[index - 1] !== value
+            (value, index) => index === 0 || transitLegs[index - 1].name !== value.name
           );
           const transferRisk = route.transfer_reliability;
+          if (mode === "transit" && route.route_variant === "balanced") labels.push("BALANCED");
+          if (mode === "transit" && route.route_variant === "fastest") labels.push("SPEED PRIORITY");
+          if (mode === "transit" && route.route_variant === "less_walking") labels.push("WALKING PRIORITY");
+          const baseWalkKm = Number(data.routes[0]?.distance_km || 0);
+          const walkChangeM = Math.round((Number(route.distance_km || 0) - baseWalkKm) * 1000);
+          if (mode === "transit" && route.route_number !== 1 && Math.abs(walkChangeM) >= 50) {
+            labels.push(`${Math.abs(walkChangeM)} m ${walkChangeM > 0 ? "MORE" : "LESS"} WALKING`);
+          }
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
@@ -484,12 +498,6 @@ export default function RoutePanel({
                     </span>
                   </div>
 
-                  {mode === "driving" && data.routing_provider === "google" && (
-                    <div className={`mt-1 text-xs font-semibold ${darkMode ? "text-hybrid-purple-light" : "text-green-dark"}`}>
-                      Google traffic-aware ETA
-                      {route.traffic_delay_min > 0.5 && ` • +${Math.round(route.traffic_delay_min)} min traffic`}
-                    </div>
-                  )}
 
                   {mode === "transit" && transferRisk?.status && transferRisk.status !== "direct" && (
                     <div className={`mt-1 text-[11px] font-semibold ${
@@ -510,7 +518,14 @@ export default function RoutePanel({
                         darkMode ? "text-blue-light" : "text-green-dark"
                       }`}
                     >
-                      {transitSummary.join(" → ")}
+                      {transitSummary.map((leg, index) => (
+                        <span key={`${leg.name}-${index}`}>
+                          {index > 0 && <span className="mx-1">→</span>}
+                          <span style={leg.color ? { borderLeft: `3px solid ${leg.color}`, paddingLeft: 5 } : undefined}>
+                            {leg.name}
+                          </span>
+                        </span>
+                      ))}
                       {(route.steps || []).some(
                         step => step?.type === "transit" && step?.realtime
                       ) && " • LIVE"}

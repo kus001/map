@@ -1478,6 +1478,8 @@ def group_path(path):
             current = {
                 "key": key,
                 "type": "transit" if transit else "walking",
+                "route_color": normalize_color(edge.get("route", {}).get("route_color"))
+                    if transit and isinstance(edge.get("route"), dict) else None,
                 "agency": stop_agency(previous_stop[0]),
                 "trip_id": trip_id,
                 "route": route_name,
@@ -1771,6 +1773,11 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
+    # TTC has to be in the graph before choosing the nearby stops.
+    # Loading it during walking geometry is too late for Toronto routes.
+    maybe_load_ttc(start, end)
+    mark("ttc_load")
+
     if _shared is None:
         grt_realtime = realtime_snapshot()
         go_realtime = go_gtfs_snapshot()
@@ -1840,45 +1847,76 @@ def get_transit_route(
                     > requested_arrival - timedelta(minutes=2)):
                 path, search_time, best_start, best_end = arrive_search_path
 
+    next_service = False
+    # "Leave now" can be after the last GO connection of the night.
+    # Try the next morning once; be explicit that this isn't an immediate departure.
+    if path is None and departure_datetime is None and requested_arrival is None:
+        morning = requested_departure.replace(hour=6, minute=0, second=0, microsecond=0)
+        if morning <= requested_departure:
+            morning += timedelta(days=1)
+        if (_in_toronto(start) or _in_toronto(end)) and morning - requested_departure <= timedelta(hours=24):
+            next_realtime = dict(routing_realtime)
+            next_realtime["available"] = False
+            next_realtime["trip_updates"] = {}
+            next_realtime["vehicles"] = {}
+            found = search_transit(
+                start_options, end_options, next_realtime,
+                departure_datetime=morning,
+                soft_walk_m=preference["soft_walk_m"],
+                walk_penalty=preference["walk_penalty"],
+                max_nearby_stops=preference["max_nearby_stops"],
+                excluded_route_keys=excluded_route_keys,
+            )
+            if found[0] is not None:
+                path, search_time, best_start, best_end = found
+                requested_departure = morning
+                routing_realtime = next_realtime
+                realtime_allowed = False
+                next_service = True
+
     mark("routing")
 
     if path is None or best_start is None or best_end is None:
-        return {"success": False, "error": "No transit route found."}
+        ttc_note = ""
+        if _in_toronto(start) or _in_toronto(end):
+            from helpers._transit.ttc_setup import CACHE
+            if not CACHE.exists():
+                ttc_note = " TTC timetable not installed; run python -m helpers._transit.ttc_setup."
+        return {"success": False,
+                "error": "No transit departure found for this time. Try Depart at with a daytime departure." + ttc_note}
 
     if not any(is_transit_edge(path[i][2] or {}) for i in range(1, len(path))):
         return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
 
     prepared = []
     if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
-        signatures = {_path_signature(path)}
-        tried = set()
-        pending = [{key} for key in route_keys_for_path(path)]
-        # Search only here. Geometry is fetched once for all accepted routes.
-        while pending and len(prepared) + 1 < MAX_TRANSIT_ALTERNATIVES:
-            banned = pending.pop(0)
-            if frozenset(banned) in tried:
-                continue
-            tried.add(frozenset(banned))
-            found = search_transit(
-                start_options, end_options, routing_realtime,
-                departure_datetime=requested_departure,
-                soft_walk_m=preference["soft_walk_m"],
-                walk_penalty=preference["walk_penalty"],
-                max_nearby_stops=preference["max_nearby_stops"],
-                excluded_route_keys=banned,
-            )
-            other_path, other_time, other_start, other_end = found
-            if not other_path or not any(is_transit_edge(item[2] or {}) for item in other_path[1:]):
-                continue
-            if requested_arrival and requested_departure + timedelta(minutes=other_time) > requested_arrival:
-                continue
-            signature = _path_signature(other_path)
-            if not signature or signature in signatures:
-                continue
-            signatures.add(signature)
-            prepared.append(found)
-            for key in route_keys_for_path(other_path):
-                pending.append(set(banned) | {key})
+        seen = {_path_signature(path)}
+        base_keys = route_keys_for_path(path)
+        for choice in ("fastest", "less_walking"):
+            profile = TRANSIT_PREFERENCES[choice]
+            options = [set()] + [{key} for key in base_keys[:3]]
+            for excluded in options:
+                found = search_transit(
+                    start_options, end_options, routing_realtime,
+                    departure_datetime=requested_departure,
+                    soft_walk_m=profile["soft_walk_m"],
+                    walk_penalty=profile["walk_penalty"],
+                    max_nearby_stops=profile["max_nearby_stops"],
+                    excluded_route_keys=excluded,
+                )
+                other_path, other_time, other_start, other_end = found
+                if not other_path or not any(is_transit_edge(item[2] or {}) for item in other_path[1:]):
+                    continue
+                if requested_arrival and requested_departure + timedelta(minutes=other_time) > requested_arrival:
+                    continue
+                signature = _path_signature(other_path)
+                if not signature or signature in seen:
+                    continue
+                seen.add(signature)
+                prepared.append((found, choice))
+                break
+            if len(prepared) + 1 >= MAX_TRANSIT_ALTERNATIVES:
+                break
         mark("alternatives_search")
 
     groups = group_path(path)
@@ -1887,7 +1925,7 @@ def get_transit_route(
     walk_jobs = _path_walk_jobs(path, start, end, best_start, best_end)
     if _walks is None:
         all_jobs = {}
-        for candidate in [(path, search_time, best_start, best_end), *prepared]:
+        for candidate in [(path, search_time, best_start, best_end), *(item[0] for item in prepared)]:
             for job in _path_walk_jobs(candidate[0], start, end, candidate[2], candidate[3]).values():
                 all_jobs.setdefault(_walk_key(job[0], job[1]), job)
         results = fetch_walks(all_jobs)
@@ -1995,18 +2033,18 @@ def get_transit_route(
         route_name = group["route"]
         headsign = group["headsign"]
         route_type = None
-        route_color = None
+        route_color = group.get("route_color")
 
         if meta:
             route_name = (
-                route_name
-                or meta.get("route_short_name")
+                meta.get("route_short_name")
                 or meta.get("route_long_name")
+                or route_name
                 or meta.get("route_id")
             )
             headsign = headsign or meta.get("headsign")
             route_type = meta.get("route_type")
-            route_color = normalize_color(meta.get("route_color"))
+            route_color = normalize_color(meta.get("route_color")) or route_color
 
         route_name = route_name or "Transit"
         vehicle = vehicle_label(agency, route_type)
@@ -2082,6 +2120,7 @@ def get_transit_route(
             "vehicle": vehicle,
             "agency": agency,
             "route": route_name,
+            "route_color": route_color,
             "headsign": headsign,
             "trip_id": trip_id,
             "route_id": meta.get("route_id") if meta else None,
@@ -2276,6 +2315,7 @@ def get_transit_route(
         ],
         "realtime": realtime_info,
         "departure_datetime": requested_departure.isoformat(),
+        "next_service": next_service,
         "transit_preference": preference_key,
         "transit_preference_label": preference["label"],
         "transfer_reliability": connection_reliability(steps),
@@ -2294,15 +2334,16 @@ def get_transit_route(
     alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)
     mark("formatting")
 
+    route["route_variant"] = "balanced"
     routes = [route]
     if prepared:
         shared = (grt_realtime, go_realtime, realtime, current_time)
-        for picked in prepared:
+        for picked, choice in prepared:
             alternate = get_transit_route(
                 start_address, end_address,
                 departure_datetime=requested_departure,
                 timing=None,
-                transit_preference=preference_key,
+                transit_preference=choice,
                 start_coordinates=start, end_coordinates=end,
                 include_alternatives=False,
                 arrive_by=requested_arrival,
@@ -2312,6 +2353,7 @@ def get_transit_route(
                 continue
             candidate = alternate["routes"][0]
             candidate["route_number"] = len(routes) + 1
+            candidate["route_variant"] = choice
             routes.append(candidate)
     mark("alternatives_format")
 
@@ -2326,6 +2368,7 @@ def get_transit_route(
         "routes": routes,
         "alerts": alerts,
         "departure_datetime": requested_departure.isoformat(),
+        "next_service": next_service,
         "transit_preference": preference_key,
         "arrive_by_datetime": requested_arrival.isoformat() if requested_arrival else None,
         "arrival_estimate_datetime": route["arrival_estimate_datetime"],
@@ -2425,7 +2468,7 @@ if __name__ == "__main__":
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
 
     print(bold("=" * 64))
-    print(bold("kmaps - LOCAL TRANSIT TEST"))
+    print(bold("Map Router - LOCAL TRANSIT TEST"))
     print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)

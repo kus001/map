@@ -387,6 +387,63 @@ def transit_stop_board():
     return jsonify({'success': True, **result})
 
 
+@app.post("/api/transit/alternatives")
+def transit_alternatives():
+    payload = request.get_json(silent=True) or {}
+    start = str(payload.get("start") or "").strip()
+    end = str(payload.get("destination") or "").strip()
+    choice = str(payload.get("priority") or "fastest")
+    if not start or not end or choice not in {"fastest", "less_walking"}:
+        return jsonify({"success": False, "error": "Invalid alternative request."}), 400
+    timing_mode = str(payload.get("timing_mode") or "now")
+    if timing_mode not in {"now", "scheduled", "arrive_by"}:
+        return jsonify({"success": False, "error": "Invalid timing mode."}), 400
+    try:
+        departure = parse_departure_datetime(payload.get("departure_datetime"))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    # Exclude a used service if it keeps giving us exactly the same journey.
+    previous = payload.get("existing_routes") or []
+    signatures = set()
+    possible_exclusions = []
+    for past in previous[:3] if isinstance(previous, list) else []:
+        if not isinstance(past, dict):
+            continue
+        steps = [step for step in past.get("steps", []) if isinstance(step, dict) and step.get("type") == "transit"]
+        signatures.add(tuple((str(step.get("agency")), str(step.get("trip_id"))) for step in steps))
+        for step in steps:
+            agency = str(step.get("agency") or "")
+            service = str(step.get("route_id") or step.get("route") or "")
+            if agency and service:
+                possible_exclusions.append({(agency, service)})
+
+    try:
+        from transit import get_transit_route
+        for excluded in [set(), *possible_exclusions[:3]]:
+            result = get_transit_route(
+                start, end, departure_datetime=departure,
+                transit_preference=choice,
+                start_coordinates=parse_coordinates(payload.get("start_coordinates")),
+                end_coordinates=parse_coordinates(payload.get("destination_coordinates")),
+                arrive_by=departure if timing_mode == "arrive_by" else None,
+                include_alternatives=False, excluded_route_keys=excluded,
+            )
+            if not result.get("success") or not result.get("routes"):
+                continue
+            route = result["routes"][0]
+            legs = [step for step in route.get("steps", []) if step.get("type") == "transit"]
+            signature = tuple((str(step.get("agency")), str(step.get("trip_id"))) for step in legs)
+            if signature and signature not in signatures:
+                route["route_variant"] = choice
+                return jsonify({"success": True, "route": route})
+    except Exception:
+        app.logger.exception("Alternative transit routing failed")
+        return jsonify({"success": False, "error": "Could not load route alternative."}), 500
+
+    return jsonify({"success": True, "route": None})
+
+
 @app.route("/api/routes", methods=["POST"])
 def routes():
     payload = request.get_json(silent=True)
@@ -432,7 +489,6 @@ def routes():
             result = get_driving_route(
                 start, destination, start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates,
-                provider="google" if payload.get("driving_provider") == "google" else "osrm",
                 timing=timing,
             )
         elif mode == "walking":
@@ -457,6 +513,7 @@ def routes():
                 start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates,
                 arrive_by=departure_datetime if timing_mode == "arrive_by" else None,
+                include_alternatives=False,
                 )
         if not isinstance(result, dict):
             raise TypeError("Routing provider did not return a response object")

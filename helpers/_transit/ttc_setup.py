@@ -66,8 +66,11 @@ def build_ttc(folder, target=CACHE):
         grid.setdefault((x, y), []).append(sid)
 
     route_names = {}
+    route_colors = {}
     for r in rows(folder / "routes.txt"):
-        route_names[r["route_id"]] = r.get("route_short_name") or r.get("route_long_name") or r["route_id"]
+        name = r.get("route_short_name") or r.get("route_long_name") or r["route_id"]
+        route_names[r["route_id"]] = name
+        route_colors[name] = r.get("route_color", "")
 
     cal, dates, trip_service = {}, {}, {}
     if (folder / "calendar.txt").exists():
@@ -130,7 +133,8 @@ def build_ttc(folder, target=CACHE):
                 if rid is None:
                     rid = len(pools.routes)
                     route_index[rkey] = rid
-                    pools.routes.append({"route": route, "headsign": headsign})
+                    pools.routes.append({"route": route, "headsign": headsign,
+                                         "route_color": route_colors.get(route, "")})
                 pools.trip_route.append(rid)
             sid = "ttc:" + stop
             if sid not in stops:

@@ -220,3 +220,11 @@ def raw_gtfs_available(agency=None):
     return any(
         raw_gtfs_available(name) for name in ("grt_busses", "grt_trains", "go")
     )
+
+
+def prewarm(agencies=("grt_busses", "grt_trains", "go")):
+    """Fill the small per-agency route tables and build the SQLite shape indexes."""
+    shape_index.prewarm()
+    for agency in agencies:
+        if (GTFS_ROOT / agency / "routes.txt").exists():
+            _routes_index(agency)

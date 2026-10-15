@@ -61,18 +61,8 @@ logs/
 tmp/
 temp/
 
-# Generated geocoding caches
-transit_data/address_index_cache_*.pkl
-transit_data/geocode_cache.json
-
-# Large, frequently updated GTFS stop time feeds
-# Keep other static GTFS resources and the transit graph available to deployments.
-transit_data/GTFS_Files/*/stop_times.txt
-
-# Local databases (if added later)
-*.sqlite
-*.sqlite3
-*.db-journal
+# Large GTFS files
+transit_data/GTFS_Files/*
 
 # IDEs and OS files
 .vscode/
@@ -83,4 +73,4 @@ Desktop.ini
 
 # ignore test files
 test.*
-.env
+*.env

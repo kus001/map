@@ -6,7 +6,6 @@ import threading
 from collections import OrderedDict
 from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta
 from functools import lru_cache
 from heapq import heappop, heappush
@@ -101,14 +100,34 @@ def _in_toronto(point):
 
 
 def maybe_load_ttc(*points):
-    """Keep TTC out of RAM until a search involves Toronto."""
+    """Load TTC on demand if it was not already loaded at startup.
+
+    The server normally calls load_ttc() during warmup (see helpers/warmup.py), so
+    this is a cheap flag check on every request. It remains as a safety net when
+    startup preloading of TTC is disabled with MAP_PRELOAD_TTC=0.
+    """
+    if _ttc_loaded:
+        return
+    from helpers._transit.ttc_setup import CACHE
+    if not CACHE.exists() or not any(_in_toronto(p) for p in points if p):
+        return
+    load_ttc()
+
+
+def load_ttc() -> bool:
+    """Merge the compact TTC schedule into the shared graph (idempotent).
+
+    Returns True if TTC data is loaded after the call.
+    """
     global _ttc_loaded
     from helpers._transit.ttc_setup import CACHE
-    if _ttc_loaded or not CACHE.exists() or not any(_in_toronto(p) for p in points if p):
-        return
+    if _ttc_loaded:
+        return True
+    if not CACHE.exists():
+        return False
     with _ttc_lock:
         if _ttc_loaded:
-            return
+            return True
         import pickle
         with CACHE.open("rb") as file:
             ttc = pickle.load(file)
@@ -141,7 +160,8 @@ def maybe_load_ttc(*points):
         _data.calendar_dates.update(ttc.calendar_dates)
         _ACTIVE_SERVICE_CACHE.clear()
         _ttc_loaded = True
-        print(f"TTC loaded on demand: {len(ttc.node_positions):,} stops", flush=True)
+        print(f"TTC loaded: {len(ttc.node_positions):,} stops", flush=True)
+        return True
 
 
 def ensure_transit_loaded(verbose: bool=False) -> float:
@@ -969,6 +989,21 @@ def _active_services(date):
         entry = (_data.active_service_ids(date),)   # tuple so None can be cached
         _ACTIVE_SERVICE_CACHE[date] = entry
     return entry[0]
+
+
+def warm_schedule_caches(days_ahead: int = 1) -> int:
+    """Pre-compute the per-date active-service sets (today and the next days).
+
+    IMPORTANT: only run after all agencies are loaded.
+    """
+    ensure_transit_loaded()
+    now = normalize_departure_datetime(datetime.now(TRANSIT_TIMEZONE))
+    warmed = 0
+    for offset in range(max(0, int(days_ahead)) + 1):
+        service_date, _seconds = gtfs_service_clock(now + timedelta(days=offset))
+        _active_services(service_date)
+        warmed += 1
+    return warmed
 
 
 def trip_active(trip_id, date):

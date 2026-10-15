@@ -344,7 +344,7 @@ export default function RoutePanel({
 
           {navigationOffRoute && (
             <div className="mt-2 text-xs font-semibold">
-              About {Math.round(navigationInfo.off_route_m)} m from the route. MAP will reroute automatically after repeated GPS fixes.
+              About {Math.round(navigationInfo.off_route_m)} m from the route. kmaps will reroute automatically after repeated GPS fixes.
             </div>
           )}
         </div>

@@ -95,6 +95,14 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
 <div align="center">
 
+### STARTUP PRELOADING
+
+</div>
+
+`main.py` now loads everything in startup (see `helpers/warmup.py`): the address index, the GRT/GO transit graph, the TTC schedule, the stop lookup grid, the GTFS shape databases, today's/tomorrow's service calendars, and the first GTFS-realtime fetch. The first query is therefore as fast as any other one. Startup takes a few seconds longer and uses more RAM than lazy loading did (thankfully its negligeable if its used as a server, as everything would have ended up loaded anyways), and `/api/health` reports `"warmed_up": true` once it's done.
+
+<div align="center">
+
 ### TRANSIT
 
 </div>

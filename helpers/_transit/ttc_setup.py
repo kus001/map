@@ -206,7 +206,7 @@ def install_ttc(source=None):
                     shutil.copyfileobj(src, out)
     print("Building compact TTC timetable (this may take several minutes)...", flush=True)
     num_stops, num_trips = build_ttc(folder)
-    print(f"TTC ready: {num_stops:,} stops, {num_trips:,} trips. Restart MAP.")
+    print(f"TTC ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.")
     return num_stops, num_trips
 
 

@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import threading
 import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -105,7 +104,12 @@ def finished_transit_walks():
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"success": True, "message": "Map routing API is running."})
+    from helpers.warmup import is_warm
+    return jsonify({
+        "success": True,
+        "message": "Map routing API is running.",
+        "warmed_up": is_warm(),
+    })
 
 
 @app.route("/api/search", methods=["GET"])
@@ -560,24 +564,25 @@ def routes():
     return response
 
 
-def _preload_transit_graph():
-    try:
-        from transit import ensure_transit_loaded
-        ensure_transit_loaded()
-        # Build/recheck small GTFS disk indexes before users request geometry.
-        from helpers._transit.shape_index import prewarm
-        prewarm()
-    except Exception as error:
-        if DEV_MODE:
-            print(f"Transit preload skipped: {error}")
+def _should_warm_up():
+    """Warm up in whichever process actually serves requests.
+
+    With the dev auto-reloader, `python main.py` runs this module in a supervisor
+    process and again in the reloaded child (WERKZEUG_RUN_MAIN=true). Only the
+    child serves requests, so only the child should pay the loading cost/RAM.
+    """
+    if DEV_MODE:
+        return os.getenv("WERKZEUG_RUN_MAIN") == "true"
+    return True
 
 
-if os.getenv("MAP_PRELOAD_TRANSIT", "1") == "1":
-    threading.Thread(
-        target=_preload_transit_graph,
-        name="transit-preload",
-        daemon=True,
-    ).start()
+# Load every graph/index/feed *before* the server accepts a request, so queries
+# only do lookups. This runs at import time on purpose: it also covers WSGI
+# hosts (gunicorn, Vercel) that import `main:app` instead of running this file.
+# Set MAP_PRELOAD_TRANSIT=0 to go back to lazy loading.
+if _should_warm_up():
+    from helpers.warmup import warm_up
+    warm_up()
 
 
 if __name__ == "__main__":
@@ -592,7 +597,7 @@ if __name__ == "__main__":
         print("kmaps - LOCAL DEVELOPMENT MODE")
         print(f"http://{host}:{port}")
         print("Debug: ON | Auto reload: ON | Route timing: ON")
-        print("Transit graph remains lazy-loaded until transit is first used.")
+        print("All routing data is preloaded at startup (MAP_PRELOAD_TRANSIT=0 to disable).")
         print("=" * 64)
 
         app.run(

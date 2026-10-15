@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BsPersonWalking } from "react-icons/bs";
 import { GoDot } from "react-icons/go";
-import { HiArrowsUpDown } from "react-icons/hi2";
+import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
 import {
@@ -67,7 +67,11 @@ function LocationInput({
     }
 
     const query = value.trim();
-    if (query.length < 2) {
+    // Coordinates entered by the map aren't geocoding search terms.
+    const coordMatch = query.match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+    if (query.length < 2 || (coordMatch &&
+      Math.abs(Number(coordMatch[1])) <= 90 &&
+      Math.abs(Number(coordMatch[2])) <= 180)) {
       return;
     }
 
@@ -397,7 +401,6 @@ export default function SearchPanel({
 
         <button
           type="button"
-          disabled={loading}
           onClick={onSwap}
           title="Swap locations"
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
@@ -458,20 +461,41 @@ export default function SearchPanel({
       )}
 
       {mode === "transit" && (
-        <div className={`mt-3 rounded-xl border p-3 ${darkMode ? "border-button/70 bg-charcoal-light/50" : "border-button-light bg-white"}`}>
-          <label htmlFor="transit-time" className="mb-2 block text-xs font-semibold">
-            Plan your journey
+        <div className={`mt-3 rounded-xl border p-3 ${
+          darkMode
+            ? mapStyle === "hybrid"
+              ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
+              : "border-button bg-charcoal-light"
+            : "border-button-light bg-white"
+        }`}>
+          <label htmlFor="transit-time"
+            className={`mb-2 block text-xs font-semibold ${
+              darkMode ? "text-darkmode-gray" : "text-charcoal"
+            }`}>
+            Departure time
           </label>
-          <select
-            id="transit-time"
-            value={timingMode}
-            onChange={event => onTimingModeChange(event.target.value)}
-            className={`w-full rounded-lg border px-3 py-2.5 text-sm ${darkMode ? "border-button bg-charcoal text-darkmode-gray" : "border-button-light bg-white text-charcoal"}`}
-          >
-            <option value="now">Leave now</option>
-            <option value="scheduled">Depart at a time</option>
-            <option value="arrive_by">Arrive by a time</option>
-          </select>
+          <div className="relative">
+            <select
+              id="transit-time"
+              value={timingMode}
+              onChange={event => onTimingModeChange(event.target.value)}
+              className={`w-full appearance-none rounded-lg border px-3 py-2.5 pr-10 text-sm font-medium outline-none transition focus:ring-2 ${
+                darkMode
+                  ? mapStyle === "hybrid"
+                    ? "border-hybrid-charcoal-light bg-hybrid-charcoal-light text-darkmode-gray focus:border-hybrid-purple focus:ring-hybrid-purple/20"
+                    : "border-button bg-charcoal text-darkmode-gray focus:border-blue focus:ring-blue/20"
+                  : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/20"
+              }`}
+            >
+              <option value="now">Leave now</option>
+              <option value="scheduled">Depart at</option>
+              <option value="arrive_by">Arrive by</option>
+            </select>
+            <HiChevronDown aria-hidden="true"
+              className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 ${
+                darkMode ? "text-darkmode-gray" : "text-charcoal"
+              }`} />
+          </div>
           {timingMode !== "now" && (
             <div className="mt-2 grid grid-cols-2 gap-2">
               <input type="date" value={departureDate} min={todayInputValue()}

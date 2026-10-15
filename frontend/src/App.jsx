@@ -6,7 +6,6 @@ import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
-import GoogleDrivingMapView from "./components/GoogleDrivingMapView.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
@@ -341,7 +340,6 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(
     () => savedPreferences.darkMode === true
   );
-  const [googleFailed, setGoogleFailed] = useState(false);
   const [mapStyle, setMapStyle] = useState("street");
   const mapStyles = () => {
     if (mapStyle === "street") {
@@ -356,14 +354,7 @@ export default function App() {
     sharedRoute.timingMode ||
     validSavedValue(savedPreferences.timingMode, VALID_TIMING_MODES, "now")
   );
-  const [transitPreference, setTransitPreference] = useState(() =>
-    sharedRoute.transitPreference ||
-    validSavedValue(
-      savedPreferences.transitPreference,
-      VALID_TRANSIT_PREFERENCES,
-      "balanced"
-    )
-  );
+  const transitPreference = "balanced";
   const [departureDate, setDepartureDate] = useState(initialSchedule.date);
   const [departureTime, setDepartureTime] = useState(initialSchedule.time);
   const [navigationActive, setNavigationActive] = useState(false);
@@ -375,6 +366,7 @@ export default function App() {
   const initialLocationRequested = useRef(false);
   const searchRequestId = useRef(0);
   const routeAbortController = useRef(null);
+  const alternativesAbortController = useRef(null);
   const navigationWatchId = useRef(null);
   const navigationOffRouteSamples = useRef(0);
   const navigationLastRerouteAt = useRef(0);
@@ -529,7 +521,6 @@ export default function App() {
     requestedMode = mode,
     requestedCyclingType = cyclingType,
     requestedTransitPreference = transitPreference,
-    requestedDrivingProvider = null,
     requestedStart = start,
     requestedDestination = destination,
     requestedTimingMode = timingMode,
@@ -573,6 +564,7 @@ export default function App() {
 
     const requestId = ++searchRequestId.current;
     routeAbortController.current?.abort();
+    alternativesAbortController.current?.abort();
     const controller = new AbortController();
     routeAbortController.current = controller;
     setLoading(true);
@@ -587,11 +579,7 @@ export default function App() {
 
     const routeStartedMs = performance.now();
     try {
-      const response = await fetch("/api/routes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
+      const routeRequest = {
           start: cleanStart,
           destination: cleanDestination,
           mode: requestedMode,
@@ -599,12 +587,16 @@ export default function App() {
           departure_datetime: departureDatetime,
           timing_mode: effectiveTimingMode,
           transit_preference: requestedTransitPreference,
-          driving_provider: requestedDrivingProvider || (requestedMode === "driving" && !googleFailed && import.meta.env.VITE_GOOGLE_MAPS_KEY ? "google" : "osrm"),
           start_coordinates: requestedUseCurrentLocation
             ? effectiveCurrentLocation
             : requestedStartCoordinate,
           destination_coordinates: requestedDestinationCoordinate,
-        }),
+      };
+      const response = await fetch("/api/routes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(routeRequest),
       });
 
       // A reverse proxy or temporarily unavailable backend may respond with HTML.
@@ -643,7 +635,61 @@ export default function App() {
             }
           : result;
 
-      setData(displayedResult);
+      setData(requestedMode === "transit"
+        ? { ...displayedResult, alternatives_loading: true }
+        : displayedResult);
+
+      if (requestedMode === "transit") {
+        const altController = new AbortController();
+        alternativesAbortController.current = altController;
+        // Let the first route paint before requesting the slower options.
+        window.setTimeout(async () => {
+          if (requestId !== searchRequestId.current || altController.signal.aborted) return;
+          const existing = [result.routes[0]];
+          for (const priority of ["fastest", "less_walking"]) {
+            if (requestId !== searchRequestId.current || altController.signal.aborted) break;
+            try {
+              const response = await fetch("/api/transit/alternatives", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: altController.signal,
+                body: JSON.stringify({
+                  ...routeRequest, priority,
+                  existing_routes: existing.map(route => ({
+                    steps: (route.steps || []).filter(step => step.type === "transit")
+                      .map(step => ({ type: "transit", agency: step.agency,
+                        trip_id: step.trip_id, route_id: step.route_id, route: step.route })),
+                  })),
+                  start_coordinates: result.start?.coordinates || routeRequest.start_coordinates,
+                  destination_coordinates: result.end?.coordinates || routeRequest.destination_coordinates,
+                }),
+              });
+              if (!response.ok) continue;
+              const more = await response.json();
+              if (!more.success || !more.route || requestId !== searchRequestId.current) continue;
+              const candidate = more.route;
+              const signature = route => (route?.steps || [])
+                .filter(step => step.type === "transit")
+                .map(step => `${step.agency}:${step.trip_id}`).join("|");
+              if (existing.some(route => signature(route) === signature(candidate))) continue;
+              existing.push(candidate);
+              setData(current => {
+                if (!current || current.mode !== "transit") return current;
+                const routes = [...current.routes, { ...candidate, route_number: current.routes.length + 1 }];
+                const fastest = routes.reduce((best, route) => Number(route.duration_min) < Number(best.duration_min) ? route : best);
+                const shortest = routes.reduce((best, route) => Number(route.distance_km) < Number(best.distance_km) ? route : best);
+                return { ...current, routes, fastest_route_number: fastest.route_number,
+                  shortest_route_number: shortest.route_number };
+              });
+            } catch (error) {
+              if (error.name !== "AbortError") console.warn("Alternative route unavailable", error);
+            }
+          }
+          if (requestId === searchRequestId.current) {
+            setData(current => current?.mode === "transit" ? { ...current, alternatives_loading: false } : current);
+          }
+        }, 80);
+      }
       setStartMapCoordinate(result.start?.coordinates || null);
       setDestinationMapCoordinate(result.end?.coordinates || null);
       // Transit route #1 is ranked for the chosen preference, not necessarily fastest.
@@ -1118,17 +1164,6 @@ export default function App() {
     }
   }
 
-  function changeTransitPreference(nextPreference) {
-    setTransitPreference(nextPreference);
-
-    if (mode === "transit" && start.trim() && destination.trim()) {
-      searchRoutes({
-        requestedMode: "transit",
-        requestedTransitPreference: nextPreference,
-      });
-    }
-  }
-
   function changeTimingMode(nextMode) {
     if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
@@ -1494,8 +1529,6 @@ export default function App() {
           cyclingType={cyclingType}
           onModeChange={changeMode}
           onCyclingTypeChange={changeCyclingType}
-          transitPreference={transitPreference}
-          onTransitPreferenceChange={changeTransitPreference}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}
@@ -1630,43 +1663,6 @@ export default function App() {
         )}
 
 
-        {data?.routing_provider === "google" && displayedMode === "driving" ? (
-        <GoogleDrivingMapView
-          data={data}
-          selectedRoute={selectedRoute}
-          selectedRouteNumber={selectedRouteNumber}
-          hoveredRouteNumber={hoveredRouteNumber}
-          displayedMode={displayedMode}
-          onSelectRoute={selectRoute}
-          onHoverRoute={setHoveredRouteNumber}
-          currentLocation={currentLocation}
-          navigationActive={navigationActive}
-          navigationAccuracy={navigationAccuracy}
-          navigationHeading={navigationHeading}
-          startCoordinate={
-            startUsesCurrentLocation ? currentLocation : startMapCoordinate
-          }
-          destinationCoordinate={destinationMapCoordinate}
-          startLabel={start}
-          destinationLabel={destination}
-          startDraggable={!startUsesCurrentLocation}
-          onSetMapStart={coordinate => setStartFromMap(coordinate)}
-          onSetMapDestination={coordinate => setDestinationFromMap(coordinate)}
-          onMoveStart={coordinate => setStartFromMap(coordinate)}
-          onMoveDestination={coordinate => setDestinationFromMap(coordinate)}
-          locationFocusKey={locationFocusKey}
-          routeFocusKey={routeFocusKey}
-          stepFocusCoordinate={stepFocusCoordinate}
-          stepFocusKey={stepFocusKey}
-          darkMode={darkMode}
-          mapStyle={mapStyle}
-          viewInsets={viewInsets}
-          onUseFreeRouting={() => {
-            setGoogleFailed(true);
-            searchRoutes({ requestedMode: "driving", requestedDrivingProvider: "osrm" });
-          }}
-        />
-        ) : (
         <MapView
           data={data}
           selectedRoute={selectedRoute}
@@ -1698,7 +1694,6 @@ export default function App() {
           mapStyle={mapStyle}
           viewInsets={viewInsets}
         />
-        )}
 
         <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[42vh]">
           <div

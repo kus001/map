@@ -497,7 +497,9 @@ function TransitSegments({ route, darkMode, mapStyle }) {
         key={`${segment.type}-${segment.route || "walk"}-${index}`}
         positions={segment.coordinates || []}
         pathOptions={{
-          color: walking
+          color: !walking && /^#[0-9a-fA-F]{6}$/.test(segment.color || "")
+            ? segment.color
+            : walking
             ? darkMode
               ? "#FFFFFF"
               : MODE_COLORS.walking

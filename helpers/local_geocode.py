@@ -296,6 +296,15 @@ def _load_index():
         pass
 
 
+def preload():
+    """Load (or build) the address index now instead of on the first lookup.
+
+    Returns the number of indexed address points.
+    """
+    _load_index()
+    return sum(len(entries) for entries in (_by_civic or {}).values())
+
+
 def _candidate_score(query_street, candidate_street):
     """Similarity used for fuzzy matching and autocomplete ranking."""
     if not query_street:

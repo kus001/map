@@ -1773,6 +1773,11 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
+    # TTC has to be in the graph before choosing the nearby stops.
+    # Loading it during walking geometry is too late for Toronto routes.
+    maybe_load_ttc(start, end)
+    mark("ttc_load")
+
     if _shared is None:
         grt_realtime = realtime_snapshot()
         go_realtime = go_gtfs_snapshot()
@@ -1842,10 +1847,43 @@ def get_transit_route(
                     > requested_arrival - timedelta(minutes=2)):
                 path, search_time, best_start, best_end = arrive_search_path
 
+    next_service = False
+    # "Leave now" can be after the last GO connection of the night.
+    # Try the next morning once; be explicit that this isn't an immediate departure.
+    if path is None and departure_datetime is None and requested_arrival is None:
+        morning = requested_departure.replace(hour=6, minute=0, second=0, microsecond=0)
+        if morning <= requested_departure:
+            morning += timedelta(days=1)
+        if (_in_toronto(start) or _in_toronto(end)) and morning - requested_departure <= timedelta(hours=24):
+            next_realtime = dict(routing_realtime)
+            next_realtime["available"] = False
+            next_realtime["trip_updates"] = {}
+            next_realtime["vehicles"] = {}
+            found = search_transit(
+                start_options, end_options, next_realtime,
+                departure_datetime=morning,
+                soft_walk_m=preference["soft_walk_m"],
+                walk_penalty=preference["walk_penalty"],
+                max_nearby_stops=preference["max_nearby_stops"],
+                excluded_route_keys=excluded_route_keys,
+            )
+            if found[0] is not None:
+                path, search_time, best_start, best_end = found
+                requested_departure = morning
+                routing_realtime = next_realtime
+                realtime_allowed = False
+                next_service = True
+
     mark("routing")
 
     if path is None or best_start is None or best_end is None:
-        return {"success": False, "error": "No transit route found."}
+        ttc_note = ""
+        if _in_toronto(start) or _in_toronto(end):
+            from helpers._transit.ttc_setup import CACHE
+            if not CACHE.exists():
+                ttc_note = " TTC timetable not installed; run python -m helpers._transit.ttc_setup."
+        return {"success": False,
+                "error": "No transit departure found for this time. Try Depart at with a daytime departure." + ttc_note}
 
     if not any(is_transit_edge(path[i][2] or {}) for i in range(1, len(path))):
         return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
@@ -2277,6 +2315,7 @@ def get_transit_route(
         ],
         "realtime": realtime_info,
         "departure_datetime": requested_departure.isoformat(),
+        "next_service": next_service,
         "transit_preference": preference_key,
         "transit_preference_label": preference["label"],
         "transfer_reliability": connection_reliability(steps),
@@ -2329,6 +2368,7 @@ def get_transit_route(
         "routes": routes,
         "alerts": alerts,
         "departure_datetime": requested_departure.isoformat(),
+        "next_service": next_service,
         "transit_preference": preference_key,
         "arrive_by_datetime": requested_arrival.isoformat() if requested_arrival else None,
         "arrival_estimate_datetime": route["arrival_estimate_datetime"],
@@ -2428,7 +2468,7 @@ if __name__ == "__main__":
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
 
     print(bold("=" * 64))
-    print(bold("kmaps - LOCAL TRANSIT TEST"))
+    print(bold("Map Router - LOCAL TRANSIT TEST"))
     print(bold("=" * 64))
 
     graph_load_seconds = ensure_transit_loaded(verbose=True)

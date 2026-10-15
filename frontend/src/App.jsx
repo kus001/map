@@ -613,7 +613,7 @@ export default function App() {
         );
       }
       const elapsedMs = Math.round(performance.now() - routeStartedMs);
-      console.info(`[kmaps] ${requestedMode}: ${elapsedMs} ms end-to-end; ` +
+      console.info(`[MAP] ${requestedMode}: ${elapsedMs} ms end-to-end; ` +
         `${result.server_time_ms ?? "?"} ms server; stages:`, result.server_timing_ms || {});
 
       if (requestId !== searchRequestId.current) {
@@ -655,6 +655,8 @@ export default function App() {
                 signal: altController.signal,
                 body: JSON.stringify({
                   ...routeRequest, priority,
+                  departure_datetime: result.next_service ? result.departure_datetime : routeRequest.departure_datetime,
+                  timing_mode: result.next_service ? "scheduled" : effectiveTimingMode,
                   existing_routes: existing.map(route => ({
                     steps: (route.steps || []).filter(step => step.type === "transit")
                       .map(step => ({ type: "transit", agency: step.agency,
@@ -715,7 +717,15 @@ export default function App() {
         setStatus(`${typeName} cycling route found${scheduledSuffix}`);
       } else if (requestedMode === "transit") {
         const count = result.routes?.length || 1;
-        setStatus(`${count} transit route${count === 1 ? "" : "s"} found`);
+        const nextTripTime = result.next_service && result.departure_datetime
+          ? new Date(result.departure_datetime).toLocaleString([], {
+              weekday: "short", month: "short", day: "numeric",
+              hour: "numeric", minute: "2-digit",
+            })
+          : null;
+        setStatus(nextTripTime
+          ? `No route at this time. Showing a scheduled route from ${nextTripTime}.`
+          : `${count} transit route${count === 1 ? "" : "s"} found`);
       } else {
         setStatus(`Route found${scheduledSuffix}`);
       }
@@ -748,6 +758,7 @@ export default function App() {
     if (
       displayedMode !== "transit" ||
       timingMode !== "now" ||
+      selectedRouteRef.current?.next_service ||
       !selectedTransitSignature ||
       !selectedRouteRef.current
     ) {
@@ -1184,22 +1195,32 @@ export default function App() {
     }
 
     const nextStart = destination;
-    const nextDestination =
-      startUsesCurrentLocation && currentLocation
-        ? coordinateString(currentLocation)
-        : start;
+    const oldStartPoint = startUsesCurrentLocation ? currentLocation : startMapCoordinate;
+    const nextDestination = startUsesCurrentLocation && currentLocation
+      ? coordinateString(currentLocation)
+      : start;
+    const nextStartPoint = destinationMapCoordinate;
+    const nextEndPoint = oldStartPoint;
 
+    if (startUsesCurrentLocation && !currentLocation) {
+      setStatus("Get your current location before swapping.");
+      return;
+    }
+
+    routeAbortController.current?.abort();
     setStart(nextStart);
     setStartUsesCurrentLocation(false);
-    setStartMapCoordinate(null);
+    setStartMapCoordinate(nextStartPoint || null);
     setDestination(nextDestination);
-    setDestinationMapCoordinate(null);
+    setDestinationMapCoordinate(nextEndPoint || null);
 
     if (nextStart.trim() && nextDestination.trim()) {
       searchRoutes({
         requestedStart: nextStart,
         requestedDestination: nextDestination,
         requestedUseCurrentLocation: false,
+        requestedStartCoordinate: nextStartPoint || null,
+        requestedDestinationCoordinate: nextEndPoint || null,
       });
     }
   }
@@ -1492,7 +1513,7 @@ export default function App() {
                 darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
-              kmaps
+              Kmaps
             </a>
 
             <button

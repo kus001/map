@@ -65,11 +65,6 @@ temp/
 # Keep other static GTFS resources and the transit graph available to deployments.
 transit_data/GTFS_Files/*
 
-# Local databases (if added later)
-*.sqlite
-*.sqlite3
-*.db-journal
-
 # IDEs and OS files
 .vscode/
 .idea/
@@ -79,4 +74,4 @@ Desktop.ini
 
 # ignore test files
 test.*
-.env
+*.env

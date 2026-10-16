@@ -879,9 +879,10 @@ export default function MapView({
           url={baseLayer.url}
           attribution={baseLayer.attribution}
           maxZoom={MAP_MAX_ZOOM}
-          // At close range the raster hybrid map is scaled instead of asking
-          // for unavailable zoom levels. Free hybrid also gets sharper Esri tiles below.
-          maxNativeZoom={mapStyle === "satellite" || mapStyle === "hybrid" ? SATELLITE_NATIVE_ZOOM : undefined}
+          // Esri imagery tops out at different levels depending on the area.
+          // Don't force MapTiler's Hybrid into zoom-19 tiles; its labels
+          // become huge when Leaflet stretches them at a closer zoom.
+          maxNativeZoom={baseLayer.id.startsWith("esri-") ? SATELLITE_NATIVE_ZOOM : undefined}
           crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
           eventHandlers={baseLayer.id.startsWith("maptiler")
             ? { tileerror: onTileError, tileload: onTileLoad }
@@ -896,7 +897,9 @@ export default function MapView({
           key={`${baseLayer.id}-labels`}
           url={baseLayer.labels.url}
           attribution={baseLayer.labels.attribution}
-          maxZoom={MAP_MAX_ZOOM}
+          // Esri labels are raster tiles. Overzooming them three levels
+          // makes station and street names enormous, so fade them out at 21+.
+          maxZoom={20}
           maxNativeZoom={SATELLITE_NATIVE_ZOOM}
           zIndex={250}
         />

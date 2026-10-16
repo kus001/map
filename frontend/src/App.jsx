@@ -336,6 +336,8 @@ export default function App() {
   const [stepFocusCoordinate, setStepFocusCoordinate] = useState(null);
   const [startMapCoordinate, setStartMapCoordinate] = useState(null);
   const [destinationMapCoordinate, setDestinationMapCoordinate] = useState(null);
+  // Set when the server can't pick between several places for a typed address.
+  const [addressIssue, setAddressIssue] = useState(null);
   const [data, setData] = useState(null);
   const [darkMode, setDarkMode] = useState(
     () => savedPreferences.darkMode === true
@@ -569,6 +571,7 @@ export default function App() {
     routeAbortController.current = controller;
     setLoading(true);
     setError(false);
+    setAddressIssue(null);
     setStatus(
       effectiveTimingMode === "arrive_by"
         ? "Finding a journey that arrives before your deadline..."
@@ -621,6 +624,16 @@ export default function App() {
       }
 
       if (!response.ok || !result.success) {
+        const issue = result?.address_issue;
+        if (issue?.options?.length) {
+          const place = issue.field === "start" ? "starting point" : "destination";
+          setAddressIssue(issue);
+          throw new Error(
+            issue.kind === "mismatch"
+              ? `Check the street type for your ${place}.`
+              : `Choose which ${place} you meant.`
+          );
+        }
         throw new Error(result?.error || `Route could not be found (HTTP ${response.status}).`);
       }
 
@@ -1101,6 +1114,7 @@ export default function App() {
     setStart(nextStart);
     setStartUsesCurrentLocation(false);
     setStartMapCoordinate(null);
+    setAddressIssue(null);
   }
 
   function handleDestinationChange(nextDestination) {
@@ -1109,6 +1123,35 @@ export default function App() {
     }
     setDestination(nextDestination);
     setDestinationMapCoordinate(null);
+    setAddressIssue(null);
+  }
+
+  // The user chose one of the server's candidates: pin that exact point and retry.
+  function pickAddressOption(issue, option) {
+    const coordinate = [Number(option.lat), Number(option.lon)];
+    if (!coordinate.every(Number.isFinite)) {
+      return;
+    }
+
+    setAddressIssue(null);
+
+    if (issue.field === "start") {
+      setStart(option.label);
+      setStartUsesCurrentLocation(false);
+      setStartMapCoordinate(coordinate);
+      searchRoutes({
+        requestedStart: option.label,
+        requestedUseCurrentLocation: false,
+        requestedStartCoordinate: coordinate,
+      });
+    } else {
+      setDestination(option.label);
+      setDestinationMapCoordinate(coordinate);
+      searchRoutes({
+        requestedDestination: option.label,
+        requestedDestinationCoordinate: coordinate,
+      });
+    }
   }
 
   function setStartFromMap(coordinate, { reroute = true } = {}) {
@@ -1572,6 +1615,13 @@ export default function App() {
           onDestinationCoordinate={coordinate =>
             setDestinationMapCoordinate(coordinate)
           }
+          startBias={currentLocation || destinationMapCoordinate}
+          destinationBias={
+            (startUsesCurrentLocation ? currentLocation : startMapCoordinate) ||
+            currentLocation
+          }
+          addressIssue={addressIssue}
+          onPickAddressOption={pickAddressOption}
         />
 
         <RoutePanel

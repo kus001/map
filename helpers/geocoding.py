@@ -1,53 +1,63 @@
 """Geocoding helpers for the map router.
 
-Resolution order:
+Resolution order (see resolve_address):
 1. Literal ``lat, lon`` coordinates.
-2. Curated aliases in ``known_places.json`` (if present).
-3. Curated aliases / short forms in ``transit_data/geocode_cache.json``.
-4. Places selected from autocomplete during the current server session.
-5. Waterloo Region's local address-point index.
-6. Nominatim as a last-resort network geocoder.
+2. Curated aliases in ``known_places.json`` and ``transit_data/geocode_cache.json``.
+3. Places selected from autocomplete during the current server session.
+4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
+5. Nominatim as a last-resort network geocoder, cross-checked against the local
+   street data when the local index knew the street but not the exact civic number.
 
 Important: ``geocode_cache.json`` is treated as project data and is READ ONLY at
-runtime. Normal searches, local address lookups, Nominatim results, and
-autocomplete selections never get written into it.
+runtime. Nothing in this module ever writes to it; results learned while the server
+runs live in a bounded in-memory LRU cache instead.
 """
 
 import json
+import math
 import re
+import threading
+import time
 from collections import OrderedDict
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
-from geopy import exc
-from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 
-from helpers.local_geocode import local_resolve, search_local
+from helpers.local_geocode import resolve_detailed, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 KNOWN_PLACES_PATH = PROJECT_ROOT / "transit_data" / "known_places.json"
 GEOCODE_CACHE_PATH = PROJECT_ROOT / "transit_data" / "geocode_cache.json"
 
-# Rough Waterloo Region viewbox. This biases Nominatim toward local results,
-# but bounded=False still allows valid matches elsewhere in Canada.
+# Rough Waterloo Region viewbox. This biases Nominatim toward local results
 WATERLOO_REGION_VIEWBOX = [
     (43.65, -80.65),
     (43.30, -80.25),
 ]
+REGION_CENTER = (43.46, -80.52)
 
 _COORDINATE_RE = re.compile(
     r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$"
 )
 
 _geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
-_geocode = RateLimiter(
-    _geolocator.geocode,
-    min_delay_seconds=0,
-    max_retries=0,
-    error_wait_seconds=0,
-    swallow_exceptions=True,
-)
+
+# Nominatim's usage policy allows ~1 request/second, so calls are spaced out, and
+# failed lookups are remembered for a while instead of being retried on every click.
+_NOMINATIM_MIN_INTERVAL = 1.0
+_NOMINATIM_TIMEOUT = 2.5
+_NEGATIVE_TTL = 15 * 60
+_NEGATIVE_MAX = 500
+_nominatim_lock = threading.Lock()
+_last_nominatim_call = 0.0
+_negative_cache = OrderedDict()  # key -> expiry (monotonic seconds)
+_negative_lock = threading.Lock()
+
+# If Nominatim and the local street data disagree by more than this, trust the
+# local data (it knows the street, only the civic number was missing).
+_NOMINATIM_DISAGREE_KM = 5.0
 
 
 def _normalize_key(value):
@@ -63,6 +73,26 @@ def _write_coordinate_map(data, path=GEOCODE_CACHE_PATH, reload=True):
         global _cached_places, _saved_aliases
         _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
         _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
+
+def _km(a, b):
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    h = (
+        math.sin((lat2 - lat1) / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    )
+    return 6371.0 * 2 * math.asin(math.sqrt(h))
+
+
+def _valid_point(point) -> None|tuple[float, float]:
+    """Check if the point is valid, returns None if it isn't, otherwise the point"""
+    try:
+        lat, lon = float(point[0]), float(point[1])
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
+    if -90 <= lat <= 90 and -180 <= lon <= 180:
+        return (lat, lon)
+    return None
 
 
 def _load_coordinate_map(path):
@@ -82,51 +112,33 @@ def _load_coordinate_map(path):
         if not isinstance(value, (list, tuple)) or len(value) != 2:
             continue
 
-        try:
-            lat = float(value[0])
-            lon = float(value[1])
-        except (TypeError, ValueError):
-            continue
-
-        if -90 <= lat <= 90 and -180 <= lon <= 180:
-            result[_normalize_key(key)] = (lat, lon)
+        point = _valid_point(value)
+        if point is not None:
+            result[_normalize_key(key)] = point
 
     return result
 
 
-# Both of these are persistent project data loaded once at startup.
-# They are never modified by this module.
+# CHANGE: files are written to now!!!
 _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
 _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
-_RUNTIME_CACHE_MAX = 0
 _runtime_cache = OrderedDict()
+_runtime_lock = threading.Lock()
 
 
 def _remember_runtime(key, coordinates):
-    global _runtime_cache
-    _runtime_cache[key] = coordinates
-
-    if len(_runtime_cache) > _RUNTIME_CACHE_MAX:
-        print("writing to", _RUNTIME_CACHE_MAX)
+    with _runtime_lock:
+        _runtime_cache[key] = coordinates
         _write_coordinate_map(_runtime_cache)
-        _runtime_cache = OrderedDict()
-    else:
-        print(_runtime_cache)
 
 
-def _coordinates_from_text(value):
-    match = _COORDINATE_RE.match(value)
-    if not match:
-        return None
-
-    lat = float(match.group(1))
-    lon = float(match.group(2))
-
-    if -90 <= lat <= 90 and -180 <= lon <= 180:
-        return (lat, lon)
-
-    return None
+def _recall_runtime(key):
+    with _runtime_lock:
+        coordinates = _runtime_cache.get(key)
+        if coordinates is not None:
+            _runtime_cache.move_to_end(key)
+        return coordinates
 
 
 def remember_place(label, lat, lon):
@@ -139,117 +151,342 @@ def remember_place(label, lat, lon):
     if not key:
         return
 
-    try:
-        coordinates = (float(lat), float(lon))
-    except (TypeError, ValueError):
-        return
-
-    if not (-90 <= coordinates[0] <= 90 and -180 <= coordinates[1] <= 180):
-        return
-
-    _remember_runtime(key, coordinates)
+    point = _valid_point((lat, lon))
+    if point is not None:
+        _remember_runtime(key, point)
 
 
-def get_coordinates(address):
-    clean_address = str(address).strip()
-    if not clean_address:
+# --- known places (aliases) --------------------------------------------------
+
+_LOWER_WORDS = {"of", "the", "and", "at", "de", "du"}
+_known_places = None
+_known_lock = threading.Lock()
+
+
+def _display_name(key):
+    words = key.split()
+    if len(words) == 1 and len(words[0]) <= 4:
+        return words[0].upper()  # uw, wlu, rom, mit, e7 ...
+    shown = []
+    for index, word in enumerate(words):
+        if len(word) <= 2 and word.isalpha() and word not in _LOWER_WORDS:
+            shown.append(word.upper())  # "boston us" -> "Boston US"
+        elif index and word in _LOWER_WORDS:
+            shown.append(word)
+        else:
+            shown.append(word.capitalize())
+    return " ".join(shown)
+
+
+def _known_groups():
+    """[(coordinates, display_name, [alias keys])], one group per distinct place."""
+    global _known_places
+
+    if _known_places is None:
+        with _known_lock:
+            if _known_places is None:
+                grouped = {}
+                for source in (_saved_aliases, _cached_places):
+                    for key, coordinates in source.items():
+                        grouped.setdefault(coordinates, []).append(key)
+                _known_places = [
+                    (coordinates, _display_name(max(keys, key=len)), keys)
+                    for coordinates, keys in grouped.items()
+                ]
+    return _known_places
+
+
+def _alias_score(query, alias):
+    if alias == query:
+        return 3.0
+    if alias.startswith(query):
+        return 2.5
+    if any(word.startswith(query) for word in alias.split()[1:]):
+        return 2.0
+    if len(query) >= 3 and query in alias:
+        return 1.0
+    if len(query) >= 4:
+        ratio = SequenceMatcher(None, query, alias).ratio()
+        if ratio >= 0.8:
+            return ratio
+    return 0.0
+
+
+def _search_known(query, limit, bias):
+    q = _normalize_key(query)
+    if len(q) < 2:
+        return []
+
+    scored = []
+    for coordinates, display, keys in _known_groups():
+        score = max(_alias_score(q, key) for key in keys)
+        if score <= 0:
+            continue
+        dist = _km(bias, coordinates) if bias else 0.0
+        scored.append((-score, round(dist, 1), display, coordinates))
+
+    scored.sort()
+    return [
+        {"label": display, "lat": coordinates[0], "lon": coordinates[1], "source": "known"}
+        for _score, _dist, display, coordinates in scored[:limit]
+    ]
+
+
+# --- Nominatim fallback ------------------------------------------------------
+
+def _negative_hit(key):
+    now = time.monotonic()
+    with _negative_lock:
+        expiry = _negative_cache.get(key)
+        if expiry is None:
+            return False
+        if expiry < now:
+            del _negative_cache[key]
+            return False
+        return True
+
+
+def _remember_negative(key):
+    with _negative_lock:
+        _negative_cache[key] = time.monotonic() + _NEGATIVE_TTL
+        _negative_cache.move_to_end(key)
+        while len(_negative_cache) > _NEGATIVE_MAX:
+            _negative_cache.popitem(last=False)
+
+
+def _pick_nominatim(locations, bias):
+    """Choose between Nominatim candidates: importance first, nearness second.
+
+    Distance only costs a little (100 km = 0.17), so a famous far place still beats a
+    trivial local one ("CN Tower") while two similar places resolve to the closer one.
+    """
+    reference = bias or REGION_CENTER
+    best, best_score = None, None
+
+    for rank, location in enumerate(locations):
+        raw = getattr(location, "raw", None) or {}
+        try:
+            importance = float(raw.get("importance") or 0.0)
+        except (TypeError, ValueError):
+            importance = 0.0
+        dist = _km(reference, (location.latitude, location.longitude))
+        score = importance - min(dist / 600.0, 0.25) - rank * 0.01
+        if best_score is None or score > best_score:
+            best, best_score = location, score
+
+    return best
+
+
+def _nominatim_lookup(query, bias=None):
+    """Return (lat, lon, label) from Nominatim, or None."""
+    key = _normalize_key(query)
+    if _negative_hit(key):
         return None
 
-    direct_coordinates = _coordinates_from_text(clean_address)
-    if direct_coordinates is not None:
-        return direct_coordinates
+    global _last_nominatim_call
+    locations = None
 
-    key = _normalize_key(clean_address)
+    with _nominatim_lock:
+        wait = _NOMINATIM_MIN_INTERVAL - (time.monotonic() - _last_nominatim_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_nominatim_call = time.monotonic()
+
+        try:
+            locations = _geolocator.geocode(
+                query,
+                exactly_one=False,
+                limit=5,
+                timeout=_NOMINATIM_TIMEOUT,
+                viewbox=WATERLOO_REGION_VIEWBOX,
+                bounded=False,
+                country_codes="ca",
+            )
+        except Exception:
+            # Network trouble is not evidence the place doesn't exist: don't cache it.
+            return None
+
+    if not locations:
+        _remember_negative(key)
+        return None
+
+    chosen = _pick_nominatim(locations, bias)
+    return (
+        float(chosen.latitude),
+        float(chosen.longitude),
+        getattr(chosen, "address", None) or query,
+    )
+
+
+# --- public resolution API ---------------------------------------------------
+
+def _coordinates_from_text(value):
+    match = _COORDINATE_RE.match(value)
+    if not match:
+        return None
+
+    return _valid_point((match.group(1), match.group(2)))
+
+
+def _result(status, point=None, label=None, source=None, options=None):
+    return {
+        "status": status,  # ok | approximate | ambiguous | mismatch | not_found
+        "lat": point[0] if point else None,
+        "lon": point[1] if point else None,
+        "label": label,
+        "source": source,
+        "options": options or [],
+    }
+
+
+def _entry_option(entry):
+    return {"label": entry[4], "lat": entry[2], "lon": entry[3]}
+
+
+def _sort_options(options, bias):
+    if bias:
+        options.sort(key=lambda o: _km(bias, (o["lat"], o["lon"])))
+    return options
+
+
+def resolve_address(address, bias=None, allow_network=True):
+    """Resolve typed text to a place, explaining failures instead of guessing.
+
+    Returns a dict: ``status`` is "ok", "approximate" (street known, civic number
+    placed beside its nearest neighbour), "ambiguous" / "mismatch" (``options`` lists
+    candidates the user should choose from) or "not_found".
+    ``bias`` is an optional (lat, lon) used to order options and pick between
+    otherwise equal network results.
+    """
+    clean = str(address).strip()
+    if not clean:
+        return _result("not_found")
+
+    direct = _coordinates_from_text(clean)
+    if direct is not None:
+        return _result("ok", direct, clean, "coordinates")
+
+    key = _normalize_key(clean)
 
     # Intentionally saved project aliases / shorthand names.
-    if key in _cached_places:
-        return _cached_places[key]
-
-    if key in _saved_aliases:
-        return _saved_aliases[key]
+    for source in (_cached_places, _saved_aliases):
+        if key in source:
+            return _result("ok", source[key], clean, "known")
 
     # Exact coordinates remembered from an autocomplete selection this session.
-    if key in _runtime_cache:
-        _runtime_cache.move_to_end(key)
-        return _runtime_cache[key]
+    remembered = _recall_runtime(key)
+    if remembered is not None:
+        return _result("ok", remembered, clean, "session")
 
-    # Civic addresses are resolved from address_points.csv via the generated
-    # address_index_cache_v3.pkl. We only keep the result in RAM here.
-    status, payload = local_resolve(clean_address)
+    status, payload = resolve_detailed(clean)
 
     if status == "ok":
-        coordinates = (float(payload[0]), float(payload[1]))
-        _remember_runtime(key, coordinates)
-        return coordinates
+        point = (float(payload[2]), float(payload[3]))
+        _remember_runtime(key, point)
+        return _result("ok", point, payload[4], "local")
 
     if status in ("ambiguous", "mismatch"):
         # Never guess between "Chesapeake Dr" and "Chesapeake Cres" (or between two
         # towns), and never hand an address the municipality knows is different to
-        # Nominatim. Returning None lets the caller report it; see
-        # explain_address_problem().
-        return None
+        # Nominatim.
+        options = _sort_options([_entry_option(e) for e in payload], bias)
+        return _result(status, options=options)
 
-    # Last resort for typed places that were not selected through autocomplete.
-    location = _geocode(
-        clean_address,
-        timeout=2.5,
-        viewbox=WATERLOO_REGION_VIEWBOX,
-        bounded=False
-    )
+    approximate = None
+    if status == "approximate":
+        approximate = ((float(payload[0]), float(payload[1])), payload[2])
 
-    if location is None:
-        return None
+    found = _nominatim_lookup(clean, bias) if allow_network else None
 
-    coordinates = (float(location.latitude), float(location.longitude))
-    _remember_runtime(key, coordinates)
-    return coordinates
+    if found is not None:
+        point = (found[0], found[1])
+        if approximate is None or _km(point, approximate[0]) <= _NOMINATIM_DISAGREE_KM:
+            _remember_runtime(key, point)
+            return _result("ok", point, found[2], "nominatim")
+
+    if approximate is not None:
+        # Not cached: if Nominatim was only unreachable, a later try may do better.
+        return _result("approximate", approximate[0], approximate[1], "local")
+
+    return _result("not_found")
+
+
+def get_coordinates(address, bias=None):
+    """(lat, lon) for typed text, or None when it is missing or needs a choice."""
+    result = resolve_address(address, bias=bias)
+    if result["status"] in ("ok", "approximate"):
+        return (result["lat"], result["lon"])
+    return None
+
+
+def address_options(address, bias=None):
+    """Local-only check: (status, options) when the user must choose or correct."""
+    status, payload = resolve_detailed(str(address).strip())
+    if status in ("ambiguous", "mismatch") and payload:
+        return status, _sort_options([_entry_option(e) for e in payload], bias)
+    return status, []
 
 
 def explain_address_problem(address, default="Address couldn't be found."):
     """Human-readable reason get_coordinates() returned None, with suggestions."""
-    status, payload = local_resolve(str(address).strip())
+    status, options = address_options(address)
+    labels = [option["label"] for option in options]
 
-    if status == "ambiguous" and payload:
-        return "That address matches more than one place. Pick one: " + "; ".join(payload)
+    if status == "ambiguous" and labels:
+        return "That address matches more than one place. Pick one: " + "; ".join(labels)
 
-    if status == "mismatch" and payload:
-        return "No address with that street type. Did you mean: " + "; ".join(payload)
+    if status == "mismatch" and labels:
+        return "No address with that street type. Did you mean: " + "; ".join(labels)
 
     return default
 
 
-@lru_cache(maxsize=256)
-def _search_places_cached(query, limit) -> tuple:
+# --- autocomplete ------------------------------------------------------------
+
+def _bias_key(bias):
+    point = _valid_point(bias) if bias else None
+    if point is None:
+        return None
+    return (round(point[0], 2), round(point[1], 2))
+
+
+@lru_cache(maxsize=512)
+def _search_places_cached(query, limit, bias_key) -> tuple:
     clean_query = re.sub(r"\s+", " ", str(query).strip())
     if len(clean_query) < 2:
         return tuple()
 
-    results = search_local(clean_query, limit=limit)
+    known = _search_known(clean_query, limit, bias_key)
+    local = search_local(clean_query, limit=limit, bias=bias_key)
 
-    return tuple(
-        (
-            result["label"],
-            result["lat"],
-            result["lon"],
-            result["source"],
-        )
-        for result in results[:limit]
-    )
+    # A leading number means the user is typing an address; otherwise they are more
+    # likely naming a place, so curated places come first.
+    ordered = local + known if clean_query[0].isdigit() else known + local
+
+    merged, seen = [], set()
+    for result in ordered:
+        label_key = result["label"].lower()
+        if label_key in seen:
+            continue
+        seen.add(label_key)
+        merged.append((result["label"], result["lat"], result["lon"], result["source"]))
+        if len(merged) >= limit:
+            break
+
+    return tuple(merged)
 
 
-def search_places(query, limit=6):
-    """Return local address autocomplete results.
+def search_places(query, limit=6, bias=None):
+    """Return local autocomplete results: curated places, civic addresses, streets.
 
-    The React frontend merges these with MapTiler POI/place suggestions.
+    The React frontend merges these with MapTiler POI/place suggestions. ``bias`` is
+    an optional (lat, lon) used to rank equally good matches by nearness.
     """
     limit = max(1, min(int(limit), 10))
 
     return [
-        {
-            "label": label,
-            "lat": lat,
-            "lon": lon,
-            "source": source,
-        }
-        for label, lat, lon, source in _search_places_cached(query, limit)
+        {"label": label, "lat": lat, "lon": lon, "source": source}
+        for label, lat, lon, source in _search_places_cached(
+            query, limit, _bias_key(bias)
+        )
     ]

@@ -29,12 +29,9 @@
 
 ## Running / Using [kmaps](https://map.host-transit-page.hackclub.app/)
 
-<h4><strong> <a href=https://map.host-transit-page.hackclub.app> kmaps </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+<h4><strong> <a href=https://map.kmaps.ca/> kmaps </a> is now hosted at <a href=https://map.kmaps.ca/>this URL! </a></strong></h4>
 
-If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
-(A new URL may be incoming!)
-
-kmaps is now back on Vercel! It can be accessed [here](https://map-thirdspace.vercel.app/).
+If you'd rather copy and paste it, it's [https://map.kmaps.ca/](https://map.kmaps.ca/)
 
 </div>
 

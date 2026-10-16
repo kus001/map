@@ -1659,7 +1659,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -1668,7 +1668,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -1677,7 +1677,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Madhav
           </a>

@@ -1553,7 +1553,13 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
+                darkMode 
+                ? mapStyle === "hybrid" 
+                  ? "text-hybrid-purple-light hover:text-hybrid-purple-dark"
+                  : mapStyle === "satellite"
+                    ? "text-green hover:text-green-dark"
+                    : "text-blue-light hover:text-blue" 
+                : "text-green hover:text-green-dark"
               }`}
             >
               kmaps
@@ -1567,7 +1573,8 @@ export default function App() {
                 darkMode
                   ? mapStyle === "hybrid"
                     ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : "border-button bg-charcoal-light text-blue-light"
+                    : mapStyle === "satellite"
+                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >

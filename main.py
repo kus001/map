@@ -13,7 +13,12 @@ load_dotenv()
 
 from cycling import get_cycling_route
 from driving import get_driving_route
-from helpers.geocoding import remember_place, search_places
+from helpers.geocoding import (
+    address_options,
+    explain_address_problem,
+    remember_place,
+    search_places,
+)
 from helpers.time_management import us
 from walking import get_walking_route
 
@@ -62,6 +67,30 @@ def parse_coordinates(value):
     if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     return [lat, lon]
+
+
+def address_issue_for(start, destination, start_coordinates, destination_coordinates):
+    """Describe a typed address that needs the user's choice, in a form the UI can show.
+
+    Only fields the browser did not already pin to coordinates are checked. Returns
+    ``{"field", "kind", "message", "options": [{label, lat, lon}]}`` or None. The
+    other end of the trip is used as a proximity bias so the nearest option is first.
+    """
+    for field, text, pinned, other in (
+        ("start", start, start_coordinates, destination_coordinates),
+        ("destination", destination, destination_coordinates, start_coordinates),
+    ):
+        if pinned is not None:
+            continue
+        kind, options = address_options(text, bias=other)
+        if options:
+            return {
+                "field": field,
+                "kind": kind,
+                "message": explain_address_problem(text),
+                "options": options,
+            }
+    return None
 
 
 def summarize_route_timing(timing, total_us):
@@ -124,9 +153,15 @@ def search():
     if len(query) < 2:
         return jsonify({"success": True, "results": []})
 
+    # Optional proximity bias (the user's location / other end of the trip). It only
+    # orders equally good matches; a bad value is ignored rather than rejected.
+    bias = parse_coordinates([request.args.get("lat"), request.args.get("lon")])
+
     return jsonify({
         "success": True,
-        "results": search_places(query, limit=max(1, min(limit, 10))),
+        "results": search_places(
+            query, limit=max(1, min(limit, 10)), bias=bias
+        ),
     })
 
 
@@ -555,6 +590,12 @@ def routes():
     status_code = 200 if result.get("success") else (503 if unavailable else 404)
     if not result.get("success"):
         result["code"] = "provider_unavailable" if unavailable else "route_not_found"
+        if not unavailable:
+            issue = address_issue_for(
+                start, destination, start_coordinates, destination_coordinates
+            )
+            if issue:
+                result["address_issue"] = issue
     response = jsonify(result)
     response.status_code = status_code
     response.headers["Server-Timing"] = ", ".join(

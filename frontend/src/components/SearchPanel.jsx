@@ -30,6 +30,92 @@ const BIKE_TYPES = [
 
 
 
+const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 }; // Kitchener-Waterloo
+
+function roundedBias(bias) {
+  if (!Array.isArray(bias)) {
+    return null;
+  }
+
+  const lat = Number(bias[0]);
+  const lon = Number(bias[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  // Rounded so small GPS jitter doesn't change the search.
+  return { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100 };
+}
+
+function sourceLabel(item) {
+  if (item.source === "known") return "Known place";
+  if (item.source === "local") return "Local address";
+  if (item.source === "street") return "Street";
+  return item.kind === "address" ? "Address" : "Place search";
+}
+
+// Combine the server's results (curated places, civic addresses, streets) with
+// MapTiler's. Each kind gets a few guaranteed slots so a long run of one kind can't
+// push out the rest, then leftovers fill whatever room remains. The same building
+// often arrives as both a local address point and a MapTiler address, so address-like
+// results within ~30 m of one already listed are shown once.
+function mergeSuggestions(serverResults, mapTilerResults, limit = 6) {
+  const known = serverResults.filter(item => item.source === "known");
+  const addresses = serverResults.filter(item => item.source === "local");
+  const streets = serverResults.filter(item => item.source === "street");
+
+  const prioritized = [
+    ...known.slice(0, 2),
+    ...addresses.slice(0, 4),
+    ...mapTilerResults.slice(0, 3),
+    ...streets.slice(0, 2),
+    ...known.slice(2),
+    ...addresses.slice(4),
+    ...mapTilerResults.slice(3),
+    ...streets.slice(2),
+  ];
+
+  const merged = [];
+  const seenLabels = new Set();
+  const addressPoints = [];
+
+  for (const item of prioritized) {
+    const lat = Number(item?.lat);
+    const lon = Number(item?.lon);
+    if (!item?.label || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      continue;
+    }
+
+    const labelKey = item.label.trim().toLowerCase();
+    if (seenLabels.has(labelKey)) {
+      continue;
+    }
+
+    const addressLike = item.source === "local" || item.kind === "address";
+    if (
+      addressLike &&
+      addressPoints.some(
+        point =>
+          Math.abs(point.lat - lat) < 0.0003 && Math.abs(point.lon - lon) < 0.0004
+      )
+    ) {
+      continue;
+    }
+
+    seenLabels.add(labelKey);
+    if (addressLike) {
+      addressPoints.push({ lat, lon });
+    }
+    merged.push(item);
+
+    if (merged.length >= limit) {
+      break;
+    }
+  }
+
+  return merged;
+}
+
 function todayInputValue() {
   const date = new Date();
   const year = date.getFullYear();
@@ -49,12 +135,21 @@ function LocationInput({
   darkMode,
   endAction = null,
   skipLookup = false,
+  bias = null,
   onSelectLocation = () => {},
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const suppressNextLookup = useRef(false);
+
+  // Where the user probably means (their location, or the other end of the trip).
+  // Kept in a ref and read when a lookup fires, so a moving GPS fix can't re-trigger
+  // a search or pop the dropdown open on a place that was already chosen.
+  const biasRef = useRef(null);
+  useEffect(() => {
+    biasRef.current = roundedBias(bias);
+  });
 
   useEffect(() => {
     if (skipLookup) {
@@ -78,8 +173,12 @@ function LocationInput({
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
+        const bias = biasRef.current;
+        const biasParams = bias ? `&lat=${bias.lat}&lon=${bias.lon}` : "";
+        const proximity = bias ?? DEFAULT_BIAS;
+
         const localPromise = fetch(
-          `/api/search?q=${encodeURIComponent(query)}&limit=6`,
+          `/api/search?q=${encodeURIComponent(query)}&limit=8${biasParams}`,
           { signal: controller.signal }
         )
           .then(response => response.json())
@@ -92,7 +191,7 @@ function LocationInput({
                 query
               )}.json?key=${encodeURIComponent(
                 MAPTILER_KEY
-              )}&autocomplete=true&limit=6&country=ca&proximity=-80.52,43.46`,
+              )}&autocomplete=true&limit=6&country=ca&proximity=${proximity.lon},${proximity.lat}`,
               { signal: controller.signal }
             )
               .then(response =>
@@ -108,6 +207,7 @@ function LocationInput({
                     feature.center?.[0] ?? feature.geometry?.coordinates?.[0]
                   ),
                   source: "maptiler",
+                  kind: feature.place_type?.[0],
                 }))
               )
               .catch(() => [])
@@ -118,30 +218,7 @@ function LocationInput({
           mapTilerPromise,
         ]);
 
-        const merged = [];
-        const seen = new Set();
-
-        for (const item of [...localResults, ...mapTilerResults]) {
-          if (
-            !item?.label ||
-            !Number.isFinite(Number(item.lat)) ||
-            !Number.isFinite(Number(item.lon))
-          ) {
-            continue;
-          }
-
-          const key = item.label.trim().toLowerCase();
-          if (seen.has(key)) {
-            continue;
-          }
-
-          seen.add(key);
-          merged.push(item);
-
-          if (merged.length >= 6) {
-            break;
-          }
-        }
+        const merged = mergeSuggestions(localResults, mapTilerResults);
 
         setSuggestions(merged);
         setOpen(merged.length > 0);
@@ -279,7 +356,7 @@ function LocationInput({
                   {item.label}
                 </span>
                 <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-button">
-                  {item.source === "local" ? "Local address" : "Place search"}
+                  {sourceLabel(item)}
                 </span>
               </span>
             </button>
@@ -314,6 +391,10 @@ export default function SearchPanel({
   onUseCurrentLocation,
   onStartCoordinate = () => {},
   onDestinationCoordinate = () => {},
+  startBias = null,
+  destinationBias = null,
+  addressIssue = null,
+  onPickAddressOption = () => {},
 }) {
 
   const fieldClass = `h-10 min-w-0 rounded-lg border px-2.5 text-xs outline-none transition ${
@@ -337,6 +418,7 @@ export default function SearchPanel({
           disabled={loading}
           darkMode={darkMode}
           skipLookup={usingCurrentLocation}
+          bias={startBias}
           onSelectLocation={onStartCoordinate}
           icon={
             <GoDot
@@ -379,6 +461,7 @@ export default function SearchPanel({
           placeholder="Destination"
           disabled={loading}
           darkMode={darkMode}
+          bias={destinationBias}
           onSelectLocation={onDestinationCoordinate}
           icon={
             <PiMapPinFill
@@ -389,6 +472,48 @@ export default function SearchPanel({
           }
         />
       </div>
+
+      {addressIssue?.options?.length > 0 && (
+        <div
+          role="alert"
+          className={`soft-enter mt-3 rounded-xl border p-3 ${
+            darkMode
+              ? "border-button bg-charcoal-light"
+              : "border-button-light bg-white"
+          }`}
+        >
+          <p
+            className={`text-xs font-semibold ${
+              darkMode ? "text-darkmode-gray" : "text-charcoal"
+            }`}
+          >
+            {addressIssue.kind === "mismatch"
+              ? "That street type doesn't exist there. Did you mean:"
+              : `Which ${
+                  addressIssue.field === "start" ? "starting point" : "destination"
+                } did you mean?`}
+          </p>
+
+          <div className="mt-2 space-y-1.5">
+            {addressIssue.options.map(option => (
+              <button
+                type="button"
+                key={`${option.label}-${option.lat}-${option.lon}`}
+                disabled={loading}
+                onClick={() => onPickAddressOption(addressIssue, option)}
+                className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition disabled:opacity-50 ${
+                  darkMode
+                    ? "border-button/60 text-darkmode-gray hover:bg-green/15"
+                    : "border-button-light text-charcoal hover:bg-green/10"
+                }`}
+              >
+                <PiMapPinFill className="mt-0.5 shrink-0 text-green" />
+                <span className="min-w-0 flex-1">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <span

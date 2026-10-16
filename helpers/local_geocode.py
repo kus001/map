@@ -5,9 +5,11 @@ matches and callers can fall back to another geocoder.
 """
 
 import csv
+import math
 import pickle
 import re
 import sys
+import threading
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -24,6 +26,11 @@ UTM17N_TO_LATLON = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=Tru
 
 _by_civic = None
 _settlements = set()  # lowercase settlement names found in the data
+
+# Street-level index
+_streets = None
+_streets_by_core = {}
+_streets_lock = threading.Lock()
 
 # Street types, mapped to ONE canonical token. The same function is applied to the
 # query and to the data, so "Court"/"Crt"/"Ct" or "Parkway"/"Pky" all line up.
@@ -302,10 +309,61 @@ def preload():
     Returns the number of indexed address points.
     """
     _load_index()
+    _build_street_index()
     return sum(len(entries) for entries in (_by_civic or {}).values())
 
 
-def _candidate_score(query_street, candidate_street):
+def _km(lat1, lon1, lat2, lon2):
+    """Great-circle distance in kilometres."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 6371.0 * 2 * math.asin(math.sqrt(a))
+
+
+def _civic_number(civic_raw):
+    match = re.match(r"\d+", str(civic_raw))
+    return int(match.group()) if match else None
+
+
+def _build_street_index():
+    """Group the address points by street so streets can be searched by name."""
+    global _streets, _streets_by_core
+
+    if _streets is not None:
+        return
+
+    with _streets_lock:
+        if _streets is not None:
+            return
+
+        _load_index()
+        streets = {}
+        for civic_raw, entries in (_by_civic or {}).items():
+            number = _civic_number(civic_raw)
+            if number is None:
+                continue
+            for core, direction, lat, lon, label, suffix, settlement in entries:
+                key = (core, direction, suffix, settlement)
+                bucket = streets.get(key)
+                if bucket is None:
+                    # "100 King St E, Kitchener" -> "King St E, Kitchener"
+                    bucket = streets[key] = [label.split(" ", 1)[-1], []]
+                bucket[1].append((number, lat, lon))
+
+        by_core = {}
+        for key, bucket in streets.items():
+            bucket[1].sort()
+            by_core.setdefault(key[0], []).append(key)
+
+        _streets_by_core = by_core
+        _streets = streets
+
+
+# Scores: exact name 2.0 > whole-word prefix 1.5-1.99 > partial-word prefix 1.3-1.49
+# (only while the user is still typing) > spelling similarity (0-1).
+def _candidate_score(query_street, candidate_street, partial=False):
     """Similarity used for fuzzy matching and autocomplete ranking."""
     if not query_street:
         return 1.0
@@ -313,24 +371,72 @@ def _candidate_score(query_street, candidate_street):
         return 2.0
     if candidate_street.startswith(query_street + " "):
         return 1.5 + min(len(query_street) / max(len(candidate_street), 1), 0.49)
+    if partial and candidate_street.startswith(query_street):
+        return 1.3 + min(len(query_street) / max(len(candidate_street), 1), 0.19)
     return SequenceMatcher(None, query_street, candidate_street).ratio()
 
 
-# Fuzzy matching is only for typos. 0.6 was loose enough to turn one street into a
-# different, similarly spelled one; 0.85 only forgives a letter or two.
-FUZZY_CUTOFF = 0.6
+# Fuzzy matching is only for typos.
+#   >= FUZZY_ACCEPT  a different spelling is auto-corrected (if clearly ahead of the rest)
+#   >= FUZZY_CUTOFF  offered as a "did you mean", never silently used
+#   <  FUZZY_CUTOFF  not related ("Chesapeake" is not "Chapel")
+FUZZY_CUTOFF = 0.72
+FUZZY_ACCEPT = 0.85
 FUZZY_MARGIN = 0.05
 
+# A civic number missing from the data is placed next to the nearest numbered address
+# on the same (unambiguous) street, but only if that neighbour is this close.
+APPROX_MAX_GAP = 40
 
-def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
+
+def _distinct(entries):
+    """One representative entry per label, sorted by label."""
+    seen = {}
+    for entry in entries:
+        seen.setdefault(entry[4], entry)
+    return [seen[label] for label in sorted(seen)]
+
+
+def _approximate(q):
+    """Place a civic number the data lacks beside its nearest neighbour on the street."""
+    target = _civic_number(q["civic"])
+    if target is None:
+        return "none", None
+
+    _build_street_index()
+    keys = [
+        key for key in _streets_by_core.get(q["core"], [])
+        if (q["direction"] is None or key[1] == q["direction"])
+        and (q["suffix"] is None or key[2] == q["suffix"])
+        and (not q["cities"] or key[3] in q["cities"])
+    ]
+    if len(keys) != 1:
+        return "none", None  # unknown street, or several streets share the name
+
+    label, civics = _streets[keys[0]]
+    nearest = min(
+        civics,
+        key=lambda c: (abs(c[0] - target) + (0 if c[0] % 2 == target % 2 else 3), c[0]),
+    )
+    if abs(nearest[0] - target) > APPROX_MAX_GAP:
+        return "none", None
+
+    return "approximate", (nearest[1], nearest[2], f"{q['civic'].upper()} {label}")
+
+
+def resolve_detailed(address, fuzzy_cutoff=FUZZY_CUTOFF, fuzzy_accept=FUZZY_ACCEPT):
     """Resolve an address against the local index without guessing.
 
     Returns (status, payload):
-      ("ok", (lat, lon))          exactly one street matches
-      ("ambiguous", [labels])     more than one street/town fits; the caller must ask
-      ("mismatch", [labels])      the street name exists but not with that type
-                                  (e.g. "Chesapeake Court"); do not substitute
-      ("none", None)              nothing local; the caller may try another geocoder
+      ("ok", entry)                exactly one street matches; entry is an index tuple
+                                   (core, direction, lat, lon, label, suffix, settlement)
+      ("approximate", (lat, lon, label))
+                                   the street is unambiguous but this civic number is not
+                                   in the data; placed beside the nearest numbered address
+      ("ambiguous", [entries])     more than one street/town fits; the caller must ask
+      ("mismatch", [entries])      the street name exists but not with that type
+                                   (e.g. "Chesapeake Court"); do not substitute
+      ("none", None)               nothing local; the caller may try another geocoder
     """
     q = _parse_query(address)
     if q["civic"] is None or not q["core"]:
@@ -341,13 +447,10 @@ def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
         return "none", None
 
     candidates = _by_civic.get(q["civic"])
-    if not candidates:
-        return "none", None
-
-    if q["direction"] is not None:
+    if candidates and q["direction"] is not None:
         candidates = [c for c in candidates if c[1] == q["direction"]]
-        if not candidates:
-            return "none", None
+    if not candidates:
+        return _approximate(q)
 
     pool = [c for c in candidates if c[0] == q["core"]]
 
@@ -357,15 +460,21 @@ def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
             scores[c[0]] = _candidate_score(q["core"], c[0])
         ranked = sorted(scores.items(), key=lambda item: -item[1])
         if not ranked or ranked[0][1] < fuzzy_cutoff:
-            return "none", None
-        if len(ranked) > 1 and ranked[0][1] - ranked[1][1] < FUZZY_MARGIN:
-            return "ambiguous", sorted({c[4] for c in candidates if c[0] in (ranked[0][0], ranked[1][0])})
+            return _approximate(q)
+
+        close = [name for name, score in ranked if score >= fuzzy_cutoff][:3]
+        if ranked[0][1] < fuzzy_accept or (
+            len(ranked) > 1 and ranked[0][1] - ranked[1][1] < FUZZY_MARGIN
+        ):
+            # Low confidence: offer the closest names instead of choosing one.
+            names = close if ranked[0][1] < fuzzy_accept else close[:2]
+            return "ambiguous", _distinct(c for c in candidates if c[0] in names)[:6]
         pool = [c for c in candidates if c[0] == ranked[0][0]]
 
     if q["suffix"] is not None:
         same_type = [c for c in pool if c[5] == q["suffix"]]
         if not same_type:
-            return "mismatch", sorted({c[4] for c in pool})[:6]
+            return "mismatch", _distinct(pool)[:6]
         pool = same_type
 
     if q["cities"]:
@@ -375,9 +484,23 @@ def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
 
     groups = {(c[0], c[1], c[5], c[6]) for c in pool}
     if len(groups) == 1:
-        return "ok", (pool[0][2], pool[0][3])
+        return "ok", pool[0]
 
-    return "ambiguous", sorted({c[4] for c in pool})[:6]
+    return "ambiguous", _distinct(pool)[:6]
+
+
+def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
+    """Label-only view of resolve_detailed() (kept for older callers).
+
+    Statuses are "ok" (lat, lon) / "ambiguous" [labels] / "mismatch" [labels] /
+    "none". Approximate placements are reported as "none" here: this API never guesses.
+    """
+    status, payload = resolve_detailed(address, fuzzy_cutoff)
+    if status == "ok":
+        return "ok", (payload[2], payload[3])
+    if status in ("ambiguous", "mismatch"):
+        return status, [entry[4] for entry in payload]
+    return "none", None
 
 
 def local_geocode(address, fuzzy_cutoff=FUZZY_CUTOFF):
@@ -386,11 +509,71 @@ def local_geocode(address, fuzzy_cutoff=FUZZY_CUTOFF):
     return payload if status == "ok" else None
 
 
-def search_local(query, limit=6):
-    """Return fast local autocomplete suggestions for civic-number queries."""
-    q = _parse_query(query)
-    if q["civic"] is None:
+def _search_streets(q, limit, bias):
+    """Autocomplete for queries without a civic number"""
+    core = q["core"]
+    if len(core) < 3:
         return []
+
+    _build_street_index()
+    scored = []
+
+    for (c_core, direction, suffix, settlement), (label, civics) in _streets.items():
+        if c_core == core:
+            score = 2.0
+        elif c_core.startswith(core + " "):
+            score = 1.5 + min(len(core) / len(c_core), 0.49)
+        elif c_core.startswith(core):
+            score = 1.3 + min(len(core) / len(c_core), 0.19)
+        elif any(word.startswith(core) for word in c_core.split()[1:]):
+            score = 1.0
+        elif (
+            len(core) >= 4 and core[0] == c_core[0]
+            and abs(len(core) - len(c_core)) <= 3
+        ):
+            ratio = SequenceMatcher(None, core, c_core).ratio()
+            if ratio < 0.8:
+                continue
+            score = ratio * 0.95  # typo'd names rank below real prefix matches
+        else:
+            continue
+
+        if q["direction"] is not None and direction != q["direction"]:
+            continue
+        if q["suffix"] is not None and suffix != q["suffix"]:
+            score -= 0.4
+        if settlement in q["cities"]:
+            score += 0.2
+
+        mid_number, mid_lat, mid_lon = civics[len(civics) // 2]
+        dist = _km(bias[0], bias[1], mid_lat, mid_lon) if bias else 0.0
+        scored.append((-score, round(dist, 1), -len(civics), label, mid_lat, mid_lon))
+
+    scored.sort()
+
+    results = []
+    seen = set()
+    for _score, _dist, _size, label, lat, lon in scored:
+        if label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        results.append({"label": label, "lat": lat, "lon": lon, "source": "street"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def search_local(query, limit=6, bias=None):
+    """Fast local autocomplete: civic addresses ("175 univ") or streets ("king st").
+
+    ``bias`` is an optional (lat, lon); it only breaks ties between equally good
+    matches, so the "100 King St" nearest the user is listed first.
+    """
+    q = _parse_query(query)
+    limit = max(1, int(limit))
+
+    if q["civic"] is None:
+        return _search_streets(q, limit, bias)
 
     _load_index()
     if not _by_civic:
@@ -403,13 +586,17 @@ def search_local(query, limit=6):
     def rank(c):
         suffix_match = 1 if q["suffix"] and c[5] == q["suffix"] else 0
         city_match = 1 if c[6] in q["cities"] else 0
-        return (-_candidate_score(q["core"], c[0]), -suffix_match, -city_match, c[4].lower())
+        dist = _km(bias[0], bias[1], c[2], c[3]) if bias else 0.0
+        return (
+            -_candidate_score(q["core"], c[0], partial=True),
+            -suffix_match, -city_match, round(dist, 1), c[4].lower(),
+        )
 
     results = []
     seen = set()
 
     for c in sorted(candidates, key=rank):
-        if q["core"] and _candidate_score(q["core"], c[0]) < 0.45:
+        if q["core"] and _candidate_score(q["core"], c[0], partial=True) < 0.45:
             continue
 
         key = c[4].lower()
@@ -419,7 +606,7 @@ def search_local(query, limit=6):
 
         results.append({"label": c[4], "lat": c[2], "lon": c[3], "source": "local"})
 
-        if len(results) >= max(1, int(limit)):
+        if len(results) >= limit:
             break
 
     return results

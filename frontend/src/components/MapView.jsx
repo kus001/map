@@ -879,7 +879,9 @@ export default function MapView({
           url={baseLayer.url}
           attribution={baseLayer.attribution}
           maxZoom={MAP_MAX_ZOOM}
-          maxNativeZoom={mapStyle === "satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
+          // At close range the raster hybrid map is scaled instead of asking
+          // for unavailable zoom levels. Free hybrid also gets sharper Esri tiles below.
+          maxNativeZoom={mapStyle === "satellite" || mapStyle === "hybrid" ? SATELLITE_NATIVE_ZOOM : undefined}
           crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
           eventHandlers={baseLayer.id.startsWith("maptiler")
             ? { tileerror: onTileError, tileload: onTileLoad }
@@ -887,14 +889,15 @@ export default function MapView({
         />
       )}
 
-      {mapStyle === "satellite" && <SatelliteDetails />}
+      {(mapStyle === "satellite" || baseLayer.id === "esri-hybrid") && <SatelliteDetails />}
 
       {baseLayer.labels && (
         <TileLayer
           key={`${baseLayer.id}-labels`}
           url={baseLayer.labels.url}
           attribution={baseLayer.labels.attribution}
-          maxZoom={22}
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
           zIndex={250}
         />
       )}

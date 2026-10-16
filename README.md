@@ -1,8 +1,8 @@
-<h1 align="center"><a href=https://map.host-transit-page.hackclub.app> kmaps </a></h1>
+<h1 align="center"><a href=https://map.kmaps.ca> kmaps </a></h1>
 
 <div align="center">
 
-#### [kmaps](https://map.host-transit-page.hackclub.app/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
+#### [kmaps](https://map.kmaps.ca/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
 
 #### Street view: 
 ![Example run!](assets/lightmode.png)
@@ -27,7 +27,7 @@
 
 ![Hybrid Light Mode Example](assets/hybrid_light.png)
 
-## Running / Using [kmaps](https://map.host-transit-page.hackclub.app/)
+## Running / Using [kmaps](https://map.kmaps.ca/)
 
 <h4><strong> <a href=https://map.kmaps.ca/> kmaps </a> is now hosted at <a href=https://map.kmaps.ca/>this URL! </a></strong></h4>
 
@@ -39,7 +39,7 @@ If you'd rather compile it and run it yourself, locally, that too is quite simpl
 
 In fact, kmaps is designed to be able to run fully offline for transit routing! (Alas, some features such as real time GTFS would not be possible). The local A* algorithm will work normally and do its routing job! However, if the address is not in the Region Of Waterloo's Address Lookup, then you will have to put the location into `transit_data/geocode_cache.json`. (Only for offline operation, as the geocoding falls back to online servers otherwise.)
 
-To run [kmaps](https://map.host-transit-page.hackclub.app/) locally, follow the following (quite simple) steps!
+To run [kmaps](https://map.kmaps.ca/) locally, follow the following (quite simple) steps!
 
 1. **Optional:** Fork [the kmaps repository](https://github.com/kus001/map). Forking the repository creates your own version of the files, allowing you to modify and edit the open source files however you so desire, and also the ability to share your own version! Forking also allows you to make pull requests, which are a way of contributing back to the main repository. By doing so you help make open source software even better!
 

@@ -7,7 +7,7 @@
 #### Street view: 
 ![Example run!](assets/lightmode.png)
 
-↑↑ Light Mode ↑↑ | | | ↓↓ Dark Mode ↓↓
+↑↑ Light Mode ↑↑ | ↓↓ Dark Mode ↓↓
 
 ![Dark mode example](assets/darkmode.png)
 
@@ -15,7 +15,7 @@
 
 ![Satellite Dark Mode Example](assets/dark_sat.png)
 
-↑↑ Dark Mode (Satellite) ↑↑ | | | ↓↓ Light Mode (Satellite) ↓↓
+↑↑ Dark Mode (Satellite) ↑↑ | ↓↓ Light Mode (Satellite) ↓↓
 
 ![Satelite Light Mode Example](assets/light_sat.png)
 
@@ -23,7 +23,7 @@
 
 ![Hybrid Dark Mode Example](assets/hybrid_dark.png)
 
-↑↑ Dark Mode (Hybrid) ↑↑ | | | ↓↓ Light Mode (Hybrid) ↓↓ 
+↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
 
 ![Hybrid Light Mode Example](assets/hybrid_light.png)
 
@@ -34,7 +34,7 @@
 If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
 (A new URL may be incoming!)
 
-kmaps is now back on Vercel! It can be accessed with [here](https://map-thirdspace.vercel.app/).
+kmaps is now back on Vercel! It can be accessed [here](https://map-thirdspace.vercel.app/).
 
 </div>
 

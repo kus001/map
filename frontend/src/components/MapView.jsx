@@ -64,7 +64,114 @@ function isMapTilerErrorTile(tile) {
     return false;
   }
 }
-const SATELLITE_MAX_ZOOM = 19;
+const SATELLITE_NATIVE_ZOOM = 19;
+const MAP_MAX_ZOOM = 22;
+const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
+const EMPTY_TILE = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const satTileCache = new Map();
+
+// Esri has different image detail in different places. A tilemap tells us
+// which sharper tiles exist so we don't show its grey missing-image tiles.
+async function hasSatelliteTile(coords) {
+  const size = 8;
+  const left = Math.floor(coords.x / size) * size;
+  const top = Math.floor(coords.y / size) * size;
+  const key = `${coords.z}:${top}:${left}`;
+  let cached = satTileCache.get(key);
+
+  if (!cached || cached.expires < Date.now()) {
+    const url = `${ESRI_IMAGERY}/tilemap/${coords.z}/${top}/${left}/${size}/${size}?f=json`;
+    const request = fetch(url, { signal: AbortSignal.timeout(2500) })
+      .then(res => res.ok ? res.json() : null)
+      .catch(() => null);
+    cached = { request, expires: Date.now() + 5 * 60 * 1000 };
+    const entry = cached;
+    request.then(info => { if (!info) entry.expires = Date.now() + 15000; });
+    satTileCache.set(key, cached);
+    if (satTileCache.size > 120) satTileCache.delete(satTileCache.keys().next().value);
+  }
+
+  const info = await cached.request;
+  if (!info?.data || !info.location) return false;
+  const { left: x, top: y, width, height } = info.location;
+  const column = coords.x - x;
+  const row = coords.y - y;
+  return column >= 0 && row >= 0 && column < width && row < height &&
+    info.data[row * width + column] === 1;
+}
+
+function missingSatelliteImage(tile) {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(tile, 0, 0, 32, 32);
+    const data = ctx.getImageData(0, 0, 32, 32).data;
+    let grey = 0, white = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (r >= 185 && r <= 225 && Math.abs(r - g) < 5 && Math.abs(g - b) < 5) grey++;
+      if (r > 240 && g > 240 && b > 240) white++;
+    }
+    return grey > 0.78 * 1024 && (white > 0.005 * 1024 || grey > 0.96 * 1024);
+  } catch {
+    return false;
+  }
+}
+
+function SatelliteDetails() {
+  const map = useMap();
+
+  useEffect(() => {
+    const SharpTile = L.TileLayer.extend({
+      createTile(coords, done) {
+        const tile = document.createElement("img");
+        tile.alt = "";
+        tile.setAttribute("role", "presentation");
+        tile.crossOrigin = "anonymous";
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          done(null, tile);
+        };
+        const blank = () => {
+          tile.onload = finish;
+          tile.onerror = finish;
+          tile.src = EMPTY_TILE;
+        };
+        tile.onload = () => {
+          if (missingSatelliteImage(tile)) blank();
+          else finish();
+        };
+        tile.onerror = blank;
+
+        hasSatelliteTile(coords).then(found => {
+          if (found) tile.src = `${this.getTileUrl(coords)}?blankTile=false`;
+          else blank();
+        }).catch(blank);
+        return tile;
+      },
+    });
+
+    // Each level fills the gaps in the next one. If a block has no zoom 22
+    // imagery, zoom 21 (or 20 or 19) stays visible underneath it.
+    const layers = [20, 21, 22].map(level => new SharpTile(`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`, {
+      minZoom: level,
+      maxZoom: MAP_MAX_ZOOM,
+      maxNativeZoom: level,
+      zIndex: level,
+      updateWhenZooming: false,
+      keepBuffer: 1,
+    }).addTo(map));
+
+    return () => layers.forEach(layer => map.removeLayer(layer));
+  }, [map]);
+
+  return null;
+}
 const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
@@ -155,21 +262,6 @@ function MapResizeEffect() {
       observer.disconnect();
     };
   }, [map]);
-
-  return null;
-}
-
-// Esri's satellite cache stops before the extra zoom levels Leaflet allows.
-function SatelliteZoomLimit({ mapStyle }) {
-  const map = useMap();
-
-  useEffect(() => {
-    const limit = mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22;
-    map.setMaxZoom(limit);
-    if (map.getZoom() > limit) {
-      map.setZoom(limit, { animate: false });
-    }
-  }, [map, mapStyle]);
 
   return null;
 }
@@ -765,13 +857,12 @@ export default function MapView({
     <MapContainer
       center={mapCenter}
       zoom={13}
-      maxZoom={mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22}
+      maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
-      <SatelliteZoomLimit mapStyle={mapStyle} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
       <NavigationFollow
@@ -787,13 +878,16 @@ export default function MapView({
           key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
           url={baseLayer.url}
           attribution={baseLayer.attribution}
-          maxZoom={mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22}
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={mapStyle === "satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
           crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
           eventHandlers={baseLayer.id.startsWith("maptiler")
             ? { tileerror: onTileError, tileload: onTileLoad }
             : undefined}
         />
       )}
+
+      {mapStyle === "satellite" && <SatelliteDetails />}
 
       {baseLayer.labels && (
         <TileLayer

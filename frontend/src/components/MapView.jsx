@@ -605,10 +605,14 @@ export default function MapView({
   viewInsets = ZERO_INSETS,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
-  const tileErrors = useRef(0);
+  const tileErrors = useRef([]);
   const onTileError = () => {
-    tileErrors.current += 1;
-    if (tileErrors.current >= 3) setMapTilerFailed(true);
+    // Leaflet doesn't expose the HTTP status, but bad keys and quota errors
+    // make several tiles fail together. Don't let cached tile loads reset this.
+    const now = Date.now();
+    tileErrors.current = tileErrors.current.filter(time => now - time < 10000);
+    tileErrors.current.push(now);
+    if (tileErrors.current.length >= 2) setMapTilerFailed(true);
   };
   const mode = displayedMode || data?.mode || "driving";
 
@@ -682,7 +686,7 @@ export default function MapView({
           attribution={baseLayer.attribution}
           maxZoom={22}
           eventHandlers={baseLayer.id.startsWith("maptiler")
-            ? { tileerror: onTileError, tileload: () => { tileErrors.current = 0; } }
+            ? { tileerror: onTileError }
             : undefined}
         />
       )}

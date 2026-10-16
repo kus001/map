@@ -133,11 +133,12 @@ def finished_transit_walks():
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    from helpers.warmup import is_warm
+    from helpers.warmup import status
+    state = status()
     return jsonify({
         "success": True,
         "message": "Map routing API is running.",
-        "warmed_up": is_warm(),
+        **state,
     })
 
 
@@ -152,17 +153,19 @@ def search():
 
     if len(query) < 2:
         return jsonify({"success": True, "results": []})
+    if len(query) > 200:
+        return jsonify({"success": False, "error": "Search is too long."}), 400
 
     # Optional proximity bias (the user's location / other end of the trip). It only
     # orders equally good matches; a bad value is ignored rather than rejected.
     bias = parse_coordinates([request.args.get("lat"), request.args.get("lon")])
 
-    return jsonify({
-        "success": True,
-        "results": search_places(
-            query, limit=max(1, min(limit, 10)), bias=bias
-        ),
-    })
+    try:
+        results = search_places(query, limit=max(1, min(limit, 10)), bias=bias)
+    except Exception:
+        app.logger.exception("Local place search failed")
+        return jsonify({"success": False, "error": "Place search is temporarily unavailable."}), 503
+    return jsonify({"success": True, "results": results})
 
 
 @app.route("/api/remember-place", methods=["POST"])

@@ -12,10 +12,13 @@ import {
   ZoomControl,
 } from "react-leaflet";
 import L from "leaflet";
+import FreeMapLayer from "./FreeMapLayer";
 
 import "leaflet/dist/leaflet.css";
 
-const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
+const KEY_FROM_ENV = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
+const MAPTILER_KEY = ["", "undefined", "null", "none"].includes(KEY_FROM_ENV.toLowerCase()) ? "" : KEY_FROM_ENV;
+const USE_MAPTILER = Boolean(MAPTILER_KEY) && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
 const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
@@ -521,9 +524,10 @@ function TransitSegments({ route, darkMode, mapStyle }) {
   });
 }
 
-function getBaseLayer(mapStyle, darkMode) {
+function getBaseLayer(mapStyle, darkMode, mapTilerFailed) {
+  const useKey = USE_MAPTILER && !mapTilerFailed;
   if (mapStyle === "hybrid") {
-    if (MAPTILER_KEY) {
+    if (useKey) {
       // MapTiler's rendered hybrid style includes imagery, roads and labels.
       const styleId = darkMode ? "hybrid-v4-dark" : "hybrid-v4";
       return {
@@ -548,7 +552,7 @@ function getBaseLayer(mapStyle, darkMode) {
   }
 
   if (mapStyle === "satellite") {
-    if (MAPTILER_KEY) {
+    if (useKey) {
       return {
         id: "maptiler-satellite",
         url: `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
@@ -565,7 +569,7 @@ function getBaseLayer(mapStyle, darkMode) {
     };
   }
 
-  if (MAPTILER_KEY) {
+  if (useKey) {
     const styleId = darkMode ? "streets-v4-dark" : "streets-v4";
 
     return {
@@ -576,14 +580,7 @@ function getBaseLayer(mapStyle, darkMode) {
     };
   }
 
-  return {
-    id: darkMode ? "carto-dark" : "carto-light",
-    url: darkMode
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO',
-  };
+  return { id: "openfreemap", vector: true };
 }
 
 
@@ -616,6 +613,12 @@ export default function MapView({
   mapStyle = "street",
   viewInsets = ZERO_INSETS,
 }) {
+  const [mapTilerFailed, setMapTilerFailed] = useState(false);
+  const tileErrors = useRef(0);
+  const onTileError = () => {
+    tileErrors.current += 1;
+    if (tileErrors.current >= 3) setMapTilerFailed(true);
+  };
   const mode = displayedMode || data?.mode || "driving";
 
   const route = useMemo(() => {
@@ -649,7 +652,7 @@ export default function MapView({
               : "#7EA5C8"
           : "#8fa88f"
         : MODE_COLORS[mode] || MODE_COLORS.driving;
-  const baseLayer = getBaseLayer(mapStyle, darkMode);
+  const baseLayer = getBaseLayer(mapStyle, darkMode, mapTilerFailed);
 
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
@@ -679,12 +682,19 @@ export default function MapView({
         insets={viewInsets}
       />
 
-      <TileLayer
-        key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
-        url={baseLayer.url}
-        attribution={baseLayer.attribution}
-        maxZoom={22}
-      />
+      {baseLayer.vector ? (
+        <FreeMapLayer darkMode={darkMode} />
+      ) : (
+        <TileLayer
+          key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
+          url={baseLayer.url}
+          attribution={baseLayer.attribution}
+          maxZoom={22}
+          eventHandlers={baseLayer.id.startsWith("maptiler")
+            ? { tileerror: onTileError, tileload: () => { tileErrors.current = 0; } }
+            : undefined}
+        />
+      )}
 
       {baseLayer.labels && (
         <TileLayer

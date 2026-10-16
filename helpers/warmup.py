@@ -12,13 +12,33 @@ import os
 import time
 
 _warmed = False
+_finished = False
 _report = {}
 
 def is_warm() -> bool:
     return _warmed
 
 def report() -> dict:
-    return dict(_report)
+    return {name: dict(value) for name, value in _report.items()}
+
+
+def status() -> dict:
+    stages = report()
+    # The endpoint is public. Keep full exceptions in the server log, not JSON.
+    for item in stages.values():
+        if item.get("error"):
+            item["error"] = item["error"].split(":", 1)[0]
+    bad = [name for name, item in stages.items() if not item.get("ok")]
+    if not _finished:
+        state = "disabled" if not _flag("MAP_PRELOAD_TRANSIT") else "not_started"
+    else:
+        state = "degraded" if bad else "ready"
+    return {
+        "state": state,
+        "warmed_up": _warmed,
+        "stages": stages,
+        "failed": bad,
+    }
 
 def _flag(name, default="1") -> bool:
     return os.getenv(name, default) == "1"
@@ -33,10 +53,14 @@ def _run(name, fn):
         print(f"[warmup] {name}: FAILED after {elapsed:.2f}s ({type(error).__name__}: {error})", flush=True)
         return False
     elapsed = time.perf_counter() - started
-    _report[name] = {"ok": True, "seconds": round(elapsed, 2), "detail": detail}
+    skipped = isinstance(detail, str) and detail.startswith("skipped")
+    missing = isinstance(detail, str) and detail.startswith("no TTC cache")
+    _report[name] = {"ok": not missing, "seconds": round(elapsed, 2),
+                     "detail": detail, "skipped": skipped}
     suffix = f" - {detail}" if detail else ""
-    print(f"[warmup] {name}: {elapsed:.2f}s{suffix}", flush=True)
-    return True
+    tag = "MISSING" if missing else "OK"
+    print(f"[warmup] {name}: {tag} in {elapsed:.2f}s{suffix}", flush=True)
+    return not missing
 
 def _address_index():
     from helpers import local_geocode
@@ -99,10 +123,11 @@ def _realtime_first_fetch():
 
 def warm_up() -> dict:
     """Load everything. Safe to call more than once; later calls are no-ops."""
-    global _warmed
-    if _warmed:
+    global _warmed, _finished
+    if _finished:
         return report()
     if not _flag("MAP_PRELOAD_TRANSIT"):
+        _report["preload"] = {"ok": True, "skipped": True, "detail": "lazy loading enabled"}
         print("[warmup] disabled (MAP_PRELOAD_TRANSIT=0); data will load lazily.", flush=True)
         return report()
 
@@ -119,6 +144,7 @@ def warm_up() -> dict:
         _run("service_calendars", _service_calendars)
         _run("realtime_first_fetch", _realtime_first_fetch)
 
-    _warmed = True
+    _finished = True
+    _warmed = all(item.get("ok") for item in _report.values())
     print(f"[warmup] done in {time.perf_counter() - started:.2f}s", flush=True)
     return report()

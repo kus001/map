@@ -418,18 +418,11 @@ export default function RoutePanel({
             (value, index) => index === 0 || transitLegs[index - 1].name !== value.name
           );
           const transferRisk = route.transfer_reliability;
-          if (mode === "transit" && route.route_variant === "balanced") labels.push("BALANCED");
-          if (mode === "transit" && route.route_variant === "fastest") labels.push("SPEED PRIORITY");
-          if (mode === "transit" && route.route_variant === "less_walking") labels.push("WALKING PRIORITY");
-          const baseWalkKm = Number(data.routes[0]?.distance_km || 0);
-          const walkChangeM = Math.round((Number(route.distance_km || 0) - baseWalkKm) * 1000);
-          if (mode === "transit" && route.route_number !== 1 && Math.abs(walkChangeM) >= 50) {
-            labels.push(`${Math.abs(walkChangeM)} m ${walkChangeM > 0 ? "MORE" : "LESS"} WALKING`);
-          }
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
           if (
+            mode !== "transit" &&
             data.routes.length > 1 &&
             route.route_number === data.fastest_route_number
           ) {
@@ -437,6 +430,7 @@ export default function RoutePanel({
           }
 
           if (
+            mode !== "transit" &&
             data.routes.length > 1 &&
             route.route_number === data.shortest_route_number
           ) {

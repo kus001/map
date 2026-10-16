@@ -7,7 +7,7 @@
 #### Street view: 
 ![Example run!](assets/lightmode.png)
 
-↑↑ Light Mode ↑↑ | | | ↓↓ Dark Mode ↓↓
+↑↑ Light Mode ↑↑ | ↓↓ Dark Mode ↓↓
 
 ![Dark mode example](assets/darkmode.png)
 
@@ -15,7 +15,7 @@
 
 ![Satellite Dark Mode Example](assets/dark_sat.png)
 
-↑↑ Dark Mode (Satellite) ↑↑ | | | ↓↓ Light Mode (Satellite) ↓↓
+↑↑ Dark Mode (Satellite) ↑↑ | ↓↓ Light Mode (Satellite) ↓↓
 
 ![Satelite Light Mode Example](assets/light_sat.png)
 
@@ -23,18 +23,15 @@
 
 ![Hybrid Dark Mode Example](assets/hybrid_dark.png)
 
-↑↑ Dark Mode (Hybrid) ↑↑ | | | ↓↓ Light Mode (Hybrid) ↓↓ 
+↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
 
 ![Hybrid Light Mode Example](assets/hybrid_light.png)
 
 ## Running / Using [kmaps](https://map.host-transit-page.hackclub.app/)
 
-<h4><strong> <a href=https://map.host-transit-page.hackclub.app> kmaps </a> is now hosted at <a href=https://map.host-transit-page.hackclub.app/)>this URL! </a></strong></h4>
+<h4><strong> <a href=https://map.kmaps.ca/> kmaps </a> is now hosted at <a href=https://map.kmaps.ca/>this URL! </a></strong></h4>
 
-If you'd rather copy and paste it, it's [https://map.host-transit-page.hackclub.app/](https://map.host-transit-page.hackclub.app/)\
-(A new URL may be incoming!)
-
-kmaps is now back on Vercel! It can be accessed with [here](https://map-thirdspace.vercel.app/).
+If you'd rather copy and paste it, it's [https://map.kmaps.ca/](https://map.kmaps.ca/)
 
 </div>
 

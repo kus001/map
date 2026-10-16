@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Circle,
   CircleMarker,
@@ -262,58 +262,6 @@ function MapResizeEffect() {
       observer.disconnect();
     };
   }, [map]);
-
-  return null;
-}
-
-function KeepViewOnStyleChange({ mapStyle, leafletMapRef, styleViewRef, routeFocusKey, locationFocusKey, stepFocusKey, navigationActive }) {
-  const map = useMap();
-  const lastStyle = useRef(mapStyle);
-
-  useEffect(() => {
-    if (!leafletMapRef) return;
-    leafletMapRef.current = map;
-    return () => { if (leafletMapRef.current === map) leafletMapRef.current = null; };
-  }, [map, leafletMapRef]);
-
-  useLayoutEffect(() => {
-    if (lastStyle.current === mapStyle) return;
-    lastStyle.current = mapStyle;
-    const saved = styleViewRef?.current;
-    if (!saved) return;
-
-    const center = L.latLng(saved.center);
-    let active = true;
-    const container = map.getContainer();
-    const keepView = () => {
-      if (!active) return;
-      if (Math.abs(map.getZoom() - saved.zoom) > 0.01 || map.getCenter().distanceTo(center) > 2) {
-        map.setView(center, saved.zoom, { animate: false });
-      }
-    };
-    const stop = () => {
-      active = false;
-      map.off("zoomend moveend", keepView);
-    };
-
-    // Tile layers can change the viewport during the switch or shortly after.
-    keepView();
-    map.on("zoomend moveend", keepView);
-    container.addEventListener("pointerdown", stop);
-    container.addEventListener("wheel", stop, { passive: true });
-    container.addEventListener("touchstart", stop, { passive: true });
-    container.addEventListener("keydown", stop);
-    const timer = setTimeout(stop, 6500);
-
-    return () => {
-      stop();
-      clearTimeout(timer);
-      container.removeEventListener("pointerdown", stop);
-      container.removeEventListener("wheel", stop);
-      container.removeEventListener("touchstart", stop);
-      container.removeEventListener("keydown", stop);
-    };
-  }, [map, mapStyle, styleViewRef, routeFocusKey, locationFocusKey, stepFocusKey, navigationActive]);
 
   return null;
 }
@@ -806,8 +754,6 @@ export default function MapView({
   stepFocusKey = 0,
   darkMode,
   mapStyle = "street",
-  leafletMapRef = null,
-  styleViewRef = null,
   viewInsets = ZERO_INSETS,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
@@ -916,15 +862,6 @@ export default function MapView({
       scrollWheelZoom
       className="h-full w-full"
     >
-      <KeepViewOnStyleChange
-        mapStyle={mapStyle}
-        leafletMapRef={leafletMapRef}
-        styleViewRef={styleViewRef}
-        routeFocusKey={routeFocusKey}
-        locationFocusKey={locationFocusKey}
-        stepFocusKey={stepFocusKey}
-        navigationActive={navigationActive}
-      />
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
@@ -934,34 +871,41 @@ export default function MapView({
         insets={viewInsets}
       />
 
+      {mapStyle === "hybrid" && (
+        <TileLayer
+          key="hybrid-background"
+          url={`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`}
+          attribution="Tiles &copy; Esri"
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
+          zIndex={0}
+        />
+      )}
+
       {baseLayer.vector ? (
         <FreeMapLayer darkMode={darkMode} />
-      ) : (
+      ) : baseLayer.id === "esri-hybrid" ? null : (
         <TileLayer
           key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
           url={baseLayer.url}
           attribution={baseLayer.attribution}
           maxZoom={MAP_MAX_ZOOM}
-          // Esri imagery tops out at different levels depending on the area.
-          // Don't force MapTiler's Hybrid into zoom-19 tiles; its labels
-          // become huge when Leaflet stretches them at a closer zoom.
-          maxNativeZoom={baseLayer.id.startsWith("esri-") ? SATELLITE_NATIVE_ZOOM : undefined}
-          crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
-          eventHandlers={baseLayer.id.startsWith("maptiler")
+          maxNativeZoom={baseLayer.id === "esri-satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
+          zIndex={baseLayer.id.startsWith("maptiler-") ? 100 : 1}
+          crossOrigin={baseLayer.id.startsWith("maptiler-") ? "anonymous" : undefined}
+          eventHandlers={baseLayer.id.startsWith("maptiler-")
             ? { tileerror: onTileError, tileload: onTileLoad }
             : undefined}
         />
       )}
 
-      {(mapStyle === "satellite" || baseLayer.id === "esri-hybrid") && <SatelliteDetails />}
+      {(mapStyle === "satellite" || mapStyle === "hybrid") && <SatelliteDetails />}
 
       {baseLayer.labels && (
         <TileLayer
           key={`${baseLayer.id}-labels`}
           url={baseLayer.labels.url}
           attribution={baseLayer.labels.attribution}
-          // Esri labels are raster tiles. Overzooming them three levels
-          // makes station and street names enormous, so fade them out at 21+.
           maxZoom={20}
           maxNativeZoom={SATELLITE_NATIVE_ZOOM}
           zIndex={250}

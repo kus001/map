@@ -643,10 +643,16 @@ export default function SearchPanel({
                   ? darkMode
                     ? mapStyle === "hybrid"
                       ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
-                      : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                      : mapStyle === "satellite"
+                        ? "border-green bg-green/15 text-green-light active:bg-green/25"
+                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
                     : "border-green bg-green/15 text-green active:bg-green/25"
                   : darkMode
-                    ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 active:bg-hybrid-purple/20"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 active:bg-green/20"
+                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
                     : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
               }`}
             >

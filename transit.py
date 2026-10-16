@@ -680,7 +680,7 @@ def vehicle_label(agency, route_type=None):
 _WALK_CACHE = OrderedDict()
 MAX_WALK_CACHE_ENTRIES = 512
 MAX_CONCURRENT_WALK_REQUESTS = 6
-WALK_BATCH_BUDGET_SECONDS = max(0.3, float(os.getenv("TRANSIT_WALK_BUDGET_SECONDS", "0.4")))
+WALK_BATCH_BUDGET_SECONDS = max(0.0, min(0.5, float(os.getenv("TRANSIT_WALK_BUDGET_SECONDS", "0.05"))))
 WALK_BACKGROUND_SECONDS = 7.0
 
 
@@ -1160,8 +1160,25 @@ def _candidate_trip(
 
         return best
 
+    trips = schedule["trips"]
+    if hasattr(trips, "tids"):
+        # Most TTC journeys use scheduled departures. Read the packed arrays
+        # directly; turning every candidate into a dict gets expensive.
+        active = _active_services(date)
+        ids = trips.pools.trip_ids
+        service_of = _data.trip_to_service.get if active is not None else None
+        for i in range(bisect_left(trips.deps, earliest), len(trips.deps)):
+            trip_id = ids[trips.tids[i]]
+            if active is not None:
+                service = service_of(trip_id)
+                if service is not None and service not in active:
+                    continue
+            return (trips._edge(i), float(trips.deps[i]),
+                    float(trips.arrs[i]), 0.0, False, 0.0)
+        return None
+
     index = bisect_left(times, earliest)
-    for trip in schedule["trips"][index:]:
+    for trip in trips[index:]:
         trip_id = trip.get("trip_id")
         if trip_id is not None and trip_active(trip_id, date):
             arrival = trip.get("arrival_time")
@@ -1187,6 +1204,7 @@ def search_transit(
     walk_penalty=1.0,
     max_nearby_stops=MAX_NEARBY_STOPS,
     excluded_route_keys=None,
+    _heuristic_values=None,
 ):
     departure_datetime = normalize_departure_datetime(departure_datetime)
     service_date, now_seconds = gtfs_service_clock(departure_datetime)
@@ -1213,32 +1231,29 @@ def search_transit(
         if stop_id not in ends or option[0] < ends[stop_id][0]:
             ends[stop_id] = option
 
-    heuristic_cache = {}
+    heuristic_cache = _heuristic_values if _heuristic_values is not None else {}
 
     # Per-goal constants, computed once instead of on every heuristic() call.
     # The distance maths below mirrors dist_m() operation for operation, so results
     # are bit-identical to calling dist_m(here, target).
     goal_terms = []
+    rad = math.radians
     for goal_id, option in ends.items():
-        g_lat, g_lon = coord(stops[goal_id])
+        lat, lon = stops[goal_id][:2]
         end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
-        goal_terms.append((g_lat, g_lon, end_real, end_pen))
-
-    _cos, _hypot, _rad = math.cos, math.hypot, math.radians
+        goal_terms.append((rad(lat), rad(lon), end_real + end_pen))
 
     def heuristic(stop_id):
         cached = heuristic_cache.get(stop_id)
         if cached is not None:
             return cached
-        lat1, lon1 = coord(stops[stop_id])
+        lat, lon = stops[stop_id][:2]
+        lat, lon = rad(lat), rad(lon)
         best = float("inf")
-        for g_lat, g_lon, end_real, end_pen in goal_terms:
-            avg_lat = _rad((lat1 + g_lat) / 2)
-            dx = _rad(g_lon - lon1) * 6_371_000 * _cos(avg_lat)
-            dy = _rad(g_lat - lat1) * 6_371_000
-            straight_km = _hypot(dx, dy) / 1000
-            # Still admissible: ride time is a lower bound, penalties are >= 0.
-            optimistic = straight_km / HEURISTIC_SPEED_KMH * 60 + end_real + end_pen
+        for end_lat, end_lon, walk_cost in goal_terms:
+            dx = (end_lon - lon) * 6_371_000 * math.cos((lat + end_lat) / 2)
+            dy = (end_lat - lat) * 6_371_000
+            optimistic = math.hypot(dx, dy) / 1000 / HEURISTIC_SPEED_KMH * 60 + walk_cost
             if optimistic < best:
                 best = optimistic
         heuristic_cache[stop_id] = best
@@ -1608,11 +1623,6 @@ _walk_batches = {}
 _walk_batch_lock = threading.Lock()
 
 
-_walk_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="map-walks")
-_walk_batches = {}
-_walk_batch_lock = threading.Lock()
-
-
 def fetch_walks(jobs):
     if not jobs:
         return {}
@@ -1846,6 +1856,7 @@ def get_transit_route(
             # The Fastest profile establishes feasibility; then the chosen profile
             # is applied at the latest feasible departure.
             fastest_profile = TRANSIT_PREFERENCES["fastest"]
+            probe_heuristics = {}
 
             def probe(candidate_time):
                 return search_transit(
@@ -1855,6 +1866,7 @@ def get_transit_route(
                     walk_penalty=fastest_profile["walk_penalty"],
                     max_nearby_stops=fastest_profile["max_nearby_stops"],
                     excluded_route_keys=excluded_route_keys,
+                    _heuristic_values=probe_heuristics,
                 )
 
             found = latest_departure_before(requested_arrival, probe)

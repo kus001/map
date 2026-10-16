@@ -425,7 +425,7 @@ export default function App() {
     const searchId = searchRequestId.current;
     let cancelled = false;
     const controllers = [];
-    const timers = [1900, 3900, 6900].map(delay => window.setTimeout(async () => {
+    const timers = [650, 1700, 4100, 7100].map(delay => window.setTimeout(async () => {
       if (cancelled || searchId !== searchRequestId.current) return;
       const controller = new AbortController();
       controllers.push(controller);
@@ -1411,6 +1411,31 @@ export default function App() {
     );
   }
 
+  function clearRoute() {
+    // Any replies from the old trip should be ignored after clearing.
+    searchRequestId.current += 1;
+    transitLiveRequestId.current += 1;
+    routeAbortController.current?.abort();
+    alternativesAbortController.current?.abort();
+    routeAbortController.current = null;
+    alternativesAbortController.current = null;
+    if (navigationActive) stopNavigation({ quiet: true });
+    setData(null);
+    setStart("");
+    setDestination("");
+    setStartUsesCurrentLocation(false);
+    setStartMapCoordinate(null);
+    setDestinationMapCoordinate(null);
+    setSelectedRouteNumber(1);
+    setHoveredRouteNumber(null);
+    setStepFocusCoordinate(null);
+    setAddressIssue(null);
+    setLoading(false);
+    setError(false);
+    setStatus("Enter a starting point and destination.");
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+
   function selectRoute(routeNumber) {
     setSelectedRouteNumber(routeNumber);
     setHoveredRouteNumber(null);
@@ -1639,6 +1664,7 @@ export default function App() {
           onRouteHover={setHoveredRouteNumber}
           onStepSelect={focusStep}
           onShareRoute={shareRoute}
+          onClearRoute={clearRoute}
           displayedMode={displayedMode}
           navigationActive={navigationActive}
           mapStyle={mapStyle}
@@ -1724,6 +1750,7 @@ export default function App() {
               onRouteHover={setHoveredRouteNumber}
               onStepSelect={focusStep}
               onShareRoute={shareRoute}
+          onClearRoute={clearRoute}
               displayedMode={displayedMode}
               navigationActive={navigationActive}
               navigationInfo={navigationInfo}

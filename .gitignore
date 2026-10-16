@@ -61,8 +61,9 @@ logs/
 tmp/
 temp/
 
-# Large GTFS files
+# Transit files
 transit_data/GTFS_Files/*
+transit_data/geocode_cache.json
 
 # IDEs and OS files
 .vscode/

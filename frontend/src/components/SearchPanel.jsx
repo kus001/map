@@ -354,7 +354,9 @@ function LocationInput({
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button bg-hybrid-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-hybrid-purple focus:ring-hybrid-purple/15"
-              : "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
+              : mapStyle === "satellite"
+                ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-green focus:ring-green/15"
+                : "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
             : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/15"
         }`}
       />
@@ -474,7 +476,13 @@ export default function SearchPanel({
           icon={
             <GoDot
               className={`text-xl ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-charcoal"
+                darkMode 
+                  ? mapStyle === "hybrid" 
+                    ? "text-hybrid-purple-light" 
+                    : mapStyle === "satellite"
+                      ? "text-green"
+                      : "text-blue-light" 
+                    : "text-green"
               }`}
             />
           }
@@ -489,13 +497,17 @@ export default function SearchPanel({
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"
-                      ? "border-hybrid-purple bg-hybrid-purple text-white" 
-                      : "border-blue bg-blue text-white" 
+                      ? "border-hybrid-purple bg-hybrid-purple text-white"
+                      : mapStyle === "satellite"
+                        ? "border-green-dark bg-green-dark text-white"
+                        : "border-blue bg-blue text-white" 
                     : "border-green bg-green text-white"
                   : darkMode
                     ? mapStyle === "hybrid"
                       ? "border-button bg-hybrid-charcoal text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
-                      : "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal text-green hover:border-green hover:bg-green/15"
+                        : "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
                     : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
               }`}
             >
@@ -517,7 +529,13 @@ export default function SearchPanel({
           icon={
             <PiMapPinFill
               className={`text-xl ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-green"
+                darkMode 
+                  ? mapStyle === "hybrid" 
+                    ? "text-hybrid-purple-light" 
+                    : mapStyle === "satellite"
+                      ? "text-green"
+                      : "text-blue-light" 
+                    : "text-green"
               }`}
             />
           }
@@ -583,7 +601,9 @@ export default function SearchPanel({
             darkMode
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"
-                : "bg-charcoal-light hover:bg-blue text-darkmode-gray"
+                : mapStyle === "satellite"
+                  ? "bg-charcoal-light hover:bg-green text-darkmode-gray"
+                  : "bg-charcoal-light hover:bg-blue text-darkmode-gray"
               : "bg-green/10 hover:bg-green text-green-dark"
           }`}
         >

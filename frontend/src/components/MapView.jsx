@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Circle,
   CircleMarker,
@@ -262,6 +262,58 @@ function MapResizeEffect() {
       observer.disconnect();
     };
   }, [map]);
+
+  return null;
+}
+
+function KeepViewOnStyleChange({ mapStyle, leafletMapRef, styleViewRef, routeFocusKey, locationFocusKey, stepFocusKey, navigationActive }) {
+  const map = useMap();
+  const lastStyle = useRef(mapStyle);
+
+  useEffect(() => {
+    if (!leafletMapRef) return;
+    leafletMapRef.current = map;
+    return () => { if (leafletMapRef.current === map) leafletMapRef.current = null; };
+  }, [map, leafletMapRef]);
+
+  useLayoutEffect(() => {
+    if (lastStyle.current === mapStyle) return;
+    lastStyle.current = mapStyle;
+    const saved = styleViewRef?.current;
+    if (!saved) return;
+
+    const center = L.latLng(saved.center);
+    let active = true;
+    const container = map.getContainer();
+    const keepView = () => {
+      if (!active) return;
+      if (Math.abs(map.getZoom() - saved.zoom) > 0.01 || map.getCenter().distanceTo(center) > 2) {
+        map.setView(center, saved.zoom, { animate: false });
+      }
+    };
+    const stop = () => {
+      active = false;
+      map.off("zoomend moveend", keepView);
+    };
+
+    // Tile layers can change the viewport during the switch or shortly after.
+    keepView();
+    map.on("zoomend moveend", keepView);
+    container.addEventListener("pointerdown", stop);
+    container.addEventListener("wheel", stop, { passive: true });
+    container.addEventListener("touchstart", stop, { passive: true });
+    container.addEventListener("keydown", stop);
+    const timer = setTimeout(stop, 6500);
+
+    return () => {
+      stop();
+      clearTimeout(timer);
+      container.removeEventListener("pointerdown", stop);
+      container.removeEventListener("wheel", stop);
+      container.removeEventListener("touchstart", stop);
+      container.removeEventListener("keydown", stop);
+    };
+  }, [map, mapStyle, styleViewRef, routeFocusKey, locationFocusKey, stepFocusKey, navigationActive]);
 
   return null;
 }
@@ -754,6 +806,8 @@ export default function MapView({
   stepFocusKey = 0,
   darkMode,
   mapStyle = "street",
+  leafletMapRef = null,
+  styleViewRef = null,
   viewInsets = ZERO_INSETS,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
@@ -862,6 +916,15 @@ export default function MapView({
       scrollWheelZoom
       className="h-full w-full"
     >
+      <KeepViewOnStyleChange
+        mapStyle={mapStyle}
+        leafletMapRef={leafletMapRef}
+        styleViewRef={styleViewRef}
+        routeFocusKey={routeFocusKey}
+        locationFocusKey={locationFocusKey}
+        stepFocusKey={stepFocusKey}
+        navigationActive={navigationActive}
+      />
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />

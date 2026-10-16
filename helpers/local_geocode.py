@@ -34,8 +34,6 @@ _streets_lock = threading.Lock()
 
 # Street types, mapped to ONE canonical token. The same function is applied to the
 # query and to the data, so "Court"/"Crt"/"Ct" or "Parkway"/"Pky" all line up.
-# The suffix is kept (not thrown away) because "Chesapeake Dr" and "Chesapeake Cres"
-# are different streets that share a name and civic numbers.
 SUFFIX_CANON = {
     "street": "st", "st": "st", "drive": "dr", "dr": "dr",
     "avenue": "ave", "ave": "ave", "av": "ave", "road": "rd", "rd": "rd",

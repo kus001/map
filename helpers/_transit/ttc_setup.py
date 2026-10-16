@@ -176,42 +176,102 @@ def build_ttc(folder, target=CACHE):
     return len(stops), len(trip_service)
 
 
+def _download_ttc():
+    GTFS_ROOT.mkdir(parents=True, exist_ok=True)
+    path = GTFS_ROOT / "ttc_download.zip"
+    print("Downloading TTC GTFS...", flush=True)
+    with requests.get(TTC_FEED, stream=True, timeout=(10, 120)) as response:
+        response.raise_for_status()
+        with path.open("wb") as out:
+            for chunk in response.iter_content(512 * 1024):
+                if chunk:
+                    out.write(chunk)
+    return path
+
+
+def _extract_files(source, target, wanted):
+    source, target = Path(source), Path(target)
+    target.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        for name in wanted:
+            origin = source / name
+            if not origin.exists():
+                raise FileNotFoundError(origin)
+            if origin.resolve() != (target / name).resolve():
+                shutil.copy2(origin, target / name)
+        return
+
+    with zipfile.ZipFile(source) as archive:
+        entries = {Path(name).name: name for name in archive.namelist()
+                   if Path(name).name in wanted}
+        if not wanted.issubset(entries):
+            raise ValueError(f"TTC feed missing: {', '.join(sorted(wanted - entries.keys()))}")
+        for name in wanted:
+            with archive.open(entries[name]) as src, (target / name).open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+
+def install_ttc_shapes(source=None):
+    """Add route geometry to an existing compact TTC install, without rebuilding it."""
+    from helpers._transit import shape_index
+
+    folder = GTFS_ROOT / "ttc"
+    wanted = {"trips.txt", "routes.txt", "shapes.txt"}
+    if source is None and not all((folder / name).is_file() for name in wanted):
+        source = _download_ttc()
+    if source is not None:
+        _extract_files(source, folder, wanted)
+    if not all((folder / name).is_file() for name in wanted):
+        raise FileNotFoundError("TTC trips.txt, routes.txt and shapes.txt are needed")
+
+    print("Building TTC route shapes (one-time, SQLite; no timetable rebuild)...", flush=True)
+    path = shape_index.database("ttc")
+    if not path:
+        raise RuntimeError("TTC shape index could not be built")
+    print(f"TTC route shapes ready: {path}", flush=True)
+    return path
+
+
 def install_ttc(source=None):
-    """Get TTC GTFS and build cache. Never called automatically by Flask."""
+    """Get TTC GTFS and build the compact schedule and shape index."""
     folder = GTFS_ROOT / "ttc"
     if source is None:
-        GTFS_ROOT.mkdir(parents=True, exist_ok=True)
-        path = GTFS_ROOT / "ttc_download.zip"
-        print("Downloading TTC GTFS (one-time setup, may be ~85 MB)...", flush=True)
-        with requests.get(TTC_FEED, stream=True, timeout=(10, 120)) as response:
-            response.raise_for_status()
-            with path.open("wb") as out:
-                for chunk in response.iter_content(512 * 1024):
-                    if chunk:
-                        out.write(chunk)
-        source = path
+        source = _download_ttc()
     source = Path(source)
     if source.is_dir():
-        folder = source
+        timetable_folder = source
     else:
-        with zipfile.ZipFile(source) as z:
-            # Some TTC exports contain a directory wrapper.
-            entries = {Path(name).name: name for name in z.namelist() if Path(name).name.endswith(".txt")}
-            required = {"stops.txt", "routes.txt", "trips.txt", "stop_times.txt"}
-            if not required.issubset(entries):
-                raise ValueError("This ZIP isn't a TTC GTFS timetable.")
-            folder.mkdir(parents=True, exist_ok=True)
-            for name, member in entries.items():
-                with z.open(member) as src, (folder / name).open("wb") as out:
-                    shutil.copyfileobj(src, out)
+        wanted = {"stops.txt", "routes.txt", "trips.txt", "stop_times.txt"}
+        # Keep the normal timetable install compatible with feeds that omit shapes.
+        with zipfile.ZipFile(source) as archive:
+            available = {Path(name).name for name in archive.namelist()}
+        if "shapes.txt" in available:
+            wanted.add("shapes.txt")
+        if "calendar.txt" in available:
+            wanted.add("calendar.txt")
+        if "calendar_dates.txt" in available:
+            wanted.add("calendar_dates.txt")
+        _extract_files(source, folder, wanted)
+        timetable_folder = folder
+
     print("Building compact TTC timetable (this may take several minutes)...", flush=True)
-    num_stops, num_trips = build_ttc(folder)
+    num_stops, num_trips = build_ttc(timetable_folder)
+    if (timetable_folder / "shapes.txt").exists():
+        try:
+            install_ttc_shapes(timetable_folder)
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+            print(f"TTC timetable is ready, but shape import failed: {error}", flush=True)
     print(f"TTC ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.")
     return num_stops, num_trips
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--zip", help="Local TTC GTFS ZIP, if you've downloaded it already")
+    parser.add_argument("--zip", help="Local TTC GTFS ZIP or extracted folder")
+    parser.add_argument("--shapes-only", action="store_true",
+                        help="Add TTC track/road shapes without rebuilding the timetable")
     args = parser.parse_args()
-    install_ttc(args.zip)
+    if args.shapes_only:
+        install_ttc_shapes(args.zip)
+    else:
+        install_ttc(args.zip)

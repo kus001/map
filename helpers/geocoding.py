@@ -84,7 +84,8 @@ def _km(a, b):
     return 6371.0 * 2 * math.asin(math.sqrt(h))
 
 
-def _valid_point(point):
+def _valid_point(point) -> None|tuple[float, float]:
+    """Check if the point is valid, returns None if it isn't, otherwise the point"""
     try:
         lat, lon = float(point[0]), float(point[1])
     except (TypeError, ValueError, IndexError, KeyError):

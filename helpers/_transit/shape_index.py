@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2] / 'transit_data' / 'GTFS_Files'
 CACHE_DIR = ROOT.parent / '.shape_index'
 _lock = threading.Lock()
 _ready = {}
-_failed = set()
+_failed = {}
 
 
 def _stamp(path):
@@ -31,7 +31,22 @@ def _rows(path):
         yield from csv.DictReader(f)
 
 
+def _usable(conn):
+    try:
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        if not {'files', 'trips', 'routes', 'shape_points'} <= tables:
+            return False
+        return (conn.execute('SELECT 1 FROM trips LIMIT 1').fetchone() is not None
+                and conn.execute('SELECT 1 FROM shape_points LIMIT 1').fetchone() is not None)
+    except sqlite3.Error:
+        return False
+
+
 def _valid(conn, agency):
+    if not _usable(conn):
+        return False
     try:
         versions = dict(conn.execute('SELECT name, stamp FROM files'))
         return all(versions.get(name) == _stamp(ROOT / agency / name)
@@ -92,31 +107,40 @@ def _build(agency, path):
 
 def database(agency):
     agency = str(agency)
-    if agency not in ('go', 'grt_busses', 'grt_trains'):
+    if agency not in ('go', 'grt_busses', 'grt_trains', 'ttc'):
         return None
+
     feed = ROOT / agency
-    if not (feed / 'trips.txt').exists():
-        return None
+    path = CACHE_DIR / f'{agency}.sqlite'
+    # Exported installs often have the SQLite indexes, but not the original GTFS CSVs.
+    # In that case use the index as-is; don't silently drop back to stop-to-stop lines.
+    has_source = (feed / 'trips.txt').is_file() and (feed / 'shapes.txt').is_file()
+    stamp = (tuple(_stamp(feed / f) for f in ('trips.txt', 'routes.txt', 'shapes.txt'))
+             if has_source else ('cached', _stamp(path)))
+
     with _lock:
-        if agency in _failed:
+        if _failed.get(agency) == stamp:
             return None
         try:
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            path = CACHE_DIR / f'{agency}.sqlite'
-            stamp = tuple(_stamp(feed / f) for f in ('trips.txt','routes.txt','shapes.txt'))
-            if _ready.get(agency) != stamp:
-                if path.exists():
-                    with closing(sqlite3.connect(path)) as conn:
-                        valid = _valid(conn, agency)
-                else:
-                    valid = False
-                if not valid:
+            if _ready.get(agency) != stamp or not path.is_file():
+                ok = False
+                if path.is_file():
+                    try:
+                        with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as conn:
+                            ok = _valid(conn, agency) if has_source else _usable(conn)
+                    except sqlite3.Error:
+                        pass
+                if not ok:
+                    if not has_source:
+                        return None
+                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
                     _build(agency, path)
                 _ready[agency] = stamp
+            _failed.pop(agency, None)
             return path
         except (OSError, sqlite3.Error) as exc:
             print(f'GTFS shape index unavailable for {agency}: {exc}', flush=True)
-            _failed.add(agency)
+            _failed[agency] = stamp
             return None
 
 
@@ -154,8 +178,8 @@ def shape(agency, shape_id):
 
 
 def prewarm():
-    # Called from the existing background preload, never from the request path.
-    for agency in ('grt_trains', 'grt_busses', 'go'):
+    # Existing TTC shape cache is cheap to open; no downloads happen here.
+    for agency in ('grt_trains', 'grt_busses', 'go', 'ttc'):
         database(agency)
 
 

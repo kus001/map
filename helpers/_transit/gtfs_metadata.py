@@ -92,6 +92,10 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
     if shape_index.database(agency) is not None:
         return shape_index.trip(agency, trip_id)
 
+    # TTC's full CSV can be enormous. Only use the compiled SQLite index here.
+    if agency == "ttc":
+        return None
+
     folder = GTFS_ROOT / agency
     trips_path = folder / "trips.txt"
     if not trips_path.exists():
@@ -168,13 +172,12 @@ def shape_for_trip(
     route_hint="",
     headsign_hint="",
 ):
-    # TTC's GTFS is large: don't scan its trips/shapes files per route request.
-    # The compact schedule includes the stops, so those draw the route for now.
-    if agency == "ttc":
+    meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
+    if not meta and agency == "ttc":
+        # Timetable-only TTC installs still work, but can't draw track geometry.
         return None, {"route_short_name": str(route_hint or ""),
                       "headsign": str(headsign_hint or ""),
                       "route_type": "", "route_color": ""}
-    meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
     if not meta or not meta.get("shape_id"):
         return None, meta
 
@@ -218,7 +221,7 @@ def raw_gtfs_available(agency=None):
         return (folder / "trips.txt").exists() and (folder / "shapes.txt").exists()
 
     return any(
-        raw_gtfs_available(name) for name in ("grt_busses", "grt_trains", "go")
+        raw_gtfs_available(name) for name in ("grt_busses", "grt_trains", "go", "ttc")
     )
 
 

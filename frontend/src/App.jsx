@@ -425,7 +425,7 @@ export default function App() {
     const searchId = searchRequestId.current;
     let cancelled = false;
     const controllers = [];
-    const timers = [1900, 3900, 6900].map(delay => window.setTimeout(async () => {
+    const timers = [650, 1700, 4100, 7100].map(delay => window.setTimeout(async () => {
       if (cancelled || searchId !== searchRequestId.current) return;
       const controller = new AbortController();
       controllers.push(controller);
@@ -1411,6 +1411,31 @@ export default function App() {
     );
   }
 
+  function clearRoute() {
+    // Any replies from the old trip should be ignored after clearing.
+    searchRequestId.current += 1;
+    transitLiveRequestId.current += 1;
+    routeAbortController.current?.abort();
+    alternativesAbortController.current?.abort();
+    routeAbortController.current = null;
+    alternativesAbortController.current = null;
+    if (navigationActive) stopNavigation({ quiet: true });
+    setData(null);
+    setStart("");
+    setDestination("");
+    setStartUsesCurrentLocation(false);
+    setStartMapCoordinate(null);
+    setDestinationMapCoordinate(null);
+    setSelectedRouteNumber(1);
+    setHoveredRouteNumber(null);
+    setStepFocusCoordinate(null);
+    setAddressIssue(null);
+    setLoading(false);
+    setError(false);
+    setStatus("Enter a starting point and destination.");
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+
   function selectRoute(routeNumber) {
     setSelectedRouteNumber(routeNumber);
     setHoveredRouteNumber(null);
@@ -1553,7 +1578,13 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
+                darkMode 
+                ? mapStyle === "hybrid" 
+                  ? "text-hybrid-purple-light hover:text-hybrid-purple-dark"
+                  : mapStyle === "satellite"
+                    ? "text-green hover:text-green-dark"
+                    : "text-blue-light hover:text-blue" 
+                : "text-green hover:text-green-dark"
               }`}
             >
               kmaps
@@ -1567,7 +1598,8 @@ export default function App() {
                 darkMode
                   ? mapStyle === "hybrid"
                     ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : "border-button bg-charcoal-light text-blue-light"
+                    : mapStyle === "satellite"
+                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >
@@ -1632,6 +1664,7 @@ export default function App() {
           onRouteHover={setHoveredRouteNumber}
           onStepSelect={focusStep}
           onShareRoute={shareRoute}
+          onClearRoute={clearRoute}
           displayedMode={displayedMode}
           navigationActive={navigationActive}
           mapStyle={mapStyle}
@@ -1659,7 +1692,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -1668,7 +1701,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -1677,7 +1710,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
           >
             Madhav
           </a>
@@ -1717,6 +1750,7 @@ export default function App() {
               onRouteHover={setHoveredRouteNumber}
               onStepSelect={focusStep}
               onShareRoute={shareRoute}
+          onClearRoute={clearRoute}
               displayedMode={displayedMode}
               navigationActive={navigationActive}
               navigationInfo={navigationInfo}

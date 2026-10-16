@@ -6,6 +6,7 @@ import {
   MdDirectionsTransit,
   MdNavigation,
   MdShare,
+  MdClose,
 } from "react-icons/md";
 
 import {
@@ -204,6 +205,7 @@ export default function RoutePanel({
   onStepSelect = () => {},
   mapStyle,
   onShareRoute = () => {},
+  onClearRoute = () => {},
   displayedMode,
   navigationActive = false,
   navigationInfo = null,
@@ -594,6 +596,21 @@ export default function RoutePanel({
               {navigationActive ? "Stop" : "Navigate"}
             </button>
           )}
+          <button
+            type="button"
+            onClick={onClearRoute}
+            title="Clear route and start over"
+            aria-label="Clear route"
+            className={`flex h-8 items-center gap-1 rounded-lg border px-2 text-xs font-semibold transition hover:opacity-80 ${
+              darkMode
+                ? mapStyle === "hybrid"
+                  ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+                  : "border-button bg-charcoal-light text-blue-light"
+                : "border-button-light bg-white text-green-dark"
+            }`}
+          >
+            <MdClose /> Clear
+          </button>
           <button
             type="button"
             onClick={onShareRoute}

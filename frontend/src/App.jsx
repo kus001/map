@@ -343,7 +343,14 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [mapStyle, setMapStyle] = useState("street");
+  const leafletMapRef = useRef(null);
+  const styleViewRef = useRef(null);
   const mapStyles = () => {
+    const map = leafletMapRef.current;
+    if (map) {
+      const center = map.getCenter();
+      styleViewRef.current = { center: [center.lat, center.lng], zoom: map.getZoom() };
+    }
     if (mapStyle === "street") {
       setMapStyle("satellite");
     } else if (mapStyle === "satellite") {
@@ -1578,13 +1585,7 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "text-hybrid-purple-light hover:text-hybrid-purple-dark"
-                  : mapStyle === "satellite"
-                    ? "text-green hover:text-green-dark"
-                    : "text-blue-light hover:text-blue" 
-                : "text-green hover:text-green-dark"
+                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
               }`}
             >
               kmaps
@@ -1598,8 +1599,7 @@ export default function App() {
                 darkMode
                   ? mapStyle === "hybrid"
                     ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : mapStyle === "satellite"
-                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
+                    : "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >
@@ -1692,7 +1692,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -1701,7 +1701,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -1710,7 +1710,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? mapStyle === "hybrid" ? "hover:text-hybrid-purple-light" : "hover:text-blue" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Madhav
           </a>
@@ -1727,9 +1727,7 @@ export default function App() {
             darkMode
               ? mapStyle === "hybrid"
                 ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                : mapStyle === "satellite"
-                  ? "border-button bg-charcoal-light text-green-light"
-                  : "border-button bg-charcoal-light text-blue-light"
+                : "border-button bg-charcoal-light text-blue-light"
               : "border-button-light bg-white text-green-dark"
           }`}
         >
@@ -1799,6 +1797,8 @@ export default function App() {
           stepFocusKey={stepFocusKey}
           darkMode={darkMode}
           mapStyle={mapStyle}
+          leafletMapRef={leafletMapRef}
+          styleViewRef={styleViewRef}
           viewInsets={viewInsets}
         />
 

@@ -343,14 +343,7 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [mapStyle, setMapStyle] = useState("street");
-  const leafletMapRef = useRef(null);
-  const styleViewRef = useRef(null);
   const mapStyles = () => {
-    const map = leafletMapRef.current;
-    if (map) {
-      const center = map.getCenter();
-      styleViewRef.current = { center: [center.lat, center.lng], zoom: map.getZoom() };
-    }
     if (mapStyle === "street") {
       setMapStyle("satellite");
     } else if (mapStyle === "satellite") {
@@ -1797,8 +1790,6 @@ export default function App() {
           stepFocusKey={stepFocusKey}
           darkMode={darkMode}
           mapStyle={mapStyle}
-          leafletMapRef={leafletMapRef}
-          styleViewRef={styleViewRef}
           viewInsets={viewInsets}
         />
 

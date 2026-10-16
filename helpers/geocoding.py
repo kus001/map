@@ -19,13 +19,14 @@ from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 
+from geopy import exc
 from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 
 from helpers.local_geocode import local_resolve, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-KNOWN_PLACES_PATH = PROJECT_ROOT / "helpers" / "known_places.json"
+KNOWN_PLACES_PATH = PROJECT_ROOT / "transit_data" / "known_places.json"
 GEOCODE_CACHE_PATH = PROJECT_ROOT / "transit_data" / "geocode_cache.json"
 
 # Rough Waterloo Region viewbox. This biases Nominatim toward local results,
@@ -51,6 +52,17 @@ _geocode = RateLimiter(
 
 def _normalize_key(value):
     return re.sub(r"\s+", " ", str(value).strip().lower())
+
+
+def _write_coordinate_map(data, path=GEOCODE_CACHE_PATH, reload=True):
+    """Write the JSON file"""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    if reload:
+        global _cached_places, _saved_aliases
+        _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
+        _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
 
 def _load_coordinate_map(path):
@@ -84,24 +96,23 @@ def _load_coordinate_map(path):
 
 # Both of these are persistent project data loaded once at startup.
 # They are never modified by this module.
-_known_places = _load_coordinate_map(KNOWN_PLACES_PATH)
-_saved_aliases = _load_coordinate_map(GEOCODE_CACHE_PATH)
+_cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
+_saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
-# This is deliberately RAM-only. It speeds up repeated lookups during the current
-# Flask session without polluting geocode_cache.json or creating a search-history
-# file in the repository. Keep it bounded for low-memory servers.
-_RUNTIME_CACHE_MAX = 512
+_RUNTIME_CACHE_MAX = 0
 _runtime_cache = OrderedDict()
 
 
 def _remember_runtime(key, coordinates):
-    if key in _runtime_cache:
-        _runtime_cache.move_to_end(key)
-
+    global _runtime_cache
     _runtime_cache[key] = coordinates
 
-    while len(_runtime_cache) > _RUNTIME_CACHE_MAX:
-        _runtime_cache.popitem(last=False)
+    if len(_runtime_cache) > _RUNTIME_CACHE_MAX:
+        print("writing to", _RUNTIME_CACHE_MAX)
+        _write_coordinate_map(_runtime_cache)
+        _runtime_cache = OrderedDict()
+    else:
+        print(_runtime_cache)
 
 
 def _coordinates_from_text(value):
@@ -151,8 +162,8 @@ def get_coordinates(address):
     key = _normalize_key(clean_address)
 
     # Intentionally saved project aliases / shorthand names.
-    if key in _known_places:
-        return _known_places[key]
+    if key in _cached_places:
+        return _cached_places[key]
 
     if key in _saved_aliases:
         return _saved_aliases[key]

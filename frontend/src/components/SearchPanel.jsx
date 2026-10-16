@@ -13,6 +13,49 @@ import { PiMapPinFill } from "react-icons/pi";
 import Button from "./Button.jsx";
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
+// Results from external search are kept for this browser session.
+const placeCache = new Map();
+let mapTilerPauseUntil = 0;
+
+async function extraPlaces(query, proximity, signal) {
+  if (!MAPTILER_KEY || Date.now() < mapTilerPauseUntil) return [];
+  const key = `${query.toLowerCase()}|${proximity.lat},${proximity.lon}`;
+  const cached = placeCache.get(key);
+  if (cached && cached.until > Date.now()) return cached.results;
+
+  try {
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?` +
+      new URLSearchParams({
+        key: MAPTILER_KEY,
+        autocomplete: "true",
+        limit: "6",
+        country: "ca",
+        proximity: `${proximity.lon},${proximity.lat}`,
+      });
+    const response = await fetch(url, { signal });
+    if ([401, 403, 429].includes(response.status)) {
+      // Invalid key or quota reached; don't repeat the request for every keystroke.
+      mapTilerPauseUntil = Date.now() + (response.status === 429 ? 5 * 60_000 : 30 * 60_000);
+      return [];
+    }
+    if (!response.ok) return [];
+    const json = await response.json();
+    const results = (json.features ?? []).map(feature => ({
+      label: feature.place_name || feature.text || query,
+      lat: Number(feature.center?.[1] ?? feature.geometry?.coordinates?.[1]),
+      lon: Number(feature.center?.[0] ?? feature.geometry?.coordinates?.[0]),
+      source: "maptiler",
+      kind: feature.place_type?.[0],
+    }));
+    placeCache.set(key, { results, until: Date.now() + 10 * 60_000 });
+    if (placeCache.size > 80) placeCache.delete(placeCache.keys().next().value);
+    return results;
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
+    return [];
+  }
+}
+
 
 const MODES = [
   { id: "driving", label: "Drive", Icon: IoCarOutline },
@@ -142,6 +185,9 @@ function LocationInput({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const suppressNextLookup = useRef(false);
+  const [moreLoading, setMoreLoading] = useState(false);
+  const moreController = useRef(null);
+
 
   // Where the user probably means (their location, or the other end of the trip).
   // Kept in a ref and read when a lookup fires, so a moving GPS fix can't re-trigger
@@ -172,61 +218,31 @@ function LocationInput({
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
+      const proximity = biasRef.current ?? DEFAULT_BIAS;
+      const biasParams = biasRef.current
+        ? `&lat=${biasRef.current.lat}&lon=${biasRef.current.lon}` : "";
       try {
-        const bias = biasRef.current;
-        const biasParams = bias ? `&lat=${bias.lat}&lon=${bias.lon}` : "";
-        const proximity = bias ?? DEFAULT_BIAS;
-
-        const localPromise = fetch(
+        const response = await fetch(
           `/api/search?q=${encodeURIComponent(query)}&limit=8${biasParams}`,
           { signal: controller.signal }
-        )
-          .then(response => response.json())
-          .then(result => (result?.success ? result.results ?? [] : []))
-          .catch(() => []);
+        );
+        const json = response.ok ? await response.json() : null;
+        const local = json?.success ? json.results ?? [] : [];
 
-        const mapTilerPromise = MAPTILER_KEY
-          ? fetch(
-              `https://api.maptiler.com/geocoding/${encodeURIComponent(
-                query
-              )}.json?key=${encodeURIComponent(
-                MAPTILER_KEY
-              )}&autocomplete=true&limit=6&country=ca&proximity=${proximity.lon},${proximity.lat}`,
-              { signal: controller.signal }
-            )
-              .then(response =>
-                response.ok ? response.json() : { features: [] }
-              )
-              .then(result =>
-                (result.features ?? []).map(feature => ({
-                  label: feature.place_name || feature.text || query,
-                  lat: Number(
-                    feature.center?.[1] ?? feature.geometry?.coordinates?.[1]
-                  ),
-                  lon: Number(
-                    feature.center?.[0] ?? feature.geometry?.coordinates?.[0]
-                  ),
-                  source: "maptiler",
-                  kind: feature.place_type?.[0],
-                }))
-              )
-              .catch(() => [])
-          : Promise.resolve([]);
-
-        const [localResults, mapTilerResults] = await Promise.all([
-          localPromise,
-          mapTilerPromise,
-        ]);
-
-        const merged = mergeSuggestions(localResults, mapTilerResults);
-
+        // Plenty of local results? Don't use the paid API at all.
+        // A user can still press "More places" to look farther afield.
+        const external = local.length < 3
+          ? await extraPlaces(query, proximity, controller.signal)
+          : [];
+        if (controller.signal.aborted) return;
+        const merged = mergeSuggestions(local, external);
         setSuggestions(merged);
-        setOpen(merged.length > 0);
+        setOpen(merged.length > 0 || Boolean(MAPTILER_KEY));
         setActiveIndex(-1);
       } catch (lookupError) {
         if (lookupError.name !== "AbortError") {
           setSuggestions([]);
-          setOpen(false);
+          setOpen(Boolean(MAPTILER_KEY));
         }
       }
     }, 300);
@@ -236,6 +252,26 @@ function LocationInput({
       controller.abort();
     };
   }, [value, skipLookup]);
+
+  async function findMorePlaces() {
+    const query = value.trim();
+    if (!MAPTILER_KEY || query.length < 2 || moreLoading) return;
+    moreController.current?.abort();
+    const controller = new AbortController();
+    moreController.current = controller;
+    setMoreLoading(true);
+    try {
+      const places = await extraPlaces(query, biasRef.current ?? DEFAULT_BIAS, controller.signal);
+      if (!controller.signal.aborted) {
+        setSuggestions(current => mergeSuggestions(current, places));
+        setOpen(true);
+      }
+    } catch (error) {
+      if (error.name !== "AbortError") console.warn("Place lookup failed", error);
+    } finally {
+      if (moreController.current === controller) setMoreLoading(false);
+    }
+  }
 
   function chooseSuggestion(item) {
     suppressNextLookup.current = true;
@@ -297,6 +333,8 @@ function LocationInput({
         disabled={disabled}
         onChange={event => {
           const nextValue = event.target.value;
+          moreController.current?.abort();
+          setMoreLoading(false);
           onChange(nextValue);
 
           if (nextValue.trim().length < 2) {
@@ -327,7 +365,7 @@ function LocationInput({
         </div>
       )}
 
-      {!skipLookup && open && suggestions.length > 0 && (
+      {!skipLookup && open && (suggestions.length > 0 || MAPTILER_KEY) && (
         <div
           className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
@@ -361,6 +399,19 @@ function LocationInput({
               </span>
             </button>
           ))}
+          {MAPTILER_KEY && (
+            <button
+              type="button"
+              onMouseDown={event => event.preventDefault()}
+              onClick={findMorePlaces}
+              disabled={moreLoading}
+              className={`w-full px-3 py-2.5 text-left text-xs font-semibold transition disabled:opacity-60 ${
+                darkMode ? "text-darkmode-gray hover:bg-white/10" : "text-green-dark hover:bg-green/10"
+              }`}
+            >
+              {moreLoading ? "Searching more places…" : "Search more places"}
+            </button>
+          )}
         </div>
       )}
     </div>

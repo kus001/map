@@ -64,6 +64,7 @@ function isMapTilerErrorTile(tile) {
     return false;
   }
 }
+const SATELLITE_MAX_ZOOM = 19;
 const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
@@ -154,6 +155,21 @@ function MapResizeEffect() {
       observer.disconnect();
     };
   }, [map]);
+
+  return null;
+}
+
+// Esri's satellite cache stops before the extra zoom levels Leaflet allows.
+function SatelliteZoomLimit({ mapStyle }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const limit = mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22;
+    map.setMaxZoom(limit);
+    if (map.getZoom() > limit) {
+      map.setZoom(limit, { animate: false });
+    }
+  }, [map, mapStyle]);
 
   return null;
 }
@@ -749,11 +765,13 @@ export default function MapView({
     <MapContainer
       center={mapCenter}
       zoom={13}
+      maxZoom={mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+      <SatelliteZoomLimit mapStyle={mapStyle} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
       <NavigationFollow
@@ -769,7 +787,7 @@ export default function MapView({
           key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
           url={baseLayer.url}
           attribution={baseLayer.attribution}
-          maxZoom={22}
+          maxZoom={mapStyle === "satellite" ? SATELLITE_MAX_ZOOM : 22}
           crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
           eventHandlers={baseLayer.id.startsWith("maptiler")
             ? { tileerror: onTileError, tileload: onTileLoad }

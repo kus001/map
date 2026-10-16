@@ -552,15 +552,6 @@ function getBaseLayer(mapStyle, darkMode, mapTilerFailed) {
   }
 
   if (mapStyle === "satellite") {
-    if (useKey) {
-      return {
-        id: "maptiler-satellite",
-        url: `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
-        attribution:
-          '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>',
-      };
-    }
-
     return {
       id: "esri-satellite",
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",

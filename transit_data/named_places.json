@@ -10,7 +10,12 @@
     {
       "name": "Jacob Hespeler Secondary School",
       "city": "Cambridge",
-      "query": "Jacob Hespeler Secondary School, Cambridge, Ontario"
+      "coordinates": [43.4186377, -80.3173429]
+    },
+    {
+      "name": "University of Waterloo",
+      "city": "Waterloo",
+      "coordinates": [43.4701994, -80.5452429]
     }
   ]
 }

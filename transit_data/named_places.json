@@ -1,0 +1,16 @@
+{
+  "_comment": "Places people refer to by initials. Give the FULL name; short forms (LHSS, LHS, 'laurel heights ss'...) are generated. Locate with 'coordinates' [lat, lon], 'address' (resolved offline from the address points), or 'query' (network geocoder). See helpers/named_places.py.",
+  "places": [
+    {
+      "name": "Laurel Heights Secondary School",
+      "city": "Waterloo",
+      "address": "650 Laurelwood Dr, Waterloo",
+      "aliases": ["sjam", "sir john a macdonald secondary school"]
+    },
+    {
+      "name": "Jacob Hespeler Secondary School",
+      "city": "Cambridge",
+      "query": "Jacob Hespeler Secondary School, Cambridge, Ontario"
+    }
+  ]
+}

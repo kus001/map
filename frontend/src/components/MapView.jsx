@@ -857,6 +857,7 @@ export default function MapView({
     <MapContainer
       center={mapCenter}
       zoom={13}
+      minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom

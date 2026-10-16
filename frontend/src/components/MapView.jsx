@@ -19,6 +19,51 @@ import "leaflet/dist/leaflet.css";
 const KEY_FROM_ENV = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const MAPTILER_KEY = ["", "undefined", "null", "none"].includes(KEY_FROM_ENV.toLowerCase()) ? "" : KEY_FROM_ENV;
 const USE_MAPTILER = Boolean(MAPTILER_KEY) && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
+
+function mapTilerStyle(mapStyle, darkMode) {
+  if (mapStyle === "satellite") return null;
+  if (mapStyle === "hybrid") return darkMode ? "hybrid-v4-dark" : "hybrid-v4";
+  return darkMode ? "streets-v4-dark" : "streets-v4";
+}
+
+async function validMapTilerStyle(styleId, signal) {
+  const url = `https://api.maptiler.com/maps/${styleId}/style.json?key=${encodeURIComponent(MAPTILER_KEY)}`;
+  const res = await fetch(url, { signal, cache: "no-store", headers: { Accept: "application/json" } });
+  if (!res.ok || !res.headers.get("content-type")?.includes("json")) return false;
+  const style = await res.json();
+  return style?.version === 8 && Array.isArray(style.layers) && !!style.sources;
+}
+
+// MapTiler sometimes sends its "Invalid key" screen as an actual PNG, not
+// an HTTP/image error. Leaflet's tileerror event won't catch that.
+function isMapTilerErrorTile(tile) {
+  if (!tile?.complete || !tile.naturalWidth) return false;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(tile, 0, 0, 128, 128);
+    const pixels = ctx.getImageData(0, 0, 128, 128).data;
+    let pale = 0, white = 0, grey = 0, ink = 0;
+    const near = (r, g, b, x, y, z) =>
+      Math.abs(r - x) <= 3 && Math.abs(g - y) <= 3 && Math.abs(b - z) <= 3;
+    for (let i = 0; i < pixels.length; i += 16) {
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+      if (near(r, g, b, 249, 250, 251)) pale++;
+      if (near(r, g, b, 255, 255, 255)) white++;
+      if (near(r, g, b, 210, 215, 222)) grey++;
+      if (r < 80 && b > r + 10) ink++;
+    }
+    const count = pixels.length / 16;
+    return pale / count > 0.48 && white / count > 0.10 &&
+      (grey / count > 0.025 || ink / count > 0.008);
+  } catch {
+    // No CORS access to the pixels: use the JSON key check and tileerror.
+    return false;
+  }
+}
 const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
@@ -524,8 +569,7 @@ function TransitSegments({ route, darkMode, mapStyle }) {
   });
 }
 
-function getBaseLayer(mapStyle, darkMode, mapTilerFailed) {
-  const useKey = USE_MAPTILER && !mapTilerFailed;
+function getBaseLayer(mapStyle, darkMode, useKey) {
   if (mapStyle === "hybrid") {
     if (useKey) {
       // MapTiler's rendered hybrid style includes imagery, roads and labels.
@@ -605,14 +649,54 @@ export default function MapView({
   viewInsets = ZERO_INSETS,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
+  const [verifiedStyle, setVerifiedStyle] = useState(null);
   const tileErrors = useRef([]);
+  const styleId = mapTilerStyle(mapStyle, darkMode);
+
+  useEffect(() => {
+    if (!USE_MAPTILER || !styleId || mapTilerFailed) return;
+    let cancelled = false;
+    let checking = false;
+    let controller;
+
+    // Start on the free map until the key is confirmed. Check it again
+    // occasionally, since quotas can run out after the page has loaded.
+    const verify = async () => {
+      if (checking) return;
+      checking = true;
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const ok = await validMapTilerStyle(styleId, controller.signal);
+        if (!cancelled) {
+          if (ok) setVerifiedStyle(styleId);
+          else setMapTilerFailed(true);
+        }
+      } catch {
+        if (!cancelled) setMapTilerFailed(true);
+      } finally {
+        clearTimeout(timeout);
+        checking = false;
+      }
+    };
+
+    verify();
+    const refresh = setInterval(verify, 90000);
+    return () => {
+      cancelled = true;
+      clearInterval(refresh);
+      controller?.abort();
+    };
+  }, [styleId, mapTilerFailed]);
+
   const onTileError = () => {
-    // Leaflet doesn't expose the HTTP status, but bad keys and quota errors
-    // make several tiles fail together. Don't let cached tile loads reset this.
     const now = Date.now();
     tileErrors.current = tileErrors.current.filter(time => now - time < 10000);
     tileErrors.current.push(now);
     if (tileErrors.current.length >= 2) setMapTilerFailed(true);
+  };
+  const onTileLoad = event => {
+    if (isMapTilerErrorTile(event.tile)) setMapTilerFailed(true);
   };
   const mode = displayedMode || data?.mode || "driving";
 
@@ -647,7 +731,8 @@ export default function MapView({
               : "#7EA5C8"
           : "#8fa88f"
         : MODE_COLORS[mode] || MODE_COLORS.driving;
-  const baseLayer = getBaseLayer(mapStyle, darkMode, mapTilerFailed);
+  const baseLayer = getBaseLayer(mapStyle, darkMode,
+    USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
@@ -685,8 +770,9 @@ export default function MapView({
           url={baseLayer.url}
           attribution={baseLayer.attribution}
           maxZoom={22}
+          crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
           eventHandlers={baseLayer.id.startsWith("maptiler")
-            ? { tileerror: onTileError }
+            ? { tileerror: onTileError, tileload: onTileLoad }
             : undefined}
         />
       )}

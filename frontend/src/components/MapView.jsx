@@ -857,6 +857,7 @@ export default function MapView({
     <MapContainer
       center={mapCenter}
       zoom={13}
+      minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
@@ -871,30 +872,43 @@ export default function MapView({
         insets={viewInsets}
       />
 
+      {mapStyle === "hybrid" && (
+        <TileLayer
+          key="hybrid-background"
+          url={`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`}
+          attribution="Tiles &copy; Esri"
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
+          zIndex={0}
+        />
+      )}
+
       {baseLayer.vector ? (
         <FreeMapLayer darkMode={darkMode} />
-      ) : (
+      ) : baseLayer.id === "esri-hybrid" ? null : (
         <TileLayer
           key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
           url={baseLayer.url}
           attribution={baseLayer.attribution}
           maxZoom={MAP_MAX_ZOOM}
-          maxNativeZoom={mapStyle === "satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
-          crossOrigin={baseLayer.id.startsWith("maptiler") ? "anonymous" : undefined}
-          eventHandlers={baseLayer.id.startsWith("maptiler")
+          maxNativeZoom={baseLayer.id === "esri-satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
+          zIndex={baseLayer.id.startsWith("maptiler-") ? 100 : 1}
+          crossOrigin={baseLayer.id.startsWith("maptiler-") ? "anonymous" : undefined}
+          eventHandlers={baseLayer.id.startsWith("maptiler-")
             ? { tileerror: onTileError, tileload: onTileLoad }
             : undefined}
         />
       )}
 
-      {mapStyle === "satellite" && <SatelliteDetails />}
+      {(mapStyle === "satellite" || mapStyle === "hybrid") && <SatelliteDetails />}
 
       {baseLayer.labels && (
         <TileLayer
           key={`${baseLayer.id}-labels`}
           url={baseLayer.labels.url}
           attribution={baseLayer.labels.attribution}
-          maxZoom={22}
+          maxZoom={20}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
           zIndex={250}
         />
       )}

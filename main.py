@@ -131,6 +131,27 @@ def finished_transit_walks():
     return jsonify({"success": True, "shapes": ready_walks(pairs)})
 
 
+@app.get("/api/layers/ontario511")
+def ontario_511_layer():
+    from helpers.ontario511 import get_layer
+
+    kind = request.args.get("kind", "").strip().lower()
+    try:
+        values = [float(x) for x in request.args.get("bbox", "").split(",")]
+        if len(values) != 4 or not all(math.isfinite(x) for x in values):
+            raise ValueError()
+        west, south, east, north = values
+        if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+            raise ValueError()
+        if kind not in ("incidents", "construction", "cameras", "winter"):
+            raise ValueError()
+    except ValueError:
+        return jsonify({"success": False, "error": "Invalid map layer or bounds."}), 400
+
+    result = get_layer(kind, (west, south, east, north))
+    return jsonify({"success": True, **result})
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     from helpers.warmup import status

@@ -456,18 +456,16 @@ export default function RoutePanel({
               : "border-green/30 bg-green/10 text-green-dark"
           }`}
         >
-          <MdCalendarMonth className="text-base" />
+          <MdCalendarMonth className="mr-2 inline text-base" />
           {leaveBy ? `Leave by ${leaveBy}` : `Departing ${scheduledDeparture}`}
         </div>
       )}
 
-
-
-      {mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
+      {/*mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
         <div className="mb-3 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
           <strong>Transfer warning:</strong> connection buffers are estimates; allow extra time for walking and delays.
         </div>
-      )}
+      )*/}
 
       {mode === "transit" && alerts.length > 0 && (
         <div className="mb-3 space-y-2">
@@ -556,8 +554,7 @@ export default function RoutePanel({
                     }`}
                   >
                     {formatDuration(route.duration_min)}{" • "}
-                    {arrivalLabel(route)}
-                    {/*returns arrival time*/}
+                    {arrivalLabel(route) /*returns arrival time*/ }
                   </div>
 
                   <div
@@ -570,7 +567,7 @@ export default function RoutePanel({
                     <span>•</span>
                     <span>
                       {Number(route.distance_km || 0).toFixed(1)} km
-                      {mode === "transit" ? " walking" : ""}
+                      {mode === "transit" ? " walking" : "" /* changes it from km to km walking */}
                     </span>
                   </div>
 
@@ -586,9 +583,13 @@ export default function RoutePanel({
                     </div>
                   )}
                   {mode === "transit" && requiredLeaveTime(route) && (
-                    <div className="mt-1 text-[11px] font-semibold opacity-80">
-                      Leave by {formatLeaveClock(requiredLeaveTime(route))}
-                      {route.arrival_estimate_datetime && ` · Arrive ${formatLeaveClock(route.arrival_estimate_datetime)}`}
+                    <div
+                      className={`text-[14.5px] font-semibold ${
+                        darkMode ? "text-darkmode-gray" : "text-charcoal"
+                      }`}
+                    >
+                      {formatLeaveClock(requiredLeaveTime(route))}
+                      {route.arrival_estimate_datetime && ` ·  ${formatLeaveClock(route.arrival_estimate_datetime)}`}
                     </div>
                   )}
                   {mode === "transit" && transitSummary.length > 0 && (

@@ -81,7 +81,7 @@ REALTIME_SCHEDULE_WINDOW_HOURS = 3
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "1") == "1"
 MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "6")), 10)) # Total routes returned. e.g. primary and up to 5 more.
-TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "3.0")) # Wall-clock budget for the whole alternatives search (seconds).
+TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "10.0")) # Wall-clock budget for the whole alternatives search (seconds).
 ALT_MIN_HEADWAY_MIN = 5
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
 LIVE_VEHICLE_MAX_AGE_SECONDS = max(30, int(os.getenv("LIVE_VEHICLE_MAX_AGE_SECONDS", "120")))

@@ -124,7 +124,7 @@ def _load_coordinate_map(path):
 _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
 _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
-_runtime_cache = OrderedDict()
+_runtime_cache = OrderedDict(_cached_places)
 _runtime_lock = threading.Lock()
 
 

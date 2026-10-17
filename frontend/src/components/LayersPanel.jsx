@@ -42,7 +42,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
 
       {open && (
         <div
-          className={`absolute bottom-full right-0 z-[1100] mb-3 w-[min(292px,calc(100vw-24px))] overflow-hidden rounded-[20px] border p-2 shadow-2xl backdrop-blur-xl ${surface}`}
+          className={`absolute right-0 top-full z-[1100] mt-3 w-[min(292px,calc(100vw-24px))] overflow-hidden rounded-[20px] border p-2 shadow-2xl backdrop-blur-xl ${surface}`}
         >
           <div className="flex items-center justify-between px-3 pb-1 pt-2">
             <div className="text-[15px] font-semibold tracking-[-0.015em]">Layers</div>

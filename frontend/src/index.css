@@ -102,6 +102,16 @@ button {
   color: #334155 !important;
 }
 
+/* The map-style and Layers buttons sit in the top-right corner (top-4 + h-11 = 60px),
+   so keep the zoom control just below them, lined up with their right edge. This is the leaflet zoom control*/
+.leaflet-top.leaflet-right {
+  top: 60px;
+}
+
+.leaflet-top.leaflet-right .leaflet-control-zoom {
+  margin-right: 16px;
+}
+
 .leaflet-control-attribution {
   font-size: 9px !important;
 }

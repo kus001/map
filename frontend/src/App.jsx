@@ -1628,6 +1628,29 @@ export default function App() {
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
 
+  // Hover/press colours shared by the floating map buttons.
+  const accentHover = darkMode
+    ? mapStyle === "hybrid"
+      ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
+      : mapStyle === "satellite"
+        ? "hover:bg-green active:bg-green-dark"
+        : "hover:bg-blue active:bg-blue-dark"
+    : "hover:bg-green hover:text-white active:bg-green-dark";
+
+  // Small square buttons stacked down the left edge (menu, dark mode, location, fit route).
+  const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+    darkMode
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+        : mapStyle === "satellite"
+          ? "border-button bg-charcoal-light text-green-light"
+          : "border-button bg-charcoal-light text-blue-light"
+      : "border-button-light bg-white text-green-dark"
+  }`;
+
+  // The stack sits to the right of the route panel when that panel is open on desktop.
+  const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
+  const smallButtonY = overlayVisible ? "" : "top-4"
   const mapProps = {
     data, selectedRoute, selectedRouteNumber, hoveredRouteNumber, displayedMode,
     onSelectRoute: selectRoute, onHoverRoute: setHoveredRouteNumber,
@@ -1677,22 +1700,6 @@ export default function App() {
             >
               kmaps
             </a>
-
-            <button
-              type="button"
-              onClick={() => setDarkMode(value => !value)}
-              title="Toggle dark mode"
-              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                darkMode
-                  ? mapStyle === "hybrid"
-                    ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : mapStyle === "satellite"
-                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
-                  : "border-button-light bg-white text-green-dark"
-              }`}
-            >
-              {darkMode ? <PiSunFill /> : <TbMoonStars />}
-            </button>
           </div>
 
           <div
@@ -1813,18 +1820,42 @@ export default function App() {
           onClick={() => setIsSidePanel(value => !value)}
           title={sidePanel ? "Open menu" : "Close menu"}
           aria-label={sidePanel ? "Open menu" : "Close menu"}
-          className={`rounded-lg absolute top-4 z-[500] border p-2 transition hover:-translate-y-px active:scale-90 ${overlayVisible ? "left-4 md:left-87.5" : "left-4"} ${
-            darkMode
-              ? mapStyle === "hybrid"
-                ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                : mapStyle === "satellite"
-                  ? "border-button bg-charcoal-light text-green-light"
-                  : "border-button bg-charcoal-light text-blue-light"
-              : "border-button-light bg-white text-green-dark"
-          }`}
+          className={`absolute ${smallButtonY} z-[500] ${leftEdge} ${smallButton}`}
         >
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
+
+        <button
+          type="button"
+          onClick={() => setDarkMode(value => !value)}
+          title="Toggle dark mode"
+          className={`absolute top-15 z-[499] ${leftEdge} ${smallButton}`}
+        >
+          {darkMode ? <PiSunFill /> : <TbMoonStars />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => findLocation({ focus: true, quiet: false })}
+          title="My location"
+          aria-label="My location"
+          className={`absolute top-26 z-[499] ${leftEdge} ${smallButton}`}
+        >
+          <MdMyLocation />
+        </button>
+
+        {selectedRoute?.route_coordinates?.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setRouteFocusKey(key => key + 1)}
+            title="Fit route"
+            aria-label="Fit route"
+            className={`absolute top-37 z-[499] ${leftEdge} ${smallButton}`}
+          >
+            <MdCenterFocusStrong />
+          </button>
+        )}
+
         {overlayVisible && (
           <div ref={overlayRef} className={`absolute bottom-0 right-0 left-0 md:left-4 md:top-4 md:right-auto md:bottom-auto z-[500] rounded-xl p-2 w-full md:w-80 md:h-96 h-[40vh] overflow-hidden flex flex-col
             ${darkMode 
@@ -1860,12 +1891,45 @@ export default function App() {
           </div>
         )}
 
+        <MapView
+          data={data}
+          selectedRoute={selectedRoute}
+          selectedRouteNumber={selectedRouteNumber}
+          hoveredRouteNumber={hoveredRouteNumber}
+          displayedMode={displayedMode}
+          onSelectRoute={selectRoute}
+          onHoverRoute={setHoveredRouteNumber}
+          currentLocation={currentLocation}
+          navigationActive={navigationActive}
+          navigationAccuracy={navigationAccuracy}
+          navigationHeading={navigationHeading}
+          startCoordinate={
+            startUsesCurrentLocation ? currentLocation : startMapCoordinate
+          }
+          destinationCoordinate={destinationMapCoordinate}
+          startLabel={start}
+          destinationLabel={destination}
+          startDraggable={!startUsesCurrentLocation}
+          onSetMapStart={coordinate => setStartFromMap(coordinate)}
+          onSetMapDestination={coordinate => setDestinationFromMap(coordinate)}
+          onMoveStart={coordinate => setStartFromMap(coordinate)}
+          onMoveDestination={coordinate => setDestinationFromMap(coordinate)}
+          locationFocusKey={locationFocusKey}
+          routeFocusKey={routeFocusKey}
+          stepFocusCoordinate={stepFocusCoordinate}
+          stepFocusKey={stepFocusKey}
+          darkMode={darkMode}
+          mapStyle={mapStyle}
+          viewInsets={viewInsets}
+          enabledLayers={enabledLayers}
+          onLayerStatus={layerStatusChanged}
+        />
 
         {threeD
           ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
           : <MapView {...mapProps} />}
 
-        <div className={`absolute top-4 right-14 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
+        <div className={`absolute bottom-6 right-4 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => setThreeD(v => !v)}
             aria-pressed={threeD} title="Toggle 3D map"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${threeD ? "bg-green text-white" : "hover:bg-black/10"}`}>
@@ -1878,7 +1942,23 @@ export default function App() {
           </button>}
         </div>
 
-        <div className={`absolute bottom-4 right-4 z-[500] flex items-center gap-2 ${sidePanel ? "max-[760px]:bottom-4" : "max-[760px]:bottom-[42vh]"}`}>
+        <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2">
+          <button
+            type="button"
+            onClick={mapStyles}
+            title="Change map style"
+            className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 focus-visible:outline-none ${controlSurface} ${accentHover}`}
+          >
+            {mapStyle === "street" ? (
+              <MdMap className="text-lg" />
+            ) : mapStyle === "satellite" ? (
+              <MdSatelliteAlt className="text-lg" />
+            ) : (
+              <IoLayers className="text-lg" />
+            )}
+            <span>{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"}</span>
+          </button>
+
           <LayersPanel
             open={layersOpen}
             onToggleOpen={() => setLayersOpen(current => !current)}
@@ -1887,65 +1967,6 @@ export default function App() {
             status={layerStatus}
             darkMode={darkMode}
           />
-          <div
-            className={`flex overflow-hidden rounded-xl border active:scale-95 shadow-lg backdrop-blur ${controlSurface}`}
-          >
-            <button
-              type="button"
-              onClick={mapStyles}
-              title="Change map style"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition hover:scale-99 focus-outline-none focus-visible:outline-none${
-                darkMode ? "border-button" : "border-button-light"
-              } ${
-                  darkMode
-                    ? mapStyle === "hybrid"
-                      ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
-                      : mapStyle === "satellite"
-                        ? "hover:bg-green active:bg-green-dark"
-                        : "hover:bg-blue active:bg-blue-dark"
-                    : "hover:bg-green hover:text-white active:bg-green-light"
-                }`}
-            > 
-            {/* open/close for the menu */}
-              {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
-              <span className="capitalize">{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"} </span>
-            </button>    
-          </div>
-
-          {selectedRoute?.route_coordinates?.length > 1 && (
-            <button
-              type="button"
-              onClick={() => setRouteFocusKey(key => key + 1)}
-              title="Fit route"
-              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:scale-99 hover:text-white ${controlSurface}
-              ${darkMode 
-                ? mapStyle === "hybrid"
-                  ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark active:scale-95"
-                  : mapStyle === "satellite"
-                    ? "hover:bg-green active:bg-green-dark active:scale-95"
-                    : "hover:bg-blue active:bg-blue-dark active:scale-95"
-                : "hover:bg-green active:bg-green-dark active:scale-95"
-              }`}>
-              <MdCenterFocusStrong />
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => findLocation({ focus: true, quiet: false })}
-            title="My location"
-            className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:scale-99 hover:text-white ${controlSurface}
-              ${darkMode 
-                ? mapStyle === "hybrid"
-                  ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark active:scale-95"
-                  : mapStyle === "satellite"
-                    ? "hover:bg-green active:bg-green-dark active:scale-95"
-                    : "hover:bg-blue active:bg-blue-dark active:scale-95"
-                : "hover:bg-green active:bg-green-dark active:scale-95"
-              }`}
-          >
-            <MdMyLocation />
-          </button>
         </div>
       </main>
     </div>

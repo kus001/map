@@ -830,18 +830,14 @@ export default function MapView({
   );
   const selectedColor =
     mode === "walking"
-      ? darkMode || mapStyle === "satellite" || mapStyle === "hybrid"
-        ? "#FFFFFF"
-        : "#2F3E46"
-      : mode === "driving"
-        ? darkMode
-          ? mapStyle === "hybrid"
-            ? "#C2A9DF"
-            : mapStyle === "satellite"
-              ? "#8fa88f"
-              : "#7EA5C8"
-          : "#8fa88f"
-        : MODE_COLORS[mode] || MODE_COLORS.driving;
+      ? "#FFFFFF"
+      : "#2F3E46"
+        ? mapStyle === "hybrid"
+         ? "#B99AFF" // not in index.css, just local here
+         : mapStyle === "satellite"
+          ? "#8fa88f"
+          : "#7EA5C8"
+        : "#B99AFF" // also not in index.css, jkust local here
   const baseLayer = getBaseLayer(mapStyle, darkMode,
     USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 

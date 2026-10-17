@@ -836,7 +836,7 @@ export default function MapView({
          ? "#B99AFF" // not in index.css, just local here
          : mapStyle === "satellite"
           ? "#8fa88f"
-          : "#7EA5C8"
+          : "#A8D8FF" // also not in index.css, just local
         : "#B99AFF" // also not in index.css, jkust local here
   const baseLayer = getBaseLayer(mapStyle, darkMode,
     USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);

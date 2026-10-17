@@ -495,7 +495,7 @@ export default function RoutePanel({
                   </div>
 
 
-                  {mode === "transit" && transferRisk?.status && transferRisk.status !== "direct" && (
+                  {mode === "transit" && transferRisk?.status != "comfortable" && transferRisk.status !== "direct" && (
                     <div className={`mt-1 text-[11px] font-semibold ${
                       ["critical", "tight"].includes(transferRisk.status)
                         ? "text-amber-500"

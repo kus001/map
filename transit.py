@@ -473,7 +473,6 @@ def scheduled_vehicle_positions(steps, realtime=None, now=None):
     return estimates
 
 
-
 # Keep map-wide schedule estimation independent of route calculation. Only
 # nearby graph edges are inspected, never an entire timetable for every request.
 _nearby_vehicle_cache = OrderedDict()
@@ -563,6 +562,7 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
         while len(_nearby_vehicle_cache) > 24:
             _nearby_vehicle_cache.popitem(last=False)
     return list(results)
+
 
 def time_label(value):
     if value is None:
@@ -1952,7 +1952,6 @@ def generate_alternative_paths(
 
     accepted.sort(key=lambda item: item["arrive_min"])
     return accepted[:want]
-
 
 
 def get_transit_route(

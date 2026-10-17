@@ -867,7 +867,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
-      <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} />
+      <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
       <NavigationFollow

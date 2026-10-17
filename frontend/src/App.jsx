@@ -1841,7 +1841,7 @@ export default function App() {
           onLayerStatus={layerStatusChanged}
         />
 
-        <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[42vh]">
+        <div className={`absolute bottom-4 right-4 z-[500] flex items-center gap-2 ${sidePanel ? "max-[760px]:bottom-4" : "max-[760px]:bottom-[42vh]"}`}>
           <LayersPanel
             open={layersOpen}
             onToggleOpen={() => setLayersOpen(current => !current)}

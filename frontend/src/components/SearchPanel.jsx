@@ -665,9 +665,8 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* walking sub buttons */}
       {mode === "walking" && (
-        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+        <div className="soft-enter mt-2 grid grid-cols-2 gap-1.5">
           {WALK_TYPES.map(option => (
             <button
               type="button"

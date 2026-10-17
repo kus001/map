@@ -71,7 +71,10 @@ const BIKE_TYPES = [
   { id: "electric", label: "E-Bike" },
 ];
 
-
+const WALK_TYPES = [
+  { id: "regular", label: "Regular"},
+  { id: "hiking", label: "Hiking"},
+];
 
 const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 }; // Kitchener-Waterloo
 
@@ -354,7 +357,9 @@ function LocationInput({
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button bg-hybrid-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-hybrid-purple focus:ring-hybrid-purple/15"
-              : "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
+              : mapStyle === "satellite"
+                ? "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-green focus:ring-green/15"
+                : "border-button bg-charcoal-light text-darkmode-gray placeholder:text-darkmode-gray/55 focus:border-blue focus:ring-blue/15"
             : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/15"
         }`}
       />
@@ -474,7 +479,13 @@ export default function SearchPanel({
           icon={
             <GoDot
               className={`text-xl ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-charcoal"
+                darkMode 
+                  ? mapStyle === "hybrid" 
+                    ? "text-hybrid-purple-light" 
+                    : mapStyle === "satellite"
+                      ? "text-green"
+                      : "text-blue-light" 
+                    : "text-green"
               }`}
             />
           }
@@ -489,13 +500,17 @@ export default function SearchPanel({
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"
-                      ? "border-hybrid-purple bg-hybrid-purple text-white" 
-                      : "border-blue bg-blue text-white" 
+                      ? "border-hybrid-purple bg-hybrid-purple text-white"
+                      : mapStyle === "satellite"
+                        ? "border-green-dark bg-green-dark text-white"
+                        : "border-blue bg-blue text-white" 
                     : "border-green bg-green text-white"
                   : darkMode
                     ? mapStyle === "hybrid"
                       ? "border-button bg-hybrid-charcoal text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
-                      : "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal text-green hover:border-green hover:bg-green/15"
+                        : "border-button bg-charcoal text-blue-light hover:border-blue hover:bg-blue/15"
                     : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
               }`}
             >
@@ -517,7 +532,13 @@ export default function SearchPanel({
           icon={
             <PiMapPinFill
               className={`text-xl ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light" : "text-blue-light" : "text-green"
+                darkMode 
+                  ? mapStyle === "hybrid" 
+                    ? "text-hybrid-purple-light" 
+                    : mapStyle === "satellite"
+                      ? "text-green"
+                      : "text-blue-light" 
+                    : "text-green"
               }`}
             />
           }
@@ -583,7 +604,9 @@ export default function SearchPanel({
             darkMode
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"
-                : "bg-charcoal-light hover:bg-blue text-darkmode-gray"
+                : mapStyle === "satellite"
+                  ? "bg-charcoal-light hover:bg-green text-darkmode-gray"
+                  : "bg-charcoal-light hover:bg-blue text-darkmode-gray"
               : "bg-green/10 hover:bg-green text-green-dark"
           }`}
         >
@@ -623,10 +646,50 @@ export default function SearchPanel({
                   ? darkMode
                     ? mapStyle === "hybrid"
                       ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
-                      : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                      : mapStyle === "satellite"
+                        ? "border-green bg-green/15 text-green-light active:bg-green/25"
+                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
                     : "border-green bg-green/15 text-green active:bg-green/25"
                   : darkMode
-                    ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 active:bg-hybrid-purple/20"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 active:bg-green/20"
+                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                    : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* walking sub buttons */}
+      {mode === "walking" && (
+        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+          {WALK_TYPES.map(option => (
+            <button
+              type="button"
+              key={option.id}
+              disabled={loading}
+              mapStyle={mapStyle}
+              onClick={() => onCyclingTypeChange(option.id)}
+              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                cyclingType === option.id
+                  ? darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
+                      : mapStyle === "satellite"
+                        ? "border-green bg-green/15 text-green-light active:bg-green/25"
+                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                    : "border-green bg-green/15 text-green active:bg-green/25"
+                  : darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 active:bg-hybrid-purple/20"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 active:bg-green/20"
+                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
                     : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
               }`}
             >

@@ -19,6 +19,159 @@ import "leaflet/dist/leaflet.css";
 const KEY_FROM_ENV = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const MAPTILER_KEY = ["", "undefined", "null", "none"].includes(KEY_FROM_ENV.toLowerCase()) ? "" : KEY_FROM_ENV;
 const USE_MAPTILER = Boolean(MAPTILER_KEY) && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
+
+function mapTilerStyle(mapStyle, darkMode) {
+  if (mapStyle === "satellite") return null;
+  if (mapStyle === "hybrid") return darkMode ? "hybrid-v4-dark" : "hybrid-v4";
+  return darkMode ? "streets-v4-dark" : "streets-v4";
+}
+
+async function validMapTilerStyle(styleId, signal) {
+  const url = `https://api.maptiler.com/maps/${styleId}/style.json?key=${encodeURIComponent(MAPTILER_KEY)}`;
+  const res = await fetch(url, { signal, cache: "no-store", headers: { Accept: "application/json" } });
+  if (!res.ok || !res.headers.get("content-type")?.includes("json")) return false;
+  const style = await res.json();
+  return style?.version === 8 && Array.isArray(style.layers) && !!style.sources;
+}
+
+// MapTiler sometimes sends its "Invalid key" screen as an actual PNG, not
+// an HTTP/image error. Leaflet's tileerror event won't catch that.
+function isMapTilerErrorTile(tile) {
+  if (!tile?.complete || !tile.naturalWidth) return false;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(tile, 0, 0, 128, 128);
+    const pixels = ctx.getImageData(0, 0, 128, 128).data;
+    let pale = 0, white = 0, grey = 0, ink = 0;
+    const near = (r, g, b, x, y, z) =>
+      Math.abs(r - x) <= 3 && Math.abs(g - y) <= 3 && Math.abs(b - z) <= 3;
+    for (let i = 0; i < pixels.length; i += 16) {
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+      if (near(r, g, b, 249, 250, 251)) pale++;
+      if (near(r, g, b, 255, 255, 255)) white++;
+      if (near(r, g, b, 210, 215, 222)) grey++;
+      if (r < 80 && b > r + 10) ink++;
+    }
+    const count = pixels.length / 16;
+    return pale / count > 0.48 && white / count > 0.10 &&
+      (grey / count > 0.025 || ink / count > 0.008);
+  } catch {
+    // No CORS access to the pixels: use the JSON key check and tileerror.
+    return false;
+  }
+}
+const SATELLITE_NATIVE_ZOOM = 19;
+const MAP_MAX_ZOOM = 22;
+const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
+const EMPTY_TILE = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const satTileCache = new Map();
+
+// Esri has different image detail in different places. A tilemap tells us
+// which sharper tiles exist so we don't show its grey missing-image tiles.
+async function hasSatelliteTile(coords) {
+  const size = 8;
+  const left = Math.floor(coords.x / size) * size;
+  const top = Math.floor(coords.y / size) * size;
+  const key = `${coords.z}:${top}:${left}`;
+  let cached = satTileCache.get(key);
+
+  if (!cached || cached.expires < Date.now()) {
+    const url = `${ESRI_IMAGERY}/tilemap/${coords.z}/${top}/${left}/${size}/${size}?f=json`;
+    const request = fetch(url, { signal: AbortSignal.timeout(2500) })
+      .then(res => res.ok ? res.json() : null)
+      .catch(() => null);
+    cached = { request, expires: Date.now() + 5 * 60 * 1000 };
+    const entry = cached;
+    request.then(info => { if (!info) entry.expires = Date.now() + 15000; });
+    satTileCache.set(key, cached);
+    if (satTileCache.size > 120) satTileCache.delete(satTileCache.keys().next().value);
+  }
+
+  const info = await cached.request;
+  if (!info?.data || !info.location) return false;
+  const { left: x, top: y, width, height } = info.location;
+  const column = coords.x - x;
+  const row = coords.y - y;
+  return column >= 0 && row >= 0 && column < width && row < height &&
+    info.data[row * width + column] === 1;
+}
+
+function missingSatelliteImage(tile) {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(tile, 0, 0, 32, 32);
+    const data = ctx.getImageData(0, 0, 32, 32).data;
+    let grey = 0, white = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (r >= 185 && r <= 225 && Math.abs(r - g) < 5 && Math.abs(g - b) < 5) grey++;
+      if (r > 240 && g > 240 && b > 240) white++;
+    }
+    return grey > 0.78 * 1024 && (white > 0.005 * 1024 || grey > 0.96 * 1024);
+  } catch {
+    return false;
+  }
+}
+
+function SatelliteDetails() {
+  const map = useMap();
+
+  useEffect(() => {
+    const SharpTile = L.TileLayer.extend({
+      createTile(coords, done) {
+        const tile = document.createElement("img");
+        tile.alt = "";
+        tile.setAttribute("role", "presentation");
+        tile.crossOrigin = "anonymous";
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          done(null, tile);
+        };
+        const blank = () => {
+          tile.onload = finish;
+          tile.onerror = finish;
+          tile.src = EMPTY_TILE;
+        };
+        tile.onload = () => {
+          if (missingSatelliteImage(tile)) blank();
+          else finish();
+        };
+        tile.onerror = blank;
+
+        hasSatelliteTile(coords).then(found => {
+          if (found) tile.src = `${this.getTileUrl(coords)}?blankTile=false`;
+          else blank();
+        }).catch(blank);
+        return tile;
+      },
+    });
+
+    // Each level fills the gaps in the next one. If a block has no zoom 22
+    // imagery, zoom 21 (or 20 or 19) stays visible underneath it.
+    const layers = [20, 21, 22].map(level => new SharpTile(`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`, {
+      minZoom: level,
+      maxZoom: MAP_MAX_ZOOM,
+      maxNativeZoom: level,
+      zIndex: level,
+      updateWhenZooming: false,
+      keepBuffer: 1,
+    }).addTo(map));
+
+    return () => layers.forEach(layer => map.removeLayer(layer));
+  }, [map]);
+
+  return null;
+}
 const DEFAULT_CENTER = [43.4829, -80.5249];
 
 const MODE_COLORS = {
@@ -524,8 +677,7 @@ function TransitSegments({ route, darkMode, mapStyle }) {
   });
 }
 
-function getBaseLayer(mapStyle, darkMode, mapTilerFailed) {
-  const useKey = USE_MAPTILER && !mapTilerFailed;
+function getBaseLayer(mapStyle, darkMode, useKey) {
   if (mapStyle === "hybrid") {
     if (useKey) {
       // MapTiler's rendered hybrid style includes imagery, roads and labels.
@@ -552,15 +704,6 @@ function getBaseLayer(mapStyle, darkMode, mapTilerFailed) {
   }
 
   if (mapStyle === "satellite") {
-    if (useKey) {
-      return {
-        id: "maptiler-satellite",
-        url: `https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${MAPTILER_KEY}`,
-        attribution:
-          '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>',
-      };
-    }
-
     return {
       id: "esri-satellite",
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -614,10 +757,54 @@ export default function MapView({
   viewInsets = ZERO_INSETS,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
-  const tileErrors = useRef(0);
+  const [verifiedStyle, setVerifiedStyle] = useState(null);
+  const tileErrors = useRef([]);
+  const styleId = mapTilerStyle(mapStyle, darkMode);
+
+  useEffect(() => {
+    if (!USE_MAPTILER || !styleId || mapTilerFailed) return;
+    let cancelled = false;
+    let checking = false;
+    let controller;
+
+    // Start on the free map until the key is confirmed. Check it again
+    // occasionally, since quotas can run out after the page has loaded.
+    const verify = async () => {
+      if (checking) return;
+      checking = true;
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const ok = await validMapTilerStyle(styleId, controller.signal);
+        if (!cancelled) {
+          if (ok) setVerifiedStyle(styleId);
+          else setMapTilerFailed(true);
+        }
+      } catch {
+        if (!cancelled) setMapTilerFailed(true);
+      } finally {
+        clearTimeout(timeout);
+        checking = false;
+      }
+    };
+
+    verify();
+    const refresh = setInterval(verify, 90000);
+    return () => {
+      cancelled = true;
+      clearInterval(refresh);
+      controller?.abort();
+    };
+  }, [styleId, mapTilerFailed]);
+
   const onTileError = () => {
-    tileErrors.current += 1;
-    if (tileErrors.current >= 3) setMapTilerFailed(true);
+    const now = Date.now();
+    tileErrors.current = tileErrors.current.filter(time => now - time < 10000);
+    tileErrors.current.push(now);
+    if (tileErrors.current.length >= 2) setMapTilerFailed(true);
+  };
+  const onTileLoad = event => {
+    if (isMapTilerErrorTile(event.tile)) setMapTilerFailed(true);
   };
   const mode = displayedMode || data?.mode || "driving";
 
@@ -652,7 +839,8 @@ export default function MapView({
               : "#7EA5C8"
           : "#8fa88f"
         : MODE_COLORS[mode] || MODE_COLORS.driving;
-  const baseLayer = getBaseLayer(mapStyle, darkMode, mapTilerFailed);
+  const baseLayer = getBaseLayer(mapStyle, darkMode,
+    USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 
   const mapCenter = validCoordinate(currentLocation)
     ? [Number(currentLocation[0]), Number(currentLocation[1])]
@@ -669,6 +857,8 @@ export default function MapView({
     <MapContainer
       center={mapCenter}
       zoom={13}
+      minZoom={0}
+      maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
@@ -682,26 +872,43 @@ export default function MapView({
         insets={viewInsets}
       />
 
+      {mapStyle === "hybrid" && (
+        <TileLayer
+          key="hybrid-background"
+          url={`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`}
+          attribution="Tiles &copy; Esri"
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
+          zIndex={0}
+        />
+      )}
+
       {baseLayer.vector ? (
         <FreeMapLayer darkMode={darkMode} />
-      ) : (
+      ) : baseLayer.id === "esri-hybrid" ? null : (
         <TileLayer
           key={`${baseLayer.id}-${darkMode ? "dark" : "light"}`}
           url={baseLayer.url}
           attribution={baseLayer.attribution}
-          maxZoom={22}
-          eventHandlers={baseLayer.id.startsWith("maptiler")
-            ? { tileerror: onTileError, tileload: () => { tileErrors.current = 0; } }
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={baseLayer.id === "esri-satellite" ? SATELLITE_NATIVE_ZOOM : undefined}
+          zIndex={baseLayer.id.startsWith("maptiler-") ? 100 : 1}
+          crossOrigin={baseLayer.id.startsWith("maptiler-") ? "anonymous" : undefined}
+          eventHandlers={baseLayer.id.startsWith("maptiler-")
+            ? { tileerror: onTileError, tileload: onTileLoad }
             : undefined}
         />
       )}
+
+      {(mapStyle === "satellite" || mapStyle === "hybrid") && <SatelliteDetails />}
 
       {baseLayer.labels && (
         <TileLayer
           key={`${baseLayer.id}-labels`}
           url={baseLayer.labels.url}
           attribution={baseLayer.labels.attribution}
-          maxZoom={22}
+          maxZoom={20}
+          maxNativeZoom={SATELLITE_NATIVE_ZOOM}
           zIndex={250}
         />
       )}

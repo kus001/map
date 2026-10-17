@@ -789,7 +789,6 @@ export default function App() {
           requestedCyclingType.slice(1);
         setStatus(`${typeName} cycling route found${scheduledSuffix}`);
       } else if (requestedMode === "transit") {
-        const count = result.routes?.length || 1;
         const nextTripTime = result.next_service && result.departure_datetime
           ? new Date(result.departure_datetime).toLocaleString([], {
               weekday: "short", month: "short", day: "numeric",

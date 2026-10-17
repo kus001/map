@@ -234,3 +234,13 @@ button {
 
 .km-3d-tilt { position: absolute; top: 121px; right: 10px; z-index: 5; background: #fff; color: #273a2d; padding: 8px 10px; border-radius: 7px; box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600; }
 .km-3d-tilt:hover { background: #edf4ef; }
+
+/* MapLibre's globe is transparent outside the Earth: paint actual space behind it.
+   The colour belongs on the host, not a style background layer. */
+.km-3d-scene, .km-3d-map, .km-3d-map .maplibregl-canvas-container,
+.km-3d-map .maplibregl-canvas { background-color: #070b14; }
+.km-3d-buildings { position: absolute; top: 164px; right: 10px; z-index: 5;
+  color: #273a2d; background: #fff; padding: 8px 10px; border-radius: 7px;
+  box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600; }
+.km-3d-buildings[aria-pressed="false"] { opacity: 0.75; }
+.km-3d-buildings:hover { background: #edf4ef; }

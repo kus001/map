@@ -756,7 +756,8 @@ export default function SearchPanel({
         darkMode={darkMode}
         mapStyle={mapStyle}
         className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] 
-        ${darkMode ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
+        ${darkMode 
+          ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
         }`}>
         {loading
           ? "Finding route..."

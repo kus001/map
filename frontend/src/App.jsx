@@ -1858,7 +1858,7 @@ export default function App() {
               type="button"
               onClick={mapStyles}
               title="Change map style"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition focus-outline-none focus-visible:outline-none${
+              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition hover:scale-99 focus-outline-none focus-visible:outline-none${
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode

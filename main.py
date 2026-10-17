@@ -119,8 +119,6 @@ def print_timing_report(mode, timing, total_microseconds):
     print(f"\n[{mode.upper()} ROUTE TIMING] {json.dumps(report, sort_keys=True)}", flush=True)
 
 
-
-
 @app.post("/api/transit/walk-shapes")
 def finished_transit_walks():
     """Read already-fetched walking geometry; never makes outbound requests."""
@@ -396,7 +394,6 @@ def live_transit_state():
     })
 
 
-
 @app.get("/api/transit/vehicles")
 def nearby_transit_vehicles():
     """Nearby vehicle layer; does not block /api/routes or require a route."""
@@ -445,6 +442,7 @@ def nearby_transit_vehicles():
     return jsonify({"success": True, "vehicles": list(live.values())[:90],
                     "live_count": len(unique_live),
                     "estimated_count": sum(bool(v.get("estimated")) for v in live.values())})
+
 
 @app.get("/api/transit/stops")
 def transit_stops_nearby():
@@ -693,9 +691,6 @@ def _should_warm_up():
     return True
 
 
-# Load every graph/index/feed *before* the server accepts a request, so queries
-# only do lookups. This runs at import time on purpose: it also covers WSGI
-# hosts (gunicorn, Vercel) that import `main:app` instead of running this file.
 # Set MAP_PRELOAD_TRANSIT=0 to go back to lazy loading.
 if _should_warm_up():
     from helpers.warmup import warm_up

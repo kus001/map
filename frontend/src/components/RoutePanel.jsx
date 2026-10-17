@@ -138,6 +138,42 @@ function formatScheduledDeparture(value) {
   }).format(date);
 }
 
+// When you actually have to leave the origin: the first vehicle's boarding time
+// minus the walk to its stop. Uses the live-adjusted step times, so it moves with
+// delays. Walk-only routes fall back to the route's own start time.
+function requiredLeaveTime(route) {
+  let walkMs = 0;
+  for (const step of route?.steps || []) {
+    if (step?.type === "transit") {
+      const boards = Date.parse(step.departure_datetime);
+      if (Number.isFinite(boards)) {
+        return new Date(boards - walkMs).toISOString();
+      }
+      break;
+    }
+    walkMs += Number(step?.duration_min || 0) * 60000;
+  }
+  return route?.departure_datetime || null;
+}
+
+// Compact clock time for route cards; adds the date only when it isn't today.
+function formatLeaveClock(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  if (date.toDateString() !== new Date(PAGE_CLOCK_MS).toDateString()) {
+    return formatScheduledDeparture(value);
+  }
+
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 // Headline + detail lines for the navigation card while following a transit route.
 function transitNavigationSummary(info) {
   const step = info?.current_step;
@@ -280,6 +316,10 @@ export default function RoutePanel({
   const scheduledDeparture = formatScheduledDeparture(
     data.requested_departure_datetime || data.departure_datetime
   );
+  const leaveBy =
+    mode === "transit"
+      ? formatScheduledDeparture(requiredLeaveTime(activeRoute))
+      : null;
   const navigationOffRouteThreshold = Math.max(
     70,
     Number(navigationAccuracy || 0) * 2
@@ -404,7 +444,7 @@ export default function RoutePanel({
             : "border-green/30 bg-green/10 text-green-dark"
           }`}>
           <MdCalendarMonth className="mr-2 inline text-base" />
-          Arrive by {formatScheduledDeparture(data.arrive_by_datetime)} · Suggested leave time {formatScheduledDeparture(activeRoute.departure_datetime)}
+          Arrive by {formatScheduledDeparture(data.arrive_by_datetime)} · Leave by {leaveBy}
         </div>
       )}
 
@@ -416,18 +456,16 @@ export default function RoutePanel({
               : "border-green/30 bg-green/10 text-green-dark"
           }`}
         >
-          <MdCalendarMonth className="text-base" />
-          Departing {scheduledDeparture}
+          <MdCalendarMonth className="mr-2 inline text-base" />
+          {leaveBy ? `Leave by ${leaveBy}` : `Departing ${scheduledDeparture}`}
         </div>
       )}
 
-
-
-      {mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
+      {/*mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
         <div className="mb-3 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
           <strong>Transfer warning:</strong> connection buffers are estimates; allow extra time for walking and delays.
         </div>
-      )}
+      )*/}
 
       {mode === "transit" && alerts.length > 0 && (
         <div className="mb-3 space-y-2">
@@ -516,8 +554,7 @@ export default function RoutePanel({
                     }`}
                   >
                     {formatDuration(route.duration_min)}{" • "}
-                    {arrivalLabel(route)}
-                    {/*returns arrival time*/}
+                    {arrivalLabel(route) /*returns arrival time*/ }
                   </div>
 
                   <div
@@ -530,7 +567,7 @@ export default function RoutePanel({
                     <span>•</span>
                     <span>
                       {Number(route.distance_km || 0).toFixed(1)} km
-                      {mode === "transit" ? " walking" : ""}
+                      {mode === "transit" ? " walking" : "" /* changes it from km to km walking */}
                     </span>
                   </div>
 
@@ -545,8 +582,15 @@ export default function RoutePanel({
                       {transferRisk.transfers?.length ? ` · ${transferRisk.transfers.map(item => `${item.margin_min} min buffer`).join(" / ")}` : ""}
                     </div>
                   )}
-                  {mode === "transit" && timingMode === "arrive_by" && route.departure_datetime && (
-                    <div className="mt-1 text-[11px] opacity-80">Leave {formatScheduledDeparture(route.departure_datetime)} · Arrive {formatScheduledDeparture(route.arrival_estimate_datetime)}</div>
+                  {mode === "transit" && requiredLeaveTime(route) && (
+                    <div
+                      className={`text-[14.5px] font-semibold ${
+                        darkMode ? "text-darkmode-gray" : "text-charcoal"
+                      }`}
+                    >
+                      {formatLeaveClock(requiredLeaveTime(route))}
+                      {route.arrival_estimate_datetime && ` ·  ${formatLeaveClock(route.arrival_estimate_datetime)}`}
+                    </div>
                   )}
                   {mode === "transit" && transitSummary.length > 0 && (
                     <div

@@ -323,6 +323,9 @@ export default function App() {
       "regular"
     )
   );
+
+  const [walkingType, setWalkingType] = useState("regular");
+
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [hoveredRouteNumber, setHoveredRouteNumber] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1235,6 +1238,17 @@ export default function App() {
     }
   }
 
+  function changeWalkingType(nextType) {
+    setWalkingType(nextType);
+
+    if (mode === "walking" && start.trim() && destination.trim()) { // recalc route 
+      searchRoutes({
+        requestedMode: "walking",
+        requestedWalkingType: nextType,
+      });
+    }
+  }
+
   function changeTimingMode(nextMode) {
     if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
@@ -1595,7 +1609,13 @@ export default function App() {
               target="_blank"
               rel="noreferrer"
               className={`inline-block text-2xl font-bold tracking-tight transition-all duration-200 active:scale-95 hover:tracking-wider ${
-                darkMode ? mapStyle === "hybrid" ? "text-hybrid-purple-light hover:text-hybrid-purple-dark" : "text-blue-light hover:text-blue" : "text-green hover:text-green-dark"
+                darkMode 
+                ? mapStyle === "hybrid" 
+                  ? "text-hybrid-purple-light hover:text-hybrid-purple-dark"
+                  : mapStyle === "satellite"
+                    ? "text-green hover:text-green-dark"
+                    : "text-blue-light hover:text-blue" 
+                : "text-green hover:text-green-dark"
               }`}
             >
               kmaps
@@ -1609,7 +1629,8 @@ export default function App() {
                 darkMode
                   ? mapStyle === "hybrid"
                     ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : "border-button bg-charcoal-light text-blue-light"
+                    : mapStyle === "satellite"
+                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
                   : "border-button-light bg-white text-green-dark"
               }`}
             >
@@ -1634,7 +1655,9 @@ export default function App() {
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}
+          walkingType={walkingType}
           onCyclingTypeChange={changeCyclingType}
+          onWalkingTypeChange={changeWalkingType}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}
@@ -1737,7 +1760,9 @@ export default function App() {
             darkMode
               ? mapStyle === "hybrid"
                 ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                : "border-button bg-charcoal-light text-blue-light"
+                : mapStyle === "satellite"
+                  ? "border-button bg-charcoal-light text-green-light"
+                  : "border-button bg-charcoal-light text-blue-light"
               : "border-button-light bg-white text-green-dark"
           }`}
         >
@@ -1842,7 +1867,8 @@ export default function App() {
                   //   ? "text-darkmode-gray hover:bg-blue/10"
                   //   : "text-charcoal hover:bg-green/10"
                 }`}
-            >
+            > 
+            {/* open/close for the menu */}
               {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
               <span className="capitalize">{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"} </span>
             </button>    
@@ -1863,7 +1889,15 @@ export default function App() {
             type="button"
             onClick={() => findLocation({ focus: true, quiet: false })}
             title="My location"
-            className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white ${controlSurface}`}
+            className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:scale-99 hover:text-white ${controlSurface}
+              ${darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark active:scale-95"
+                  : mapStyle === "satellite"
+                    ? "hover:bg-green active:bg-green-dark active:scale-95"
+                    : "hover:bg-blue active:bg-blue-dark active:scale-95"
+                : "hover:bg-green active:bg-green-dark active:scale-95"
+              }`}
           >
             <MdMyLocation />
           </button>

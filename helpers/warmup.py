@@ -66,6 +66,10 @@ def _address_index():
     from helpers import local_geocode
     return f"{local_geocode.preload():,} address points"
 
+def _named_places():
+    from helpers import geocoding
+    return geocoding.prime_named_places()
+
 def _transit_graph():
     import transit
     transit.ensure_transit_loaded()
@@ -135,6 +139,7 @@ def warm_up() -> dict:
     print("[warmup] loading all routing data before accepting requests...", flush=True)
 
     _run("address_index", _address_index)
+    _run("named_places", _named_places)  # after the index: addresses resolve offline
     graph_ok = _run("transit_graph", _transit_graph)
     if graph_ok:
         # Order matters: TTC extends the graph/stops, so build derived indexes after it.

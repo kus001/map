@@ -25,6 +25,7 @@ from pathlib import Path
 
 from geopy.geocoders import Nominatim
 
+from helpers import named_places
 from helpers.local_geocode import resolve_detailed, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -123,7 +124,7 @@ def _load_coordinate_map(path):
 _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
 _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
-_runtime_cache = OrderedDict()
+_runtime_cache = OrderedDict(_cached_places)
 _runtime_lock = threading.Lock()
 
 
@@ -318,6 +319,97 @@ def _nominatim_lookup(query, bias=None):
     )
 
 
+# --- named places (schools etc. by full name or initials) ---------------------
+
+# entry id -> (lat, lon) once located. Offline sources (coordinates, address points)
+# are always tried first; the network is only used for entries that have neither.
+_named_locations = {}
+
+
+def _in_region(point):
+    (south, west), (north, east) = WATERLOO_REGION_VIEWBOX[1], WATERLOO_REGION_VIEWBOX[0]
+    return min(south, north) <= point[0] <= max(south, north) and \
+        min(west, east) <= point[1] <= max(west, east)
+
+
+def _locate_named(entry, allow_network=True):
+    """(lat, lon) for a named place, or None if it can't be placed (yet)."""
+    known = _named_locations.get(entry["id"])
+    if known is not None:
+        return known
+
+    point = entry["coordinates"]
+
+    if point is None and entry["address"]:
+        status, payload = resolve_detailed(entry["address"])
+        if status == "ok":
+            point = (float(payload[2]), float(payload[3]))
+        elif status == "approximate":
+            point = (float(payload[0]), float(payload[1]))
+
+    if point is None and allow_network:
+        text = (
+            entry["query"]
+            or entry["address"]
+            or ", ".join(part for part in (entry["name"], entry["city"]) if part)
+        )
+        found = _nominatim_lookup(text)
+        # These are Waterloo Region places: an answer elsewhere is a wrong match.
+        if found is not None and _in_region((found[0], found[1])):
+            point = (found[0], found[1])
+
+    if point is not None:
+        _named_locations[entry["id"]] = point
+    return point
+
+
+def _named_options(entries, bias, allow_network):
+    located = []
+    for entry in entries:
+        point = _locate_named(entry, allow_network=allow_network)
+        if point is not None:
+            located.append({"label": entry["name"], "lat": point[0], "lon": point[1]})
+    return _sort_options(located, bias)
+
+
+def _search_named(query, limit, bias):
+    """Autocomplete for named places. Ones that still need the network are left out
+    until they have been located, so typing never waits on a slow lookup."""
+    scored = []
+    for score, entry in named_places.search(query, limit * 2):
+        point = _locate_named(entry, allow_network=False)
+        if point is None:
+            continue
+        dist = _km(bias, point) if bias else 0.0
+        scored.append((-score, round(dist, 1), entry["name"], point))
+
+    scored.sort()
+    return [
+        {"label": name, "lat": point[0], "lon": point[1], "source": "known"}
+        for _score, _dist, name, point in scored[:limit]
+    ]
+
+
+def prime_named_places():
+    """Locate every named place now; ones that need the network finish in the
+    background so startup is never held up. Returns a one-line summary."""
+    entries = named_places.entries()
+    pending = [e for e in entries if _locate_named(e, allow_network=False) is None]
+
+    if pending:
+        def work():
+            found = sum(1 for entry in pending if _locate_named(entry) is not None)
+            if found:
+                _search_places_cached.cache_clear()  # drop results computed without them
+
+        threading.Thread(target=work, name="named-places-prime", daemon=True).start()
+
+    return (
+        f"{len(entries) - len(pending)} placed offline"
+        + (f", {len(pending)} resolving in background" if pending else "")
+    )
+
+
 # --- public resolution API ---------------------------------------------------
 
 def _coordinates_from_text(value):
@@ -373,6 +465,16 @@ def resolve_address(address, bias=None, allow_network=True):
         if key in source:
             return _result("ok", source[key], clean, "known")
 
+    # Places known by full name or initials ("LHSS", "L.H.S.S.", "jhss waterloo").
+    named = named_places.find_exact(clean)
+    if named:
+        options = _named_options(named, bias, allow_network=True)
+        if len(options) == 1:
+            only = options[0]
+            return _result("ok", (only["lat"], only["lon"]), only["label"], "named")
+        if len(options) > 1:  # two places share these initials: the user must choose
+            return _result("ambiguous", options=options)
+
     # Exact coordinates remembered from an autocomplete selection this session.
     remembered = _recall_runtime(key)
     if remembered is not None:
@@ -421,6 +523,12 @@ def get_coordinates(address, bias=None):
 
 def address_options(address, bias=None):
     """Local-only check: (status, options) when the user must choose or correct."""
+    named = named_places.find_exact(str(address))
+    if len(named) > 1:
+        options = _named_options(named, bias, allow_network=False)
+        if len(options) > 1:
+            return "ambiguous", options
+
     status, payload = resolve_detailed(str(address).strip())
     if status in ("ambiguous", "mismatch") and payload:
         return status, _sort_options([_entry_option(e) for e in payload], bias)
@@ -456,12 +564,17 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     if len(clean_query) < 2:
         return tuple()
 
+    named = _search_named(clean_query, limit, bias_key)
     known = _search_known(clean_query, limit, bias_key)
     local = search_local(clean_query, limit=limit, bias=bias_key)
 
     # A leading number means the user is typing an address; otherwise they are more
     # likely naming a place, so curated places come first.
-    ordered = local + known if clean_query[0].isdigit() else known + local
+    ordered = (
+        local + named + known
+        if clean_query[0].isdigit()
+        else named + known + local
+    )
 
     merged, seen = [], set()
     for result in ordered:

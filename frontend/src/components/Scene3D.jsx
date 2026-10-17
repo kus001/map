@@ -4,9 +4,16 @@ const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+// Buildings are optional and are only drawn close to the ground. A large-city
+// full-detail extrusion at zoom 14 can overwhelm an integrated GPU.
+const BUILDING_MIN_ZOOM = 16.5;
+const TERRAIN_MIN_ZOOM = 8;
+const GLOBE_TERRAIN_MIN_ZOOM = 12;
+const SPACE = "#070b14";
 const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
 const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
 const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
+const freeStyleCache = new Map();
 
 let loader;
 function loadMapLibre() {
@@ -53,9 +60,16 @@ function lineFeature(points, color, routeNumber, walking = false, chosen = false
 async function getStyle(mapStyle, darkMode, signal) {
   // We use one vector source for buildings in all three map modes.
   const freeName = darkMode ? "dark" : "liberty";
-  const response = await fetch(`${FREE}${freeName}`, { signal });
-  if (!response.ok) throw new Error("The free map provider isn't responding");
-  const freeStyle = await response.json();
+  let freeStyle = freeStyleCache.get(freeName);
+  if (!freeStyle) {
+    const response = await fetch(`${FREE}${freeName}`, { signal });
+    if (!response.ok) throw new Error("The free map provider isn't responding");
+    freeStyle = await response.json();
+    // Do not cache failed/partial downloads; clone before handing styles to GL.
+    if (freeStyle.version === 8 && freeStyle.sources?.openmaptiles)
+      freeStyleCache.set(freeName, freeStyle);
+  }
+  freeStyle = structuredClone(freeStyle);
   if (freeStyle.version !== 8 || !freeStyle.sources?.openmaptiles) throw new Error("Unexpected map style data");
 
   const keyAllowed = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
@@ -101,15 +115,23 @@ async function getStyle(mapStyle, darkMode, signal) {
   };
 }
 
-function addSceneLayers(map, buildingSource, darkMode, mapStyle) {
-  try {
-    if (!map.getSource("km-elevation")) map.addSource("km-elevation", {
-      type: "raster-dem", tiles: [TERRAIN], tileSize: 256, maxzoom: 15, encoding: "terrarium", attribution: "Elevation: AWS Open Data",
-    });
-    map.setTerrain({ source: "km-elevation", exaggeration: 1.15 });
-  } catch (error) { console.warn("3D elevation:", error); }
+// Keep expensive elevation data off the world view; MapLibre's globe terrain
+// is only reliable after its automatic transition towards Mercator at z~12.
+function syncTerrain(map, globe) {
+  if (!map.getSource("km-elevation")) return;
+  const show = map.getZoom() >= (globe ? GLOBE_TERRAIN_MIN_ZOOM : TERRAIN_MIN_ZOOM);
+  const current = map.getTerrain();
+  if (show && !current) map.setTerrain({ source: "km-elevation", exaggeration: 1.1 });
+  else if (!show && current) map.setTerrain(null);
+}
 
-  if (!map.getSource("km-buildings")) map.addSource("km-buildings", { ...buildingSource, type: "vector" });
+function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled) {
+  // Reuse a basemap's vector tiles rather than loading the same city a second time.
+  const style = map.getStyle();
+  const native = style.layers.find(l => l["source-layer"] === "building" && style.sources?.[l.source]?.type === "vector");
+  const existing = native?.source || (style.sources?.openmaptiles?.type === "vector" ? "openmaptiles" : null);
+  const sourceId = existing || "km-buildings";
+  if (!existing && buildingSource && !map.getSource(sourceId)) map.addSource(sourceId, { ...buildingSource, type: "vector" });
   // The original style may already contain 3D buildings.
   for (const layer of map.getStyle().layers) {
     if (layer.type === "fill-extrusion" && layer.id !== "km-buildings-3d") map.setLayoutProperty(layer.id, "visibility", "none");
@@ -117,7 +139,10 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle) {
   if (!map.getLayer("km-buildings-3d")) {
     const before = map.getStyle().layers.find(layer => layer.type === "symbol")?.id;
     map.addLayer({
-      id: "km-buildings-3d", type: "fill-extrusion", source: "km-buildings", "source-layer": "building", minzoom: 14,
+      id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
+      "source-layer": native?.["source-layer"] || "building", minzoom: BUILDING_MIN_ZOOM,
+      layout: { visibility: buildingsEnabled ? "visible" : "none" },
+      // A single GPU-drawn vector extrusion layer, not per-building meshes.
       paint: {
         "fill-extrusion-base": ["coalesce", ["to-number", ["get", "render_min_height"]], 0],
         "fill-extrusion-height": ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
@@ -170,6 +195,15 @@ export default function Scene3D({
   const callbackRef = useRef({});
   const [problem, setProblem] = useState("");
   const [ready, setReady] = useState(false);
+  // Conservative defaults on low-memory devices; manually override via UI.
+  const [buildingsEnabled, setBuildingsEnabled] = useState(() =>
+    !(typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4));
+  const buildingsRef = useRef(buildingsEnabled);
+  const globeRef = useRef(globe);
+  useEffect(() => {
+    buildingsRef.current = buildingsEnabled;
+    globeRef.current = globe;
+  }, [buildingsEnabled, globe]);
   const mode = displayedMode || data?.mode || "driving";
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const camera = useRef(initialCamera || DEFAULT_CAMERA);
@@ -213,13 +247,24 @@ export default function Scene3D({
         container: holder.current,
         style: { version: 8, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#d9e3de" } }] },
         center: initial.center, zoom: initial.zoom, pitch: Math.max(35, initial.pitch || 58),
-        bearing: initial.bearing || 0, maxZoom: 22, minZoom: 0, maxPitch: 85, antialias: true,
-        attributionControl: true,
+        bearing: initial.bearing || 0, maxZoom: 22, minZoom: 0, maxPitch: 85,
+        antialias: false, fadeDuration: 0, renderWorldCopies: false,
+        maxTileCacheSize: 36, attributionControl: true,
       });
       mapRef.current = map;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
+      // Debounced updates avoid repeated expensive terrain changes during a pan.
+      map.on("zoomend", () => syncTerrain(map, globeRef.current));
+      // Some third-party basemaps refer to icons missing from their sprite.
+      // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
+      map.on("styleimagemissing", event => {
+        const id = event.id;
+        if ((id === " " || id === "transportation:road_") && !map.hasImage(id)) {
+          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+        }
+      });
       map.on("moveend", () => callbackRef.current.onCameraChange?.({
         center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
       }));
@@ -289,7 +334,13 @@ export default function Scene3D({
             const previous = document.createElement("button"); previous.textContent = "‹";
             const next = document.createElement("button"); next.textContent = "›";
             const show = () => {
-              photo.src = images[index].url;
+              // Force a new still at a reasonable interval while the popup is open.
+              // These provider snapshots are not actual video streams.
+              try {
+                const url = new URL(images[index].url);
+                url.searchParams.set("_km_refresh", String(Math.floor(Date.now() / 30000)));
+                photo.src = url.toString();
+              } catch { photo.src = images[index].url; }
               photo.alt = images[index].label || "Highway camera";
               caption.textContent = images[index].label || `View ${index + 1}`;
             };
@@ -297,7 +348,7 @@ export default function Scene3D({
             next.onclick = () => { index = (index + 1) % images.length; show(); };
             bar.append(previous, caption, next);
             body.append(photo, bar); show();
-            const timer = setInterval(() => { index = (index + 1) % images.length; show(); }, 6500);
+            const timer = setInterval(() => { index = (index + 1) % images.length; show(); }, 30000);
             const popup = new gl.Popup({ maxWidth: "300px" }).setLngLat(event.lngLat).setDOMContent(body).addTo(map);
             popup.on("close", () => clearInterval(timer));
             return;
@@ -330,9 +381,15 @@ export default function Scene3D({
       const install = () => {
         if (controller.signal.aborted || stylesRef.current !== version) return;
         try {
-          map.setProjection({ type: globe ? "globe" : "mercator" });
-          addSceneLayers(map, buildingSource, darkMode, mapStyle);
+          map.setProjection({ type: globeRef.current ? "globe" : "mercator" });
+          map.setSky({
+            "sky-color": darkMode ? "#162336" : "#b5cee8",
+            "horizon-color": darkMode ? "#304252" : "#e4eef7",
+            "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
+          });
+          addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsRef.current);
           setData(map, "km-routes", newestLines.current);
+          syncTerrain(map, globeRef.current);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
       };
       styleInstall = install;
@@ -343,14 +400,29 @@ export default function Scene3D({
         styleFailures++;
         if (styleFailures < 2) return;
         map.off("error", providerFailure);
-        map.setStyle(fallback, { diff: false });
+        map.setStyle(prepare(fallback), { diff: false });
       };
       onProviderError = providerFailure;
       map.on("error", providerFailure);
-      try { map.setStyle(style, { diff: false }); }
+      const prepare = base => ({
+        ...base,
+        // Fix malformed expression branches in some provider label styles.
+        layers: (base.layers || []).map(layer => {
+          if (layer.id !== "Sea labels" || !layer.layout?.["text-size"]) return layer;
+          const fixSize = value => Array.isArray(value) ? value.map(fixSize) : value == null ? 16 : value;
+          return { ...layer, layout: { ...layer.layout,
+            "text-size": fixSize(layer.layout["text-size"]) } };
+        }),
+        // Keep terrain available in street, satellite AND hybrid styles.
+        sources: { ...base.sources,
+          "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
+            maxzoom: 13, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
+        },
+      });
+      try { map.setStyle(prepare(style), { diff: false }); }
       catch (error) {
         map.off("style.load", install);
-        if (style !== fallback) map.setStyle(fallback, { diff: false });
+        if (style !== fallback) map.setStyle(prepare(fallback), { diff: false });
         else setProblem(error.message);
       }
     }).catch(error => { if (!controller.signal.aborted) setProblem(error.message); });
@@ -360,7 +432,6 @@ export default function Scene3D({
       if (styleInstall) map.off("style.load", styleInstall);
     };
     // Line data changes shouldn't rebuild the whole basemap.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, mapStyle, darkMode]);
 
   useEffect(() => {
@@ -376,7 +447,15 @@ export default function Scene3D({
       map.easeTo({ ...flatCamera.current, duration: 650 });
       flatCamera.current = null;
     }
+    // A style change may still be pending; sync on its next style.load too.
+    syncTerrain(map, globe);
   }, [ready, globe]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map?.getLayer("km-buildings-3d"))
+      map.setLayoutProperty("km-buildings-3d", "visibility", buildingsEnabled ? "visible" : "none");
+  }, [ready, buildingsEnabled]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -540,13 +619,18 @@ export default function Scene3D({
   }, [ready, enabledLayers, darkMode, onLayerStatus]);
 
   return (
-    <div className="absolute inset-0">
-      <div ref={holder} className="h-full w-full" aria-label="Interactive 3D map" />
+    <div className="km-3d-scene absolute inset-0">
+      <div ref={holder} className="km-3d-map h-full w-full" aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
       <button type="button" className="km-3d-tilt" onClick={() => {
         const map = mapRef.current;
         if (map) map.easeTo({ pitch: map.getPitch() < 15 ? 62 : 0, duration: 550 });
       }}>Tilt</button>
+      <button type="button" className="km-3d-buildings" aria-pressed={buildingsEnabled}
+        title="Extruded buildings appear at close zoom; disable if your device slows down"
+        onClick={() => setBuildingsEnabled(v => !v)}>
+        Buildings {buildingsEnabled ? "On" : "Off"}
+      </button>
       <div className="km-3d-hint">Drag to move · Right-drag to rotate</div>
     </div>
   );

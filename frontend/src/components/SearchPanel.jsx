@@ -687,10 +687,10 @@ export default function SearchPanel({
                     : "border-green bg-green/15 text-green active:bg-green/25"
                   : darkMode
                     ? mapStyle === "hybrid"
-                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 active:bg-hybrid-purple/20"
+                      ? "border-button bg-hybrid-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 hover:border-hybrid-purple/50 hover:text-hybrid-purple active:bg-hybrid-purple/20"
                       : mapStyle === "satellite"
-                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 active:bg-green/20"
-                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 hover:border-green/50 hover:text-green active:bg-green/20"
+                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 hover:border-blue/50 hover:text-blue active:bg-blue/20"
                     : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
               }`}
             >

@@ -282,7 +282,11 @@ export default function RoutePanel({
           error
             ? "border-red-300 bg-red-50 text-red-700"
             : darkMode
-              ? "border-button bg-charcoal-light text-white"
+              ? mapStyle === "hybrid"
+                ? "border-hybrid-purple bg-hybrid-charcoal-light text-white"
+                : mapStyle === "satellite"
+                  ? "border-green bg-green/10 text-white"
+                  : "border-blue bg-charcoal-light text-white"
               : "border-button-light bg-white text-button-darkest"
         }`}
       >

@@ -77,6 +77,7 @@ HEURISTIC_SPEED_KMH = 100.0   # Decreased heuristic because we don't have fast t
 ACCESS_WALK_SPEED_MPS = 1
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
+MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "1") == "1"
 MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "3")), 10))
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
@@ -89,7 +90,6 @@ _transit_load_lock = threading.Lock()
 _realtime_started = False
 _scheduled_trip_cache = OrderedDict()
 _scheduled_trip_cache_lock = threading.Lock()
-MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 _ttc_lock = threading.Lock()
 _ttc_loaded = False
 

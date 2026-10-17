@@ -245,6 +245,18 @@ function MapInsetEffect({ insets }) {
   return null;
 }
 
+function MapCameraSync({ onCameraChange }) {
+  const map = useMap();
+  const report = () => {
+    const center = map.getCenter();
+    onCameraChange?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+  };
+  useMapEvents({ moveend: report });
+  // Capture the camera even if the user hasn't moved this map yet.
+  useEffect(() => { report(); });
+  return null;
+}
+
 function MapResizeEffect() {
   const map = useMap();
 
@@ -758,6 +770,8 @@ export default function MapView({
   viewInsets = ZERO_INSETS,
   enabledLayers = [],
   onLayerStatus = () => {},
+  initialCamera = null,
+  onCameraChange = () => {},
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -828,16 +842,10 @@ export default function MapView({
   const otherRoutes = routes.filter(
     item => item.route_number !== route?.route_number
   );
-  const selectedColor =
-    mode === "walking"
-      ? "#FFFFFF"
-      : "#2F3E46"
-        ? mapStyle === "hybrid"
-         ? "#B99AFF" // not in index.css, just local here
-         : mapStyle === "satellite"
-          ? "#8fa88f"
-          : "#A8D8FF" // also not in index.css, just local
-        : "#B99AFF" // also not in index.css, jkust local here
+  const selectedColor = mode === "walking"
+    ? "#FFFFFF"
+    : mapStyle === "hybrid" ? "#B99AFF"
+      : mapStyle === "satellite" ? "#8fa88f" : "#A8D8FF";
   const baseLayer = getBaseLayer(mapStyle, darkMode,
     USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 
@@ -854,14 +862,15 @@ export default function MapView({
 
   return (
     <MapContainer
-      center={mapCenter}
-      zoom={13}
+      center={initialCamera?.center ? [initialCamera.center[1], initialCamera.center[0]] : mapCenter}
+      zoom={initialCamera?.zoom ?? 13}
       minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
     >
+      <MapCameraSync onCameraChange={onCameraChange} />
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />
       <MapResizeEffect />

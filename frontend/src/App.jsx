@@ -6,6 +6,7 @@ import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
+import Scene3D from "./components/Scene3D.jsx";
 import LayersPanel from "./components/LayersPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
@@ -372,6 +373,9 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [mapStyle, setMapStyle] = useState("street");
+  const [threeD, setThreeD] = useState(false);
+  const [globe, setGlobe] = useState(false);
+  const mapCamera = useRef(null);
   const [layersOpen, setLayersOpen] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState(() => {
     try {
@@ -1647,6 +1651,21 @@ export default function App() {
   // The stack sits to the right of the route panel when that panel is open on desktop.
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
   const smallButtonY = overlayVisible ? "" : "top-4"
+  const mapProps = {
+    data, selectedRoute, selectedRouteNumber, hoveredRouteNumber, displayedMode,
+    onSelectRoute: selectRoute, onHoverRoute: setHoveredRouteNumber,
+    currentLocation, navigationActive, navigationAccuracy, navigationHeading,
+    startCoordinate: startUsesCurrentLocation ? currentLocation : startMapCoordinate,
+    destinationCoordinate: destinationMapCoordinate,
+    startLabel: start, destinationLabel: destination,
+    startDraggable: !startUsesCurrentLocation,
+    onSetMapStart: setStartFromMap, onSetMapDestination: setDestinationFromMap,
+    onMoveStart: setStartFromMap, onMoveDestination: setDestinationFromMap,
+    locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
+    darkMode, mapStyle, viewInsets, enabledLayers, onLayerStatus: layerStatusChanged,
+    initialCamera: mapCamera.current,
+    onCameraChange: value => { mapCamera.current = value; },
+  };
 
   return (
     <div
@@ -1905,6 +1924,23 @@ export default function App() {
           enabledLayers={enabledLayers}
           onLayerStatus={layerStatusChanged}
         />
+
+        {threeD
+          ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
+          : <MapView {...mapProps} />}
+
+        <div className={`absolute top-4 right-14 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
+          <button type="button" onClick={() => setThreeD(v => !v)}
+            aria-pressed={threeD} title="Toggle 3D map"
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${threeD ? "bg-green text-white" : "hover:bg-black/10"}`}>
+            {threeD ? "2D" : "3D"}
+          </button>
+          {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
+            title="Switch between globe and flat map"
+            className="rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-black/10">
+            {globe ? "Flat" : "Globe"}
+          </button>}
+        </div>
 
         <div className="absolute right-4 top-4 z-[500] flex items-center gap-2">
           <button

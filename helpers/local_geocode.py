@@ -1,7 +1,7 @@
 """Fast, offline geocoding for Waterloo Region municipal address points.
 
 The local CSV is optional. If it is missing, this module simply returns no local
-matches and callers can fall back to another geocoder.
+matches and callers can fall back to another geocoder! This is just kinda like a local speedup for the region of waterloo.
 """
 
 import csv
@@ -160,25 +160,24 @@ def _collect_settlements():
                 _settlements.add(entry[6])
 
 
-def _load_index():
+def _load_index(icp=INDEX_CACHE_PATH):
     """Index layout: {civic: [(core, direction, lat, lon, label, suffix, settlement)]}."""
     global _by_civic
 
-    if _by_civic is not None:
-        return
+    if _by_civic is None:
+        _by_civic = {}
 
     csv_path = _resolve_csv_path()
     if csv_path is None:
-        _by_civic = {}
         return
 
     if (
-        INDEX_CACHE_PATH.exists()
-        and INDEX_CACHE_PATH.stat().st_mtime >= csv_path.stat().st_mtime
+        icp.exists()
+        and icp.stat().st_mtime >= csv_path.stat().st_mtime
     ):
         try:
-            with INDEX_CACHE_PATH.open("rb") as file:
-                _by_civic = pickle.load(file)
+            with icp.open("rb") as file:
+                _by_civic |= pickle.load(file)
             _collect_settlements()
             return
         except Exception:
@@ -294,8 +293,8 @@ def _load_index():
     _collect_settlements()
 
     try:
-        INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with INDEX_CACHE_PATH.open("wb") as file:
+        icp.parent.mkdir(parents=True, exist_ok=True)
+        with icp.open("wb") as file:
             pickle.dump(_by_civic, file, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception:
         pass

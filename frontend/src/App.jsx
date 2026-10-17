@@ -525,6 +525,7 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
+    requestedWalkingType = walkingType,
     requestedTransitPreference = transitPreference,
     requestedStart = start,
     requestedDestination = destination,
@@ -589,7 +590,9 @@ export default function App() {
           start: cleanStart,
           destination: cleanDestination,
           mode: requestedMode,
-          route_type: requestedCyclingType,
+          route_type: requestedMode === "walking"
+            ? requestedWalkingType
+            : requestedCyclingType,
           departure_datetime: departureDatetime,
           timing_mode: effectiveTimingMode,
           transit_preference: requestedTransitPreference,
@@ -598,6 +601,7 @@ export default function App() {
             : requestedStartCoordinate,
           destination_coordinates: requestedDestinationCoordinate,
       };
+      console.log("ROUTE REQUEST:", routeRequest);
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

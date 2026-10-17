@@ -1883,8 +1883,15 @@ export default function App() {
               type="button"
               onClick={() => setRouteFocusKey(key => key + 1)}
               title="Fit route"
-              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white ${controlSurface}`}
-            >
+              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:scale-99 hover:text-white ${controlSurface}
+              ${darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark active:scale-95"
+                  : mapStyle === "satellite"
+                    ? "hover:bg-green active:bg-green-dark active:scale-95"
+                    : "hover:bg-blue active:bg-blue-dark active:scale-95"
+                : "hover:bg-green active:bg-green-dark active:scale-95"
+              }`}            >
               <MdCenterFocusStrong />
             </button>
           )}

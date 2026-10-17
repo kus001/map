@@ -17,7 +17,7 @@ function shortStatus(message) {
 
 export default function LayersPanel({ open, onToggleOpen, enabled, onChange, status = {}, darkMode }) {
   const surface = darkMode
-    ? "border-white/10 bg-[#242a31]/95 text-white"
+    ? "border-white/10 bg-[#242a31]/95 text-darkmode-gray"
     : "border-black/10 bg-white/95 text-[#1e2933]";
   const quiet = darkMode ? "text-slate-400" : "text-slate-500";
   const hover = darkMode ? "hover:bg-white/[0.06]" : "hover:bg-black/[0.035]";

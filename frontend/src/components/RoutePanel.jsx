@@ -444,15 +444,13 @@ export default function RoutePanel({
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
           if (
-            mode !== "transit" &&
             data.routes.length > 1 &&
             route.route_number === data.fastest_route_number
           ) {
-            labels.push("FASTEST");
-          }
+            labels.push("FASTEST")
+          } 
 
           if (
-            mode !== "transit" &&
             data.routes.length > 1 &&
             route.route_number === data.shortest_route_number
           ) {

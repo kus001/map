@@ -1851,25 +1851,22 @@ export default function App() {
             darkMode={darkMode}
           />
           <div
-            className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
+            className={`flex overflow-hidden rounded-xl border active:scale-95 shadow-lg backdrop-blur ${controlSurface}`}
           >
             <button
               type="button"
               onClick={mapStyles}
               title="Change map style"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition ${
+              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition focus-outline-none focus-visible:outline-none${
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode
                     ? mapStyle === "hybrid"
-                      ? "bg-hybrid-purple text-white"
+                      ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
                       : mapStyle === "satellite"
-                        ? "bg-green text-white"
-                        : "bg-blue text-white"
-                    : "bg-white text-charcoal"
-                  // : darkMode
-                  //   ? "text-darkmode-gray hover:bg-blue/10"
-                  //   : "text-charcoal hover:bg-green/10"
+                        ? "hover:bg-green active:bg-green-dark"
+                        : "hover:bg-blue active:bg-blue-dark"
+                    : "hover:bg-green hover:text-white active:bg-green-light"
                 }`}
             > 
             {/* open/close for the menu */}
@@ -1891,7 +1888,7 @@ export default function App() {
                     ? "hover:bg-green active:bg-green-dark active:scale-95"
                     : "hover:bg-blue active:bg-blue-dark active:scale-95"
                 : "hover:bg-green active:bg-green-dark active:scale-95"
-              }`}            >
+              }`}>
               <MdCenterFocusStrong />
             </button>
           )}

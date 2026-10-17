@@ -1,6 +1,7 @@
 import asyncio
 import math
 import os
+import re
 import time
 import threading
 from collections import OrderedDict
@@ -79,7 +80,9 @@ SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "1") == "1"
-MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "3")), 10))
+MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "6")), 10)) # Total routes returned. e.g. primary and up to 5 more.
+TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "3.0")) # Wall-clock budget for the whole alternatives search (seconds).
+ALT_MIN_HEADWAY_MIN = 5
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
 LIVE_VEHICLE_MAX_AGE_SECONDS = max(30, int(os.getenv("LIVE_VEHICLE_MAX_AGE_SECONDS", "120")))
 
@@ -100,12 +103,7 @@ def _in_toronto(point):
 
 
 def maybe_load_ttc(*points):
-    """Load TTC on demand if it was not already loaded at startup.
-
-    The server normally calls load_ttc() during warmup (see helpers/warmup.py), so
-    this is a cheap flag check on every request. It remains as a safety net when
-    startup preloading of TTC is disabled with MAP_PRELOAD_TTC=0.
-    """
+    """Load TTC on demand if it was not already loaded at startup."""
     if _ttc_loaded:
         return
     from helpers._transit.ttc_setup import CACHE
@@ -640,7 +638,24 @@ def route_details(edge) -> tuple[str|None, str|None]:
     else:
         route_name = str(route_info) if route_info else None
 
+    # GO route ids carry an 8-digit feed-version prefix ("09261126-25", "09261126-LW");
+    # riders know them as "25" / "LW".
+    if route_name:
+        route_name = re.sub(r"^\d{8}-(?=.)", "", str(route_name))
+
     return route_name, str(headsign) if headsign is not None else None
+
+
+def display_headsign(route_name, headsign):
+    """Headsign for display only: GO headsigns repeat the route ("25 - Square One")."""
+    if not headsign:
+        return headsign
+    text = str(headsign)
+    if route_name:
+        stripped = re.sub(rf"^{re.escape(str(route_name))}\s*[-–]\s*(?=\S)", "", text, count=1)
+        if stripped:
+            return stripped
+    return text
 
 
 def normalize_color(value) -> str|None:
@@ -1205,8 +1220,12 @@ def search_transit(
     max_nearby_stops=MAX_NEARBY_STOPS,
     excluded_route_keys=None,
     _heuristic_values=None,
+    excluded_trip_ids=None,
+    boarding_penalty=0.0,
 ):
     departure_datetime = normalize_departure_datetime(departure_datetime)
+    excluded_trip_ids = {str(t) for t in (excluded_trip_ids or ())}
+    boarding_penalty = float(boarding_penalty or 0.0)
     service_date, now_seconds = gtfs_service_clock(departure_datetime)
     excluded_route_keys = {
         (str(agency), str(route)) for agency, route in (excluded_route_keys or set())
@@ -1391,12 +1410,16 @@ def search_transit(
                         )
 
                 for extra, trip_id, edge, new_boardings in choices:
+                    if excluded_trip_ids and trip_id is not None and trip_id in excluded_trip_ids:
+                        continue
                     if excluded_route_keys and is_transit_edge(edge):
                         excluded_name, _ = route_details(edge)
                         if (agency, str(excluded_name or edge.get("route") or "")) in excluded_route_keys:
                             continue
                     new_g = current_g + extra
                     new_pen = current_pen
+                    if boarding_penalty and new_boardings > boardings:
+                        new_pen += boarding_penalty   # ranks fewer-transfer journeys higher
                     next_state = (neighbor_id, trip_id)
                     new_score = (round(new_g + new_pen, 6), new_boardings)
 
@@ -1772,6 +1795,166 @@ def stop_departure_board(stop_id, limit=8, now=None):
             "source": "GTFS schedule + available realtime updates"}
 
 
+def _replay_timeline(timeline, depart_dt, midnight, grace_s=30):
+    """Walk the finished journey forward in time to get the TRUE arrival.
+    Returns None if any ride lacks times (caller keeps the legacy estimate).
+    """
+    t = depart_dt
+    missed_by = 0.0
+    for event in timeline:
+        if event[0] == "walk":
+            t += timedelta(minutes=float(event[1]))
+            continue
+        _, dep_s, arr_s, _trip = event
+        if dep_s is None or arr_s is None:
+            return None
+        dep = midnight + timedelta(seconds=float(dep_s))
+        arr = midnight + timedelta(seconds=float(arr_s))
+        late = (t - dep).total_seconds()
+        if late > grace_s:
+            missed_by = max(missed_by, late / 60)
+        t = arr
+    return {
+        "arrival": t,
+        "duration_min": max(0.0, (t - depart_dt).total_seconds() / 60),
+        "missed_connection": missed_by > 0,
+        "missed_by_min": round(missed_by, 1),
+    }
+
+
+def _transit_groups(path):
+    return [g for g in group_path(path) if g["type"] == "transit"]
+
+
+def _alt_signature(path):
+    """Stop-to-stop pattern of the transit legs (ignores which bus/time)."""
+    return tuple(
+        (str(g["agency"]), str(g["route"]),
+         raw_stop_id(g["stops"][0][0]), raw_stop_id(g["stops"][-1][0]))
+        for g in _transit_groups(path)
+    )
+
+
+def generate_alternative_paths(
+    start_options, end_options, realtime, departure, base, want,
+    requested_arrival=None, excluded_route_keys=None,
+):
+    """Diverse alternatives to the primary journey `base`.
+
+    base = (path, minutes, best_start, best_end) as returned by search_transit.
+    Returns up to `want` dicts: {found, pref, variant, departure, arrive_min}
+    sorted by arrival. Candidates come from re-running the same A* with
+    different objectives/constraints:
+      fastest / less_walking   other ranking profiles
+      fewer_transfers          heavy per-boarding penalty
+      next_bus                 ban the exact trips used (next bus of the same
+                               route, or another route)
+      other_route              ban whole routes used by the primary journey
+      diverse                  ban everything already shown so far
+      later_departure          leave 10/20 minutes later (plain departure only)
+    A candidate is kept only if it is a different journey: another route/stop
+    pattern, or the same pattern on a bus at least ALT_MIN_HEADWAY_MIN apart.
+    """
+    from collections import deque
+
+    started = time.perf_counter()
+    base_path, base_minutes = base[0], float(base[1])
+    base_groups = _transit_groups(base_path)
+    accepted = []
+    shown = [(_alt_signature(base_path),
+              base_groups[0]["departure_time"] if base_groups else None,
+              tuple(str(g["trip_id"]) for g in base_groups))]
+    banned_trips = {str(g["trip_id"]) for g in base_groups}
+    banned_routes = set(route_keys_for_path(base_path))
+    base_excluded = {(str(a), str(r)) for a, r in (excluded_route_keys or set())}
+
+    queue = deque()
+
+    def enqueue(variant, pref, shift=0, trips=(), routes=(), boarding_penalty=0.0):
+        queue.append({"variant": variant, "pref": pref, "shift": shift,
+                      "trips": set(trips), "routes": set(routes),
+                      "boarding_penalty": boarding_penalty})
+
+    enqueue("fastest", "fastest")
+    enqueue("less_walking", "less_walking")
+    enqueue("fewer_transfers", "balanced", boarding_penalty=15.0)
+    for group in base_groups:
+        enqueue("next_bus", "fastest", trips={str(group["trip_id"])})
+    for key in route_keys_for_path(base_path):
+        enqueue("other_route", "fastest", routes={key})
+    if requested_arrival is None:
+        enqueue("later_departure", "balanced", shift=10)
+        enqueue("later_departure", "balanced", shift=20)
+
+    searches = 0
+    while queue and len(accepted) < want and searches < 40:
+        if time.perf_counter() - started > TRANSIT_ALT_BUDGET_SECONDS:
+            break
+        job = queue.popleft()
+        profile = TRANSIT_PREFERENCES[job["pref"]]
+        depart_at = departure + timedelta(minutes=job["shift"])
+        searches += 1
+        found = search_transit(
+            start_options, end_options, realtime,
+            departure_datetime=depart_at,
+            soft_walk_m=profile["soft_walk_m"],
+            walk_penalty=profile["walk_penalty"],
+            max_nearby_stops=profile["max_nearby_stops"],
+            excluded_route_keys=base_excluded | job["routes"],
+            excluded_trip_ids=job["trips"],
+            boarding_penalty=job["boarding_penalty"],
+        )
+        path, minutes = found[0], found[1]
+        if not path or not any(is_transit_edge(item[2] or {}) for item in path[1:]):
+            continue
+        arrive_min = float(minutes) + job["shift"]
+        if requested_arrival and depart_at + timedelta(minutes=float(minutes)) > requested_arrival:
+            continue
+        if arrive_min > base_minutes * 1.9 + 15:     # not a sensible alternative
+            continue
+
+        groups = _transit_groups(path)
+        # "Transfer" from a route onto the same route is a search artifact
+        # (it just waits for the next bus), never a useful alternative.
+        if any(
+            (a["agency"], str(a["route"])) == (b["agency"], str(b["route"]))
+            for a, b in zip(groups, groups[1:])
+        ):
+            continue
+        signature = _alt_signature(path)
+        first_dep = groups[0]["departure_time"] if groups else None
+        trips = tuple(str(g["trip_id"]) for g in groups)
+        duplicate = False
+        for other_sig, other_dep, other_trips in shown:
+            if trips == other_trips:
+                duplicate = True
+            elif signature == other_sig and (
+                first_dep is None or other_dep is None
+                or abs(float(first_dep) - float(other_dep)) < ALT_MIN_HEADWAY_MIN * 60
+            ):
+                duplicate = True
+            if duplicate:
+                break
+        if duplicate:
+            continue
+
+        shown.append((signature, first_dep, trips))
+        accepted.append({"found": found, "pref": job["pref"], "variant": job["variant"],
+                         "departure": depart_at, "arrive_min": arrive_min})
+
+        # Widen the net: next, avoid everything shown so far.
+        banned_trips |= set(trips)
+        banned_routes |= set(route_keys_for_path(path))
+        if len(accepted) < want:
+            enqueue("diverse", "fastest", trips=banned_trips)
+            enqueue("diverse", "less_walking", trips=banned_trips)
+            enqueue("diverse", "fastest", routes=banned_routes)
+
+    accepted.sort(key=lambda item: item["arrive_min"])
+    return accepted[:want]
+
+
+
 def get_transit_route(
     start_address,
     end_address,
@@ -1937,33 +2120,13 @@ def get_transit_route(
 
     prepared = []
     if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
-        seen = {_path_signature(path)}
-        base_keys = route_keys_for_path(path)
-        for choice in ("fastest", "less_walking"):
-            profile = TRANSIT_PREFERENCES[choice]
-            options = [set()] + [{key} for key in base_keys[:3]]
-            for excluded in options:
-                found = search_transit(
-                    start_options, end_options, routing_realtime,
-                    departure_datetime=requested_departure,
-                    soft_walk_m=profile["soft_walk_m"],
-                    walk_penalty=profile["walk_penalty"],
-                    max_nearby_stops=profile["max_nearby_stops"],
-                    excluded_route_keys=excluded,
-                )
-                other_path, other_time, other_start, other_end = found
-                if not other_path or not any(is_transit_edge(item[2] or {}) for item in other_path[1:]):
-                    continue
-                if requested_arrival and requested_departure + timedelta(minutes=other_time) > requested_arrival:
-                    continue
-                signature = _path_signature(other_path)
-                if not signature or signature in seen:
-                    continue
-                seen.add(signature)
-                prepared.append((found, choice))
-                break
-            if len(prepared) + 1 >= MAX_TRANSIT_ALTERNATIVES:
-                break
+        prepared = generate_alternative_paths(
+            start_options, end_options, routing_realtime, requested_departure,
+            (path, search_time, best_start, best_end),
+            want=MAX_TRANSIT_ALTERNATIVES - 1,
+            requested_arrival=requested_arrival,
+            excluded_route_keys=excluded_route_keys,
+        )
         mark("alternatives_search")
 
     groups = group_path(path)
@@ -1972,7 +2135,7 @@ def get_transit_route(
     walk_jobs = _path_walk_jobs(path, start, end, best_start, best_end)
     if _walks is None:
         all_jobs = {}
-        for candidate in [(path, search_time, best_start, best_end), *(item[0] for item in prepared)]:
+        for candidate in [(path, search_time, best_start, best_end), *(item["found"] for item in prepared)]:
             for job in _path_walk_jobs(candidate[0], start, end, candidate[2], candidate[3]).values():
                 all_jobs.setdefault(_walk_key(job[0], job[1]), job)
         results = fetch_walks(all_jobs)
@@ -1980,6 +2143,11 @@ def get_transit_route(
     walks = {key: _walks.get(_walk_key(job[0], job[1]))
              for key, job in walk_jobs.items()}
     mark("walking_geometry")
+
+    service_date, _ = gtfs_service_clock(requested_departure)
+    service_midnight = datetime(service_date.year, service_date.month, service_date.day,
+                                tzinfo=TRANSIT_TIMEZONE)
+    timeline = []          # ordered ("walk", minutes) / ("ride", dep_s, arr_s, trip_id)
 
     segments = []
     steps = []
@@ -2022,6 +2190,7 @@ def get_transit_route(
             }
         )
         total_distance += start_walk["distance_m"]
+        timeline.append(("walk", float(start_walk["duration_min"])))
         walk_adjustment += start_walk["duration_min"] - access_walk_minutes(
             best_start[0]
         )
@@ -2059,6 +2228,7 @@ def get_transit_route(
                 }
             )
             total_distance += distance
+            timeline.append(("walk", duration))
             walk_adjustment += duration - group["ride_min"]
             continue
 
@@ -2156,9 +2326,10 @@ def get_transit_route(
             }
         )
 
+        shown_headsign = display_headsign(route_name, headsign)
         instruction = f"Take {vehicle} route {route_name}"
-        if headsign:
-            instruction += f" toward {headsign}"
+        if shown_headsign:
+            instruction += f" toward {shown_headsign}"
         instruction += f" from {group['from_name']} to {group['to_name']}"
 
         step = {
@@ -2169,6 +2340,7 @@ def get_transit_route(
             "route": route_name,
             "route_color": route_color,
             "headsign": headsign,
+            "display_headsign": shown_headsign,
             "trip_id": trip_id,
             "route_id": meta.get("route_id") if meta else None,
             "from": group["from_name"],
@@ -2209,6 +2381,10 @@ def get_transit_route(
                 }
             )
 
+        if group["departure_time"] is not None and group["arrival_time"] is not None:
+            step["departure_datetime"] = (service_midnight + timedelta(seconds=float(group["departure_time"]))).isoformat()
+            step["arrival_datetime"] = (service_midnight + timedelta(seconds=float(group["arrival_time"]))).isoformat()
+        timeline.append(("ride", group["departure_time"], group["arrival_time"], trip_id))
         steps.append(step)
 
         # total_distance += distance
@@ -2226,6 +2402,7 @@ def get_transit_route(
                         **live_vehicle,
                         "route": route_name,
                         "headsign": headsign,
+                        "display_headsign": shown_headsign,
                         "position_source": "live",
                         "estimated": False,
                     }
@@ -2265,6 +2442,7 @@ def get_transit_route(
             }
         )
         total_distance += end_walk["distance_m"]
+        timeline.append(("walk", float(end_walk["duration_min"])))
         walk_adjustment += end_walk["duration_min"] - access_walk_minutes(best_end[0])
 
     route_coordinates = []
@@ -2274,7 +2452,15 @@ def get_transit_route(
             if not route_coordinates or route_coordinates[-1] != point:
                 route_coordinates.append(point)
 
-    total_time = max(0.0, float(search_time) + walk_adjustment)
+    # Legacy estimate (search minutes + every walk delta) kept only as a fallback.
+    legacy_total = max(0.0, float(search_time) + walk_adjustment)
+    replay = _replay_timeline(timeline, requested_departure, service_midnight)
+    if replay is not None:
+        total_time = replay["duration_min"]
+        arrival_dt = replay["arrival"]
+    else:
+        total_time = legacy_total
+        arrival_dt = requested_departure + timedelta(minutes=total_time)
 
     # "Fastest" means fastest: if walking the whole way beats transit, return the walk.
     if preference_key == "fastest" and excluded_route_keys is None:
@@ -2366,16 +2552,23 @@ def get_transit_route(
         "transit_preference": preference_key,
         "transit_preference_label": preference["label"],
         "transfer_reliability": connection_reliability(steps),
-        "arrival_estimate_datetime": (requested_departure + timedelta(minutes=total_time)).isoformat(),
+        "arrival_estimate_datetime": arrival_dt.isoformat(),
+        "arrival_basis": "timeline" if replay is not None else "legacy",
+        "missed_connection": bool(replay and replay["missed_connection"]),
+        "missed_by_min": replay["missed_by_min"] if replay else 0.0,
         "arrive_by_datetime": requested_arrival.isoformat() if requested_arrival else None,
         "access_walk_limit_m": preference["soft_walk_m"] or None,
         "access_walk_limit_expanded": False,
     }
 
+    # True while any walk time is still the straight-line guess (street-network
+    # result not back yet); only the final walk can still move the arrival.
+    route["walks_estimated"] = bool(route["pending_walks"])
+
     if requested_arrival is not None:
         # The road-following geometry can slightly increase walking time. Do
         # not present a journey as on-time if it now misses the deadline.
-        if requested_departure + timedelta(minutes=total_time) > requested_arrival:
+        if arrival_dt > requested_arrival:
             return {"success": False, "error": "No route meets your arrival deadline after accounting for walking time."}
 
     alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)
@@ -2385,22 +2578,22 @@ def get_transit_route(
     routes = [route]
     if prepared:
         shared = (grt_realtime, go_realtime, realtime, current_time)
-        for picked, choice in prepared:
+        for item in prepared:
             alternate = get_transit_route(
                 start_address, end_address,
-                departure_datetime=requested_departure,
+                departure_datetime=item["departure"],
                 timing=None,
-                transit_preference=choice,
+                transit_preference=item["pref"],
                 start_coordinates=start, end_coordinates=end,
                 include_alternatives=False,
                 arrive_by=requested_arrival,
-                _shared=shared, _picked=picked, _walks=_walks,
+                _shared=shared, _picked=item["found"], _walks=_walks,
             )
             if not alternate.get("success") or not alternate.get("routes"):
                 continue
             candidate = alternate["routes"][0]
             candidate["route_number"] = len(routes) + 1
-            candidate["route_variant"] = choice
+            candidate["route_variant"] = item["variant"]
             routes.append(candidate)
     mark("alternatives_format")
 

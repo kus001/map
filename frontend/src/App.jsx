@@ -322,6 +322,9 @@ export default function App() {
       "regular"
     )
   );
+
+  const [walkingType, setWalkingType] = useState("regular");
+
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [hoveredRouteNumber, setHoveredRouteNumber] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1218,6 +1221,17 @@ export default function App() {
     }
   }
 
+  function changeWalkingType(nextType) {
+    setWalkingType(nextType);
+
+    if (mode === "walking" && start.trim() && destination.trim()) { // recalc route 
+      searchRoutes({
+        requestedMode: "walking",
+        requestedWalkingType: nextType,
+      });
+    }
+  }
+
   function changeTimingMode(nextMode) {
     if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
@@ -1624,7 +1638,9 @@ export default function App() {
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}
+          walkingType={walkingType}
           onCyclingTypeChange={changeCyclingType}
+          onWalkingTypeChange={changeWalkingType}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}

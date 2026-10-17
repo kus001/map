@@ -431,7 +431,9 @@ export default function SearchPanel({
   mode,
   cyclingType,
   onModeChange,
+  walkingType,
   onCyclingTypeChange,
+  onWalkingTypeChange,
   onSearch,
   onSwap,
   loading,
@@ -665,18 +667,17 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* walking sub buttons */}
       {mode === "walking" && (
-        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+        <div className="soft-enter mt-2 grid grid-cols-2 gap-1.5">
           {WALK_TYPES.map(option => (
             <button
               type="button"
               key={option.id}
               disabled={loading}
               mapStyle={mapStyle}
-              onClick={() => onCyclingTypeChange(option.id)}
+              onClick={() => onWalkingTypeChange(option.id)}
               className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
-                cyclingType === option.id
+                walkingType === option.id
                   ? darkMode
                     ? mapStyle === "hybrid"
                       ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"

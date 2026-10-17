@@ -56,8 +56,7 @@ _last_nominatim_call = 0.0
 _negative_cache = OrderedDict()  # key -> expiry (monotonic seconds)
 _negative_lock = threading.Lock()
 
-# If Nominatim and the local street data disagree by more than this, trust the
-# local data (it knows the street, only the civic number was missing).
+# If Nominatim and the local street data disagree by more than this, trust the local data
 _NOMINATIM_DISAGREE_KM = 5.0
 
 

@@ -798,7 +798,8 @@ export default function App() {
           : null;
         setStatus(nextTripTime
           ? `No route at this time. Showing a scheduled route from ${nextTripTime}.`
-          : `${count} transit route${count === 1 ? "" : "s"} found`);
+          : "Route(s) found" //`${count} transit route${count === 1 ? "" : "s"} found`
+        );
       } else {
         setStatus(`Route found${scheduledSuffix}`);
       }

@@ -1,19 +1,20 @@
-import asyncio
-import math
 import os
 import re
 import time
+import math
+import httpx
+import asyncio
 import threading
-from collections import OrderedDict
-from bisect import bisect_left
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-from datetime import datetime, timedelta
-from functools import lru_cache
-from heapq import heappop, heappush
+
 from itertools import count
 from zoneinfo import ZoneInfo
-import httpx
 from dotenv import load_dotenv
+from bisect import bisect_left
+from collections import OrderedDict
+from heapq import heappop, heappush
+from walking import get_walking_route
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 from helpers._transit.go_realtime import (
     configured as go_realtime_configured,
@@ -22,10 +23,6 @@ from helpers._transit.go_realtime import (
     match_departure as match_go_departure,
     start_gtfs_background_refresh,
 )
-from helpers._transit.gtfs_metadata import shape_for_trip
-from helpers._transit.advanced_planning import latest_departure_before, connection_reliability
-from helpers._transit.stop_boards import upcoming_departures
-from helpers._transit.make_graph import make_graph
 from helpers._transit.realtime import (
     adjusted_arrival,
     adjusted_departure,
@@ -35,11 +32,15 @@ from helpers._transit.realtime import (
     start_background_refresh,
     vehicle_for_trip,
 )
-from helpers.coords import nearest_stops
-from helpers.geocoding import explain_address_problem, get_coordinates
-from helpers.time_management import seconds_to_time, us
 from helpers.fast_osrm import osrm_route
-from walking import get_walking_route
+from helpers.coords import nearest_stops
+from helpers.time_management import seconds_to_time, us
+from helpers.geocoding import explain_address_problem, get_coordinates
+
+from helpers._transit.make_graph import make_graph
+from helpers._transit.gtfs_metadata import shape_for_trip
+from helpers._transit.stop_boards import upcoming_departures
+from helpers._transit.advanced_planning import latest_departure_before, connection_reliability
 
 load_dotenv()
 
@@ -75,13 +76,13 @@ TRANSIT_PREFERENCES = {
 
 TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 100.0   # Decreased heuristic because we don't have fast trains here sob sob sob
-ACCESS_WALK_SPEED_MPS = 1
+ACCESS_WALK_SPEED_MPS = 1.1
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "1") == "1"
 MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "6")), 10)) # Total routes returned. e.g. primary and up to 5 more.
-TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "10.0")) # Wall-clock budget for the whole alternatives search (seconds).
+TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "9.0")) # Wall-clock budget for the whole alternatives search (seconds).
 ALT_MIN_HEADWAY_MIN = 5
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
 LIVE_VEHICLE_MAX_AGE_SECONDS = max(30, int(os.getenv("LIVE_VEHICLE_MAX_AGE_SECONDS", "120")))
@@ -593,7 +594,7 @@ def shifted_time_label(value, minutes):
 def normalize_departure_datetime(value):
     """Return an aware America/Toronto datetime for a requested departure."""
     if value is None:
-        return datetime.now(TRANSIT_TIMEZONE)
+        return datetime.now(TRANSIT_TIMEZONE) + timedelta(minutes=1)
 
     if isinstance(value, datetime):
         parsed = value

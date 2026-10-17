@@ -1657,22 +1657,6 @@ export default function App() {
             >
               kmaps
             </a>
-
-            <button
-              type="button"
-              onClick={() => setDarkMode(value => !value)}
-              title="Toggle dark mode"
-              className={`rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
-                darkMode
-                  ? mapStyle === "hybrid"
-                    ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                    : mapStyle === "satellite"
-                      ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
-                  : "border-button-light bg-white text-green-dark"
-              }`}
-            >
-              {darkMode ? <PiSunFill /> : <TbMoonStars />}
-            </button>
           </div>
 
           <div
@@ -1805,6 +1789,23 @@ export default function App() {
         >
           {sidePanel ? <MdOpenInNew /> : <IoClose />}
         </button>
+
+        <button
+          type="button"
+          onClick={() => setDarkMode(value => !value)}
+          title="Toggle dark mode"
+          className={`rounded-lg absolute top-15 ${overlayVisible ? "left-4 md:left-87.5" : "left-4"} z-[499] border p-2 transition hover:-translate-y-px active:scale-90 ${
+            darkMode
+              ? mapStyle === "hybrid"
+                ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+                : mapStyle === "satellite"
+                  ? "border-button bg-charcoal-light text-green-light": "border-button bg-charcoal-light text-blue-light"
+              : "border-button-light bg-white text-green-dark"
+          }`}
+        >
+          {darkMode ? <PiSunFill /> : <TbMoonStars />}
+        </button>
+
         {overlayVisible && (
           <div ref={overlayRef} className={`absolute bottom-0 right-0 left-0 md:left-4 md:top-4 md:right-auto md:bottom-auto z-[500] rounded-xl p-2 w-full md:w-80 md:h-96 h-[40vh] overflow-hidden flex flex-col
             ${darkMode 
@@ -1891,7 +1892,9 @@ export default function App() {
               type="button"
               onClick={mapStyles}
               title="Change map style"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition hover:scale-99 focus-outline-none focus-visible:outline-none${
+              className={`flex h-11 z-[5000] items-center gap-1.5 px-3 text-sm font-semibold transition hover:scale-99 focus-outline-none focus-visible:outline-none ${
+                overlayVisible ? "left-4 md:left-87.5" : "left-4"
+              } ${
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode
@@ -1901,7 +1904,8 @@ export default function App() {
                         ? "hover:bg-green active:bg-green-dark"
                         : "hover:bg-blue active:bg-blue-dark"
                     : "hover:bg-green hover:text-white active:bg-green-light"
-                }`}
+                }`
+              }
             > 
             {/* open/close for the menu */}
               {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}

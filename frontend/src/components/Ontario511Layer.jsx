@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import { TileLayer } from "react-leaflet";
 
 const COLORS = {
   incidents: "#DC5349",
@@ -27,25 +28,85 @@ function mapView(map) {
   };
 }
 
-function Info({ item }) {
+function CameraViews({ images, name }) {
+  const [index, setIndex] = useState(0);
+  const [failedUrl, setFailedUrl] = useState(null);
+  const [paused, setPaused] = useState(false);
+  const count = images.length;
+
+  useEffect(() => {
+    if (count < 2 || paused) return undefined;
+    const timer = setInterval(() => setIndex(i => (i + 1) % count), 6500);
+    return () => clearInterval(timer);
+  }, [count, paused]);
+
+  const current = images[index];
+  if (!current) return <p className="mt-2 text-xs text-slate-600">No camera image available right now.</p>;
+
+  const change = next => {
+    setIndex((next + count) % count);
+    setFailedUrl(null);
+    setPaused(true);
+  };
+
   return (
-    <div className="max-w-[260px] text-sm leading-relaxed text-slate-900">
+    <div className="mt-2 w-[260px] max-w-full" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <div className="overflow-hidden rounded-lg bg-slate-100">
+        {failedUrl !== current.url ? (
+          <img
+            key={current.url}
+            src={current.url}
+            alt={`${name}: ${current.label}`}
+            loading="lazy"
+            className="h-40 w-full object-contain"
+            onError={() => setFailedUrl(current.url)}
+          />
+        ) : (
+          <div className="flex h-40 items-center justify-center px-3 text-center text-xs text-slate-500">
+            Camera image currently unavailable
+          </div>
+        )}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <button type="button" onClick={() => change(index - 1)} disabled={count < 2}
+          aria-label="Previous camera view"
+          className="rounded-md border border-slate-200 px-2 py-1 text-slate-800 disabled:opacity-30">‹</button>
+        <div className="min-w-0 flex-1 text-center">
+          <div className="truncate text-xs font-medium text-slate-800" title={current.label}>{current.label}</div>
+          {count > 1 && <div className="text-[11px] text-slate-500">{index + 1} of {count}</div>}
+        </div>
+        <button type="button" onClick={() => change(index + 1)} disabled={count < 2}
+          aria-label="Next camera view"
+          className="rounded-md border border-slate-200 px-2 py-1 text-slate-800 disabled:opacity-30">›</button>
+      </div>
+    </div>
+  );
+}
+
+function Info({ item }) {
+  const report = item.kind === "construction" || item.kind === "incidents";
+  return (
+    <div className="max-w-[280px] text-sm leading-snug text-slate-900">
       <div className="font-semibold">{item.title}</div>
-      {item.direction && <div className="text-xs text-slate-600">{item.direction}</div>}
-      {item.closure && <div className="mt-1 font-semibold text-red-700">Full closure reported</div>}
-      {item.details && <p className="my-1 whitespace-pre-line">{item.details}</p>}
-      {item.lanes && <div className="text-xs">{item.lanes}</div>}
-      {item.impact && <div className="text-xs">{item.impact}</div>}
-      {item.images?.map((url, i) => (
-        <a key={`${item.id}-view-${i}`} href={url} target="_blank" rel="noreferrer" className="mt-2 block text-blue-700 underline">
-          {i === 0 && <img src={url} alt={`Highway camera: ${item.title}`} loading="lazy"
-            className="mb-1 max-h-[160px] w-full rounded-md object-cover" />}
-          Camera view {i + 1} <span aria-hidden="true">↗</span>
-        </a>
-      ))}
-      <a href="https://511on.ca/" target="_blank" rel="noreferrer" className="mt-2 block text-[11px] text-blue-700 underline">
-        Ontario 511 · Verify current conditions
-      </a>
+      {item.direction && <div className="mt-0.5 text-xs text-slate-600">{item.direction}</div>}
+      {item.closure && <div className="mt-2 font-semibold text-red-700">Road closure reported</div>}
+      {report ? (
+        <>
+          {item.summary && <p className="my-2 text-sm text-slate-800">{item.summary}</p>}
+          {item.impact && item.impact !== item.summary && <p className="my-1 text-xs text-slate-700">{item.impact}</p>}
+          {item.lanes && <p className="my-1 text-xs text-slate-600">{item.lanes}</p>}
+          {item.details && (
+            <details className="mt-2 border-t border-slate-200 pt-2 text-xs">
+              <summary className="cursor-pointer select-none font-medium text-slate-700">Full report</summary>
+              <p className="mt-2 max-h-48 overflow-auto whitespace-pre-line break-words text-slate-600">{item.details}</p>
+            </details>
+          )}
+        </>
+      ) : item.kind !== "cameras" && item.details ? (
+        <p className="my-2 whitespace-pre-line text-slate-700">{item.details}</p>
+      ) : null}
+      {item.kind === "cameras" && <CameraViews images={item.images || []} name={item.title} />}
+      <div className="mt-2 text-[11px] text-slate-500">Ontario 511</div>
     </div>
   );
 }
@@ -118,7 +179,49 @@ function SingleFeed({ kind, active, view, onStatus }) {
   ));
 }
 
-export default function Ontario511Layer({ enabled = [], onStatus = () => {} }) {
+function TrafficFlow({ active, onStatus, darkMode }) {
+  const [ready, setReady] = useState(false);
+  const [broken, setBroken] = useState(false);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const controller = new AbortController();
+    fetch("/api/layers/traffic/status", { signal: controller.signal })
+      .then(r => r.json())
+      .then(info => {
+        if (controller.signal.aborted) return;
+        setReady(Boolean(info.enabled));
+        setBroken(false);
+        onStatus("traffic", info.message || "");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) onStatus("traffic", "Traffic flow is unavailable.");
+      });
+    return () => controller.abort();
+  }, [active, onStatus]);
+
+  useEffect(() => {
+    if (!active || !ready || broken) return undefined;
+    const timer = setInterval(() => setRevision(n => n + 1), 120000);
+    return () => clearInterval(timer);
+  }, [active, ready, broken]);
+
+  if (!active || !ready || broken) return null;
+  return <TileLayer
+    key={`${darkMode ? "dark" : "light"}-${revision}`}
+    url={`/api/layers/traffic/tile/{z}/{x}/{y}.png?style=${darkMode ? "dark" : "light"}`}
+    minZoom={8} maxZoom={22} maxNativeZoom={20}
+    opacity={0.86} zIndex={650} keepBuffer={1}
+    attribution="Traffic flow © TomTom"
+    eventHandlers={{ tileerror: () => {
+      setBroken(true);
+      onStatus("traffic", "Traffic flow tiles are unavailable right now.");
+    } }}
+  />;
+}
+
+export default function Ontario511Layer({ enabled = [], onStatus = () => {}, darkMode = false }) {
   const map = useMap();
   const [view, setView] = useState(() => mapView(map));
 
@@ -130,6 +233,7 @@ export default function Ontario511Layer({ enabled = [], onStatus = () => {} }) {
 
   return (
     <>
+      <TrafficFlow active={enabled.includes("traffic")} onStatus={onStatus} darkMode={darkMode} />
       {FEEDS.map(kind => (
         <SingleFeed key={kind} kind={kind} active={enabled.includes(kind)} view={view} onStatus={onStatus} />
       ))}

@@ -228,7 +228,11 @@ export default function RoutePanel({
             error
               ? "border-red-300 bg-red-50 text-red-700"
               : darkMode
-                ? "border-button bg-charcoal-light text-darkmode-gray"
+                ? mapStyle === "hybrid"
+                  ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
+                  : mapStyle === "satellite"
+                    ? "border-green bg-green/10 text-darkmode-gray"
+                    : "border-blue bg-charcoal-light text-darkmode-gray"
                 : "border-button-light bg-white text-button-darkest"
           }`}
         >
@@ -282,7 +286,11 @@ export default function RoutePanel({
           error
             ? "border-red-300 bg-red-50 text-red-700"
             : darkMode
-              ? "border-button bg-charcoal-light text-white"
+              ? mapStyle === "hybrid"
+                ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
+                : mapStyle === "satellite"
+                  ? "border-green bg-green/10 text-darkmode-gray"
+                  : "border-blue bg-charcoal-light text-darkmode-gray"
               : "border-button-light bg-white text-button-darkest"
         }`}
       >
@@ -295,7 +303,11 @@ export default function RoutePanel({
             navigationOffRoute
               ? "border-amber-400 bg-amber-50 text-amber-950"
               : darkMode
-                ? "border-blue/50 bg-blue/10 text-darkmode-gray"
+                ? mapStyle === "hybrid"
+                  ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
+                  : mapStyle === "satellite"
+                    ? "border-green/50 bg-green/10 text-darkmode-gray"
+                    : "border-blue/50 bg-blue/10 text-darkmode-gray"
                 : "border-green/40 bg-green/10 text-charcoal"
           }`}
         >
@@ -353,7 +365,15 @@ export default function RoutePanel({
       )}
 
       {mode === "transit" && timingMode === "arrive_by" && data?.arrive_by_datetime && (
-        <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${darkMode ? "border-blue/40 bg-blue/10 text-darkmode-gray" : "border-green/30 bg-green/10 text-green-dark"}`}>
+        <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
+          darkMode 
+            ? mapStyle === "hybrid"
+              ? "border-hybrid-purple/40 bg-hybrid-purple/10 text-darkmode-gray" 
+              : mapStyle === "satellite"
+                ? "border-green/40 bg-green/10 text-darkmode-gray"
+                : "border-blue/40 bg-blue/10 text-darkmode-gray"
+            : "border-green/30 bg-green/10 text-green-dark"
+          }`}>
           <MdCalendarMonth className="mr-2 inline text-base" />
           Arrive by {formatScheduledDeparture(data.arrive_by_datetime)} · Suggested leave time {formatScheduledDeparture(activeRoute.departure_datetime)}
         </div>
@@ -554,35 +574,36 @@ export default function RoutePanel({
 
       <div className="my-4 border-t border-button-light/60" />
 
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2
-          className={`text-base font-bold ${
-            darkMode ? "text-darkmode-gray" : "text-charcoal"
-          }`}
-        >
-          Directions
-          <span className="block text-xs font-normal opacity-70 md:hidden">
-            {steps.length} {steps.length === 1 ? "step" : "steps"}
-          </span>
-        </h2>
-
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-xs md:inline hidden ${
-              darkMode ? "text-darkmode-gray" : "text-button-darkest"
+      <div className="mb-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h2
+            className={`text-base font-bold ${
+              darkMode ? "text-darkmode-gray" : "text-charcoal"
             }`}
           >
+            Directions
+          </h2>
+          <span className={`text-xs opacity-70 ${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>
             {steps.length} {steps.length === 1 ? "step" : "steps"}
           </span>
+        </div>
+
+        <div className="flex items-center w-full gap-2">
           {(
             <button
               type="button"
               onClick={navigationActive ? onStopNavigation : onStartNavigation}
               title={navigationActive ? "Stop navigation" : "Start navigation"}
               aria-label={navigationActive ? "Stop navigation" : "Start navigation"}
-              className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+              className={`flex h-8 items-center flex-1 justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
                 navigationActive
-                  ? "border-green bg-green text-white"
+                  ? darkMode 
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple text-white"
+                      : mapStyle === "satellite"  
+                        ? "border-green bg-green text-white"
+                        : "border-blue bg-blue text-white"
+                  : "border-green bg-green text-white"
                   : darkMode
                     ? mapStyle === "hybrid"
                       ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
@@ -602,14 +623,16 @@ export default function RoutePanel({
             title="Clear route and start over"
             aria-label="Clear route"
             className={`flex h-8 items-center gap-1 rounded-lg border px-2 text-xs font-semibold transition hover:opacity-80 ${
-              darkMode
-                ? mapStyle === "hybrid"
-                  ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
-                  : "border-button bg-charcoal-light text-blue-light"
-                : "border-button-light bg-white text-green-dark"
+                darkMode
+                  ? mapStyle === "hybrid"
+                    ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
+                  : mapStyle === "satellite"
+                    ? "border-button bg-charcoal-light text-green-light hover:border-green hover:bg-green/15"
+                    : "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                  : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
             }`}
           >
-            <MdClose /> Clear
+            <MdClose />
           </button>
           <button
             type="button"
@@ -646,7 +669,9 @@ export default function RoutePanel({
         <div
           className={`overflow-hidden rounded-xl border ${
             darkMode
-              ? "border-button bg-charcoal-light"
+              ? mapStyle === "hybrid" 
+                ? "border-button bg-hybrid-charcoal-light"
+                : "border-button bg-charcoal-light"
               : "border-button-light bg-white"
           }`}
         >
@@ -673,7 +698,11 @@ export default function RoutePanel({
                 className={`flex w-full gap-3 p-3 text-left ${
                   canFocus
                     ? darkMode
-                      ? "transition hover:bg-blue/10"
+                      ? mapStyle === "hybrid"
+                        ? "transition hover:bg-hybrid-purple/10"
+                        : mapStyle === "satellite"
+                          ? "transition hover:bg-green-dark/10"
+                          : "transition hover:bg-blue/10"
                       : "transition hover:bg-green/10"
                     : "cursor-default"
                 }`}
@@ -747,7 +776,11 @@ export default function RoutePanel({
                             className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left ${
                               canFocusDirection
                                 ? darkMode
-                                  ? "hover:bg-blue/10"
+                                  ? mapStyle === "hybrid"
+                                    ? "hover:bg-purple/10"
+                                    : mapStyle === "satellite"
+                                      ? "hover:bg-green/10"
+                                      : "hover:bg-blue/10"
                                   : "hover:bg-green/10"
                                 : "cursor-default"
                             }`}

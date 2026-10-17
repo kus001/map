@@ -5,7 +5,7 @@ import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from dotenv import load_dotenv
 
 # Load root .env before importing providers (their config is read at import time).
@@ -26,6 +26,7 @@ app = Flask(__name__)
 
 VALID_CYCLING_TYPES = {"regular", "road", "mountain", "electric"}
 VALID_TRANSIT_PREFERENCES = {"balanced", "less_walking", "fastest"}
+VALID_WALKING_TYPES = {"regular", "hiking"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
 
 # Local-development mode brings back the convenient testing behaviour from the
@@ -129,6 +130,48 @@ def finished_transit_walks():
         return jsonify({"success": False, "error": "Expected a list of walking legs."}), 400
     from transit import ready_walks
     return jsonify({"success": True, "shapes": ready_walks(pairs)})
+
+
+@app.get("/api/layers/ontario511")
+def ontario_511_layer():
+    from helpers.ontario511 import get_layer
+
+    kind = request.args.get("kind", "").strip().lower()
+    try:
+        values = [float(x) for x in request.args.get("bbox", "").split(",")]
+        if len(values) != 4 or not all(math.isfinite(x) for x in values):
+            raise ValueError()
+        west, south, east, north = values
+        if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+            raise ValueError()
+        if kind not in ("incidents", "construction", "cameras", "winter"):
+            raise ValueError()
+    except ValueError:
+        return jsonify({"success": False, "error": "Invalid map layer or bounds."}), 400
+
+    result = get_layer(kind, (west, south, east, north))
+    return jsonify({"success": True, **result})
+
+
+@app.get("/api/layers/traffic/status")
+def traffic_flow_status():
+    from helpers.traffic_flow import available
+    ok = available()
+    return jsonify({
+        "enabled": ok,
+        "message": "" if ok else "Add TOMTOM_API_KEY to the backend .env for live traffic colours.",
+    })
+
+
+@app.get("/api/layers/traffic/tile/<int:z>/<int:x>/<int:y>.png")
+def traffic_flow_tile(z, x, y):
+    from helpers.traffic_flow import get_tile
+    if z < 0 or z > 20 or x >= 2 ** z or y >= 2 ** z:
+        return Response(status=404)
+    png = get_tile(z, x, y, request.args.get("style", "light"))
+    if png is None:
+        return Response(status=503)
+    return Response(png, mimetype="image/png", headers={"Cache-Control": "public, max-age=90"})
 
 
 @app.route("/api/health", methods=["GET"])
@@ -534,8 +577,12 @@ def routes():
                 timing=timing,
             )
         elif mode == "walking":
+            route_type = str(payload.get("route_type", "regular")).strip().lower()
+            if route_type not in VALID_WALKING_TYPES:
+                route_type = "regular"
             result = get_walking_route(
-                start, destination, start_coordinates=start_coordinates,
+                start, destination, route_type=route_type,
+                start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates, timing=timing,
             )
         elif mode == "cycling":

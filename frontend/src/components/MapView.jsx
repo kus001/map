@@ -1,3 +1,4 @@
+import Ontario511Layer from "./Ontario511Layer.jsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Circle,
@@ -755,6 +756,8 @@ export default function MapView({
   darkMode,
   mapStyle = "street",
   viewInsets = ZERO_INSETS,
+  enabledLayers = [],
+  onLayerStatus = () => {},
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -827,18 +830,14 @@ export default function MapView({
   );
   const selectedColor =
     mode === "walking"
-      ? darkMode || mapStyle === "satellite" || mapStyle === "hybrid"
-        ? "#FFFFFF"
-        : "#2F3E46"
-      : mode === "driving"
-        ? darkMode
-          ? mapStyle === "hybrid"
-            ? "#C2A9DF"
-            : mapStyle === "satellite"
-              ? "#8fa88f"
-              : "#7EA5C8"
-          : "#8fa88f"
-        : MODE_COLORS[mode] || MODE_COLORS.driving;
+      ? "#FFFFFF"
+      : "#2F3E46"
+        ? mapStyle === "hybrid"
+         ? "#B99AFF" // not in index.css, just local here
+         : mapStyle === "satellite"
+          ? "#8fa88f"
+          : "#A8D8FF" // also not in index.css, just local
+        : "#B99AFF" // also not in index.css, jkust local here
   const baseLayer = getBaseLayer(mapStyle, darkMode,
     USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 
@@ -864,6 +863,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+      <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
       <NavigationFollow

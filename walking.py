@@ -11,8 +11,13 @@ from helpers.fast_osrm import osrm_route, convert_osrm
 load_dotenv()
 
 API_KEY = os.getenv("API")
-WALKING_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
+# WALKING_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
 REQUEST_TIMEOUT = (1.8, 3.5)
+
+WALKING_PROFILES = {
+    "regular": "foot-walking",
+    "hiking": "foot-hiking",
+}
 
 _session = requests.Session()
 _session.headers.update({"Accept": "application/json, application/geo+json"})
@@ -31,7 +36,8 @@ def _resolve_coordinates(address, provided=None):
 
 
 @lru_cache(maxsize=192)
-def _ors_walking(start_lat, start_lon, end_lat, end_lon):
+def _ors_walking(profile, start_lat, start_lon, end_lat, end_lon):
+    WALKING_URL = f"https://api.heigit.org/openrouteservice/v2/directions/{profile}"
     response = _session.get(
         WALKING_URL,
         headers={"Authorization": API_KEY},
@@ -48,6 +54,7 @@ def _ors_walking(start_lat, start_lon, end_lat, end_lon):
 def get_walking_route(
     start_address,
     end_address,
+    route_type="regular",
     start_coordinates=None,
     end_coordinates=None,
     timing=None,
@@ -56,6 +63,7 @@ def get_walking_route(
         if timing is not None:
             timing[stage] = us() - timing["start"]
 
+    profile = WALKING_PROFILES.get(route_type, "foot-walking")
     start = _resolve_coordinates(start_address, start_coordinates)
     end = _resolve_coordinates(end_address, end_coordinates)
     mark("geocoding")
@@ -78,24 +86,39 @@ def get_walking_route(
     start_lat, start_lon = map(float, start)
     end_lat, end_lon = map(float, end)
     key = (
+        profile,
         round(start_lat, 6),
         round(start_lon, 6),
         round(end_lat, 6),
         round(end_lon, 6),
     )
 
-    try:
-        fast = osrm_route("walking", *key)
-        mark("provider")
-        converted = convert_osrm("walking", fast, start_address, end_address, start, end)
-        mark("formatting")
-        return converted
-    except (requests.RequestException, ValueError, KeyError, TypeError):
-        # Do not make a successful route depend on any one free routing provider.
-        pass
+    # only use OSRM for regular walking since hiking needs ORS
+    if route_type == "regular":
+        try:
+            fast = osrm_route("walking", *key[1:])
+            mark("provider")
+            converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
+            mark("formatting")
+            return converted
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            pass
 
     if not API_KEY:
         return {"success": False, "error": "Walking routing unavailable; set API for the ORS fallback."}
+
+    # try:
+    #     fast = ("walking", *key)
+    #     mark("provider")
+    #     converted = convert_osrm("walking", fast, start_address, end_address, start, end)
+    #     mark("formatting")
+    #     return converted
+    # except (requests.RequestException, ValueError, KeyError, TypeError):
+    #     # Do not make a successful route depend on any one free routing provider.
+    #     pass
+
+    # if not API_KEY:
+    #     return {"success": False, "error": "Walking routing unavailable; set API for the ORS fallback."}
 
     try:
         data = _ors_walking(*key)

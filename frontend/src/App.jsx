@@ -6,6 +6,7 @@ import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
+import LayersPanel from "./components/LayersPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
@@ -348,6 +349,22 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [mapStyle, setMapStyle] = useState("street");
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [enabledLayers, setEnabledLayers] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("map-511-layers") || "[]");
+      return Array.isArray(saved) ? saved.filter(id => ["traffic", "incidents", "construction", "cameras", "winter"].includes(id)) : [];
+    } catch { return []; }
+  });
+  const [layerStatus, setLayerStatus] = useState({});
+  const layerStatusChanged = useCallback((kind, message) => {
+    setLayerStatus(current => current[kind] === message ? current : { ...current, [kind]: message });
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("map-511-layers", JSON.stringify(enabledLayers)); }
+    catch { /* Storage is optional. */ }
+  }, [enabledLayers]);
+
   const mapStyles = () => {
     if (mapStyle === "street") {
       setMapStyle("satellite");
@@ -527,6 +544,7 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
+    requestedWalkingType = walkingType,
     requestedTransitPreference = transitPreference,
     requestedStart = start,
     requestedDestination = destination,
@@ -591,7 +609,9 @@ export default function App() {
           start: cleanStart,
           destination: cleanDestination,
           mode: requestedMode,
-          route_type: requestedCyclingType,
+          route_type: requestedMode === "walking"
+            ? requestedWalkingType
+            : requestedCyclingType,
           departure_datetime: departureDatetime,
           timing_mode: effectiveTimingMode,
           transit_preference: requestedTransitPreference,
@@ -600,6 +620,7 @@ export default function App() {
             : requestedStartCoordinate,
           destination_coordinates: requestedDestinationCoordinate,
       };
+      console.log("ROUTE REQUEST:", routeRequest);
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1710,14 +1731,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -1726,14 +1740,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -1742,14 +1749,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Madhav
           </a>
@@ -1791,7 +1791,8 @@ export default function App() {
               onRouteHover={setHoveredRouteNumber}
               onStepSelect={focusStep}
               onShareRoute={shareRoute}
-          onClearRoute={clearRoute}
+              onClearRoute={clearRoute}
+              mapStyle={mapStyle}
               displayedMode={displayedMode}
               navigationActive={navigationActive}
               navigationInfo={navigationInfo}
@@ -1839,29 +1840,36 @@ export default function App() {
           darkMode={darkMode}
           mapStyle={mapStyle}
           viewInsets={viewInsets}
+          enabledLayers={enabledLayers}
+          onLayerStatus={layerStatusChanged}
         />
 
-        <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[42vh]">
+        <div className={`absolute bottom-4 right-4 z-[500] flex items-center gap-2 ${sidePanel ? "max-[760px]:bottom-4" : "max-[760px]:bottom-[42vh]"}`}>
+          <LayersPanel
+            open={layersOpen}
+            onToggleOpen={() => setLayersOpen(current => !current)}
+            enabled={enabledLayers}
+            onChange={setEnabledLayers}
+            status={layerStatus}
+            darkMode={darkMode}
+          />
           <div
-            className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
+            className={`flex overflow-hidden rounded-xl border active:scale-95 shadow-lg backdrop-blur ${controlSurface}`}
           >
             <button
               type="button"
               onClick={mapStyles}
               title="Change map style"
-              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition ${
+              className={`flex h-11 items-center gap-1.5 px-3 text-sm font-semibold transition hover:scale-99 focus-outline-none focus-visible:outline-none${
                 darkMode ? "border-button" : "border-button-light"
               } ${
                   darkMode
                     ? mapStyle === "hybrid"
-                      ? "bg-hybrid-purple text-white"
+                      ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
                       : mapStyle === "satellite"
-                        ? "bg-green text-white"
-                        : "bg-blue text-white"
-                    : "bg-white text-charcoal"
-                  // : darkMode
-                  //   ? "text-darkmode-gray hover:bg-blue/10"
-                  //   : "text-charcoal hover:bg-green/10"
+                        ? "hover:bg-green active:bg-green-dark"
+                        : "hover:bg-blue active:bg-blue-dark"
+                    : "hover:bg-green hover:text-white active:bg-green-light"
                 }`}
             > 
             {/* open/close for the menu */}
@@ -1875,8 +1883,15 @@ export default function App() {
               type="button"
               onClick={() => setRouteFocusKey(key => key + 1)}
               title="Fit route"
-              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:-translate-y-px hover:bg-green hover:text-white ${controlSurface}`}
-            >
+              className={`flex size-11 items-center justify-center rounded-xl border text-xl shadow-lg backdrop-blur transition hover:scale-99 hover:text-white ${controlSurface}
+              ${darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark active:scale-95"
+                  : mapStyle === "satellite"
+                    ? "hover:bg-green active:bg-green-dark active:scale-95"
+                    : "hover:bg-blue active:bg-blue-dark active:scale-95"
+                : "hover:bg-green active:bg-green-dark active:scale-95"
+              }`}>
               <MdCenterFocusStrong />
             </button>
           )}

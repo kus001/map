@@ -353,7 +353,15 @@ export default function RoutePanel({
       )}
 
       {mode === "transit" && timingMode === "arrive_by" && data?.arrive_by_datetime && (
-        <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${darkMode ? "border-blue/40 bg-blue/10 text-darkmode-gray" : "border-green/30 bg-green/10 text-green-dark"}`}>
+        <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
+          darkMode 
+            ? mapStyle === "hybrid"
+              ? "border-hybrid-purple/40 bg-hybrid-purple/10 text-darkmode-gray" 
+              : mapStyle === "satellite"
+                ? "border-green/40 bg-green/10 text-darkmode-gray"
+                : "border-blue/40 bg-blue/10 text-darkmode-gray"
+            : "border-green/30 bg-green/10 text-green-dark"
+          }`}>
           <MdCalendarMonth className="mr-2 inline text-base" />
           Arrive by {formatScheduledDeparture(data.arrive_by_datetime)} · Suggested leave time {formatScheduledDeparture(activeRoute.departure_datetime)}
         </div>
@@ -677,7 +685,9 @@ export default function RoutePanel({
                 className={`flex w-full gap-3 p-3 text-left ${
                   canFocus
                     ? darkMode
-                      ? "transition hover:bg-blue/10"
+                      ? mapStyle === "hybrid"
+                        ? "transition hover:bg-hybrid-purple/10"
+                        : "transition hover:bg-blue/10"
                       : "transition hover:bg-green/10"
                     : "cursor-default"
                 }`}

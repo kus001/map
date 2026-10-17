@@ -1,0 +1,62 @@
+{
+  "_comment": "Places people refer to by initials. Give the FULL name; short forms (LHSS, LHS, 'laurel heights ss'...) are generated. Locate with 'coordinates' [lat, lon], 'address' (resolved offline from the address points), or 'query' (network geocoder). See helpers/named_places.py.",
+  "places": [
+    {
+      "name": "Laurel Heights Secondary School",
+      "city": "Waterloo",
+      "address": "650 Laurelwood Dr, Waterloo",
+      "aliases": [
+        "sjam",
+        "sir john a macdonald secondary school"
+      ]
+    },
+    {
+      "name": "Jacob Hespeler Secondary School",
+      "city": "Cambridge",
+      "coordinates": [
+        43.4186377,
+        -80.3173429
+      ]
+    },
+    {
+      "name": "University of Waterloo",
+      "city": "Waterloo",
+      "coordinates": [
+        43.4701994,
+        -80.5452429
+      ]
+    },
+    {
+      "name": "Waterloo Collegiate Institute",
+      "city": "Waterloo",
+      "coordinates": [
+        43.479058,
+        -80.530183
+      ]
+    },
+    {
+      "name": "Bluevale Collegiate Institute",
+      "city": "Waterloo",
+      "coordinates": [
+        43.4750123,
+        -80.4988762
+      ]
+    },
+    {
+      "name": "Cameron Heights Collegiate Institute",
+      "city": "Kitchener",
+      "coordinates": [
+        43.445022,
+        -80.481745
+      ]
+    },
+    {
+      "name": "Lester B. Pearson Public School",
+      "city": "Waterloo",
+      "coordinates": [
+        43.50724,
+        -80.50688
+      ]
+    }
+  ]
+}

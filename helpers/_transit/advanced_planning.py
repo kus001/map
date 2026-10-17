@@ -3,7 +3,7 @@ from datetime import timedelta
 from math import floor
 
 
-def latest_departure_before(deadline, probe, *, window_minutes=360, iterations=7, buffer_minutes=3):
+def latest_departure_before(deadline, probe, *, window_minutes=360, iterations=7, buffer_minutes=4):
     """Find a late feasible starting time via bounded timetable searches.
 
     `probe(dt)` returns (path, travel_minutes, start_stop, end_stop).  We probe

@@ -1,6 +1,7 @@
 import { IoLayersOutline, IoCloseOutline } from "react-icons/io5";
 
 const TYPES = [
+  { id: "traffic", title: "Live traffic flow", detail: "Road speeds · green to red (TomTom key needed)", color: "#32B767" },
   { id: "incidents", title: "Traffic incidents", detail: "Collisions and lane restrictions", color: "#DC5349" },
   { id: "construction", title: "Construction & closures", detail: "Roadwork and planned restrictions", color: "#E89B3C" },
   { id: "cameras", title: "Highway cameras", detail: "Available Ontario 511 camera views", color: "#427FC7" },
@@ -23,7 +24,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-base font-semibold">Map layers</div>
-              <div className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Ontario 511 · Optional overlays</div>
+              <div className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Traffic flow + Ontario 511</div>
             </div>
             <button onClick={onToggleOpen} type="button" aria-label="Close layers" className="rounded-lg p-2 hover:bg-slate-400/20"><IoCloseOutline /></button>
           </div>
@@ -46,7 +47,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
             })}
           </div>
           <div className={`mt-3 border-t pt-3 text-[11px] leading-relaxed ${darkMode ? "border-white/10 text-slate-300" : "border-gray-200 text-slate-500"}`}>
-            Markers appear as you zoom in. Conditions may be delayed or incomplete.
+            Traffic colours show current speeds relative to normal. Road reports and cameras may be delayed.
             <a href="https://511on.ca/" target="_blank" rel="noreferrer" className="ml-1 underline">Source: Ontario 511 ↗</a>
           </div>
         </div>

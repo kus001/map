@@ -1,3 +1,4 @@
+import Ontario511Layer from "./Ontario511Layer.jsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Circle,
@@ -755,6 +756,8 @@ export default function MapView({
   darkMode,
   mapStyle = "street",
   viewInsets = ZERO_INSETS,
+  enabledLayers = [],
+  onLayerStatus = () => {},
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -864,6 +867,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
+      <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />
       <MapResizeEffect />
       <MapInsetEffect insets={viewInsets} />
       <NavigationFollow

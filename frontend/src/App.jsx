@@ -6,6 +6,7 @@ import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
 
 import MapView from "./components/MapView.jsx";
+import LayersPanel from "./components/LayersPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
@@ -346,6 +347,22 @@ export default function App() {
     () => savedPreferences.darkMode === true
   );
   const [mapStyle, setMapStyle] = useState("street");
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [enabledLayers, setEnabledLayers] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("map-511-layers") || "[]");
+      return Array.isArray(saved) ? saved.filter(id => ["traffic", "incidents", "construction", "cameras", "winter"].includes(id)) : [];
+    } catch { return []; }
+  });
+  const [layerStatus, setLayerStatus] = useState({});
+  const layerStatusChanged = useCallback((kind, message) => {
+    setLayerStatus(current => current[kind] === message ? current : { ...current, [kind]: message });
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("map-511-layers", JSON.stringify(enabledLayers)); }
+    catch { /* Storage is optional. */ }
+  }, [enabledLayers]);
+
   const mapStyles = () => {
     if (mapStyle === "street") {
       setMapStyle("satellite");
@@ -1712,14 +1729,7 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Kush
           </a>
@@ -1728,14 +1738,7 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Victor
           </a>
@@ -1744,14 +1747,7 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${
-              darkMode 
-                ? mapStyle === "hybrid" 
-                  ? "hover:text-hybrid-purple-light"
-                  : mapStyle === "satellite" 
-                    ? "hover:text-green-light" 
-                    : "hover:text-blue" 
-                : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
           >
             Madhav
           </a>
@@ -1841,9 +1837,19 @@ export default function App() {
           darkMode={darkMode}
           mapStyle={mapStyle}
           viewInsets={viewInsets}
+          enabledLayers={enabledLayers}
+          onLayerStatus={layerStatusChanged}
         />
 
         <div className="absolute bottom-4 right-4 z-[500] flex items-center gap-2 max-[760px]:bottom-[42vh]">
+          <LayersPanel
+            open={layersOpen}
+            onToggleOpen={() => setLayersOpen(current => !current)}
+            enabled={enabledLayers}
+            onChange={setEnabledLayers}
+            status={layerStatus}
+            darkMode={darkMode}
+          />
           <div
             className={`flex overflow-hidden rounded-xl border shadow-lg backdrop-blur ${controlSurface}`}
           >

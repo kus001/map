@@ -75,5 +75,7 @@ Desktop.ini
 # ignore test files
 test.*
 *.env
+test*.*
+*.patch
 
 *.sqlite

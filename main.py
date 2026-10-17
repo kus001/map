@@ -26,6 +26,7 @@ app = Flask(__name__)
 
 VALID_CYCLING_TYPES = {"regular", "road", "mountain", "electric"}
 VALID_TRANSIT_PREFERENCES = {"balanced", "less_walking", "fastest"}
+VALID_WALKING_TYPES = {"regular", "hiking"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
 
 # Local-development mode brings back the convenient testing behaviour from the
@@ -534,8 +535,12 @@ def routes():
                 timing=timing,
             )
         elif mode == "walking":
+            route_type = str(payload.get("route_type", "regular")).strip().lower()
+            if route_type not in VALID_WALKING_TYPES:
+                route_type = "regular"
             result = get_walking_route(
-                start, destination, start_coordinates=start_coordinates,
+                start, destination, route_type=route_type,
+                start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates, timing=timing,
             )
         elif mode == "cycling":

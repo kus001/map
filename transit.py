@@ -594,7 +594,7 @@ def shifted_time_label(value, minutes):
 def normalize_departure_datetime(value):
     """Return an aware America/Toronto datetime for a requested departure."""
     if value is None:
-        return datetime.now(TRANSIT_TIMEZONE)
+        return datetime.now(TRANSIT_TIMEZONE) + timedelta(minutes=1)
 
     if isinstance(value, datetime):
         parsed = value

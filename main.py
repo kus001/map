@@ -477,8 +477,8 @@ def transit_alternatives():
     payload = request.get_json(silent=True) or {}
     start = str(payload.get("start") or "").strip()
     end = str(payload.get("destination") or "").strip()
-    choice = str(payload.get("priority") or "fastest")
-    if not start or not end or choice not in {"fastest", "less_walking"}:
+    choice = str(payload.get("priority") or "all")
+    if not start or not end or choice not in {"all", "fastest", "less_walking"}:
         return jsonify({"success": False, "error": "Invalid alternative request."}), 400
     timing_mode = str(payload.get("timing_mode") or "now")
     if timing_mode not in {"now", "scheduled", "arrive_by"}:
@@ -488,7 +488,6 @@ def transit_alternatives():
     except (ValueError, TypeError) as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
-    # Exclude a used service if it keeps giving us exactly the same journey.
     previous = payload.get("existing_routes") or []
     signatures = set()
     possible_exclusions = []
@@ -503,30 +502,57 @@ def transit_alternatives():
             if agency and service:
                 possible_exclusions.append({(agency, service)})
 
+    def trip_signature(route):
+        legs = [step for step in route.get("steps", []) if step.get("type") == "transit"]
+        return tuple((str(step.get("agency")), str(step.get("trip_id"))) for step in legs)
+
+    start_coordinates = parse_coordinates(payload.get("start_coordinates"))
+    end_coordinates = parse_coordinates(payload.get("destination_coordinates"))
     try:
         from transit import get_transit_route
+        if choice == "all":
+            result = get_transit_route(
+                start, end, departure_datetime=departure,
+                transit_preference=str(payload.get("transit_preference") or "balanced"),
+                start_coordinates=start_coordinates,
+                end_coordinates=end_coordinates,
+                arrive_by=departure if timing_mode == "arrive_by" else None,
+                include_alternatives=True,
+            )
+            if not result.get("success") or not result.get("routes"):
+                return jsonify({"success": True, "routes": [], "route": None})
+            # routes[0] is the primary journey the client already shows.
+            extra = []
+            for route in result["routes"][1:]:
+                signature = trip_signature(route)
+                if signature and signature not in signatures:
+                    signatures.add(signature)
+                    extra.append(route)
+            return jsonify({"success": True, "routes": extra,
+                            "route": extra[0] if extra else None})
+
+        # Legacy single-route path.
         for excluded in [set(), *possible_exclusions[:3]]:
             result = get_transit_route(
                 start, end, departure_datetime=departure,
                 transit_preference=choice,
-                start_coordinates=parse_coordinates(payload.get("start_coordinates")),
-                end_coordinates=parse_coordinates(payload.get("destination_coordinates")),
+                start_coordinates=start_coordinates,
+                end_coordinates=end_coordinates,
                 arrive_by=departure if timing_mode == "arrive_by" else None,
                 include_alternatives=False, excluded_route_keys=excluded,
             )
             if not result.get("success") or not result.get("routes"):
                 continue
             route = result["routes"][0]
-            legs = [step for step in route.get("steps", []) if step.get("type") == "transit"]
-            signature = tuple((str(step.get("agency")), str(step.get("trip_id"))) for step in legs)
+            signature = trip_signature(route)
             if signature and signature not in signatures:
                 route["route_variant"] = choice
-                return jsonify({"success": True, "route": route})
+                return jsonify({"success": True, "route": route, "routes": [route]})
     except Exception:
         app.logger.exception("Alternative transit routing failed")
         return jsonify({"success": False, "error": "Could not load route alternative."}), 500
 
-    return jsonify({"success": True, "route": None})
+    return jsonify({"success": True, "route": None, "routes": []})
 
 
 @app.route("/api/routes", methods=["POST"])

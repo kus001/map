@@ -690,7 +690,9 @@ export default function RoutePanel({
                     ? darkMode
                       ? mapStyle === "hybrid"
                         ? "transition hover:bg-hybrid-purple/10"
-                        : "transition hover:bg-blue/10"
+                        : mapStyle === "satellite"
+                          ? "transition hover:bg-green-dark/10"
+                          : "transition hover:bg-blue/10"
                       : "transition hover:bg-green/10"
                     : "cursor-default"
                 }`}

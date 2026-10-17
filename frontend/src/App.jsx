@@ -348,7 +348,7 @@ export default function App() {
   const [enabledLayers, setEnabledLayers] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("map-511-layers") || "[]");
-      return Array.isArray(saved) ? saved.filter(id => ["incidents", "construction", "cameras", "winter"].includes(id)) : [];
+      return Array.isArray(saved) ? saved.filter(id => ["traffic", "incidents", "construction", "cameras", "winter"].includes(id)) : [];
     } catch { return []; }
   });
   const [layerStatus, setLayerStatus] = useState({});

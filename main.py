@@ -5,7 +5,7 @@ import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from dotenv import load_dotenv
 
 # Load root .env before importing providers (their config is read at import time).
@@ -150,6 +150,27 @@ def ontario_511_layer():
 
     result = get_layer(kind, (west, south, east, north))
     return jsonify({"success": True, **result})
+
+
+@app.get("/api/layers/traffic/status")
+def traffic_flow_status():
+    from helpers.traffic_flow import available
+    ok = available()
+    return jsonify({
+        "enabled": ok,
+        "message": "" if ok else "Add TOMTOM_API_KEY to the backend .env for live traffic colours.",
+    })
+
+
+@app.get("/api/layers/traffic/tile/<int:z>/<int:x>/<int:y>.png")
+def traffic_flow_tile(z, x, y):
+    from helpers.traffic_flow import get_tile
+    if z < 0 or z > 20 or x >= 2 ** z or y >= 2 ** z:
+        return Response(status=404)
+    png = get_tile(z, x, y, request.args.get("style", "light"))
+    if png is None:
+        return Response(status=503)
+    return Response(png, mimetype="image/png", headers={"Cache-Control": "public, max-age=90"})
 
 
 @app.route("/api/health", methods=["GET"])

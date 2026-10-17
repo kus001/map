@@ -41,7 +41,7 @@ function CameraViews({ images, name }) {
   }, [count, paused]);
 
   const current = images[index];
-  if (!current) return <p className="mt-2 text-xs text-slate-600">No camera image available right now.</p>;
+  if (!current) return <p className="mt-2 text-xs text-slate-600">Image unavailable</p>;
 
   const change = next => {
     setIndex((next + count) % count);
@@ -63,7 +63,7 @@ function CameraViews({ images, name }) {
           />
         ) : (
           <div className="flex h-40 items-center justify-center px-3 text-center text-xs text-slate-500">
-            Camera image currently unavailable
+            Image unavailable
           </div>
         )}
       </div>
@@ -89,7 +89,7 @@ function Info({ item }) {
     <div className="max-w-[280px] text-sm leading-snug text-slate-900">
       <div className="font-semibold">{item.title}</div>
       {item.direction && <div className="mt-0.5 text-xs text-slate-600">{item.direction}</div>}
-      {item.closure && <div className="mt-2 font-semibold text-red-700">Road closure reported</div>}
+      {item.closure && <div className="mt-2 font-semibold text-red-700">Road closed</div>}
       {report ? (
         <>
           {item.summary && <p className="my-2 text-sm text-slate-800">{item.summary}</p>}
@@ -97,7 +97,7 @@ function Info({ item }) {
           {item.lanes && <p className="my-1 text-xs text-slate-600">{item.lanes}</p>}
           {item.details && (
             <details className="mt-2 border-t border-slate-200 pt-2 text-xs">
-              <summary className="cursor-pointer select-none font-medium text-slate-700">Full report</summary>
+              <summary className="cursor-pointer select-none font-medium text-slate-700">Details</summary>
               <p className="mt-2 max-h-48 overflow-auto whitespace-pre-line break-words text-slate-600">{item.details}</p>
             </details>
           )}
@@ -106,7 +106,6 @@ function Info({ item }) {
         <p className="my-2 whitespace-pre-line text-slate-700">{item.details}</p>
       ) : null}
       {item.kind === "cameras" && <CameraViews images={item.images || []} name={item.title} />}
-      <div className="mt-2 text-[11px] text-slate-500">Ontario 511</div>
     </div>
   );
 }
@@ -224,6 +223,13 @@ function TrafficFlow({ active, onStatus, darkMode }) {
 export default function Ontario511Layer({ enabled = [], onStatus = () => {}, darkMode = false }) {
   const map = useMap();
   const [view, setView] = useState(() => mapView(map));
+
+  const has511 = FEEDS.some(kind => enabled.includes(kind));
+  useEffect(() => {
+    if (!has511 || !map.attributionControl) return undefined;
+    map.attributionControl.addAttribution('Data: Ontario 511');
+    return () => map.attributionControl.removeAttribution('Data: Ontario 511');
+  }, [map, has511]);
 
   // Panning should only trigger one request after the user has stopped moving.
   useMapEvents({

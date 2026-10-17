@@ -71,7 +71,10 @@ const BIKE_TYPES = [
   { id: "electric", label: "E-Bike" },
 ];
 
-
+const WALK_TYPES = [
+  { id: "regular", label: "Regular"},
+  { id: "hiking", label: "Hiking"},
+];
 
 const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 }; // Kitchener-Waterloo
 
@@ -632,6 +635,40 @@ export default function SearchPanel({
       {mode === "cycling" && (
         <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
           {BIKE_TYPES.map(option => (
+            <button
+              type="button"
+              key={option.id}
+              disabled={loading}
+              mapStyle={mapStyle}
+              onClick={() => onCyclingTypeChange(option.id)}
+              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+                cyclingType === option.id
+                  ? darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
+                      : mapStyle === "satellite"
+                        ? "border-green bg-green/15 text-green-light active:bg-green/25"
+                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
+                    : "border-green bg-green/15 text-green active:bg-green/25"
+                  : darkMode
+                    ? mapStyle === "hybrid"
+                      ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 active:bg-hybrid-purple/20"
+                      : mapStyle === "satellite"
+                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 active:bg-green/20"
+                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 active:bg-blue/20"
+                    : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* walking sub buttons */}
+      {mode === "walking" && (
+        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+          {WALK_TYPES.map(option => (
             <button
               type="button"
               key={option.id}

@@ -1845,7 +1845,8 @@ export default function App() {
                   //   ? "text-darkmode-gray hover:bg-blue/10"
                   //   : "text-charcoal hover:bg-green/10"
                 }`}
-            >
+            > 
+            {/* open/close for the menu */}
               {mapStyle === "street" ? (<MdMap className="text-lg" />) : mapStyle === "satellite" ? (<MdSatelliteAlt className="text-lg" />) : (<IoLayers className="text-lg" />)}
               <span className="capitalize">{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"} </span>
             </button>    

@@ -922,7 +922,7 @@ export default function MapView({
         />
       )}
 
-      <ZoomControl position="topright" />
+      <ZoomControl position="bottomright" />
 
       {otherRoutes.map(otherRoute => {
         const hovered = otherRoute.route_number === hoveredRouteNumber;

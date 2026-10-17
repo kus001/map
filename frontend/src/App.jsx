@@ -1929,7 +1929,7 @@ export default function App() {
           ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
           : <MapView {...mapProps} />}
 
-        <div className={`absolute bottom-6 right-4 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
+        <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => setThreeD(v => !v)}
             aria-pressed={threeD} title="Toggle 3D map"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${threeD ? "bg-green text-white" : "hover:bg-black/10"}`}>

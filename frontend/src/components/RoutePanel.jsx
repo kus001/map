@@ -602,16 +602,16 @@ export default function RoutePanel({
             title="Clear route and start over"
             aria-label="Clear route"
             className={`flex h-8 items-center gap-1 rounded-lg border px-2 text-xs font-semibold transition hover:opacity-80 ${
-              darkMode
-                ? mapStyle === "hybrid"
-                  ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+                darkMode
+                  ? mapStyle === "hybrid"
+                    ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
                   : mapStyle === "satellite"
-                    ? "border-button bg-charcoal-light text-green-light"
-                    : "border-button bg-charcoal-light text-blue-light"
-                : "border-button-light bg-white text-green-dark"
+                    ? "border-button bg-charcoal-light text-green-light hover:border-green hover:bg-green/15"
+                    : "border-button bg-charcoal-light text-blue-light hover:border-blue hover:bg-blue/15"
+                  : "border-button-light bg-white text-green-dark hover:border-green hover:bg-green/10"
             }`}
           >
-            <MdClose /> Clear
+            <MdClose />
           </button>
           <button
             type="button"
@@ -648,7 +648,9 @@ export default function RoutePanel({
         <div
           className={`overflow-hidden rounded-xl border ${
             darkMode
-              ? "border-button bg-charcoal-light"
+              ? mapStyle === "hybrid" 
+                ? "border-button bg-hybrid-charcoal-light"
+                : "border-button bg-charcoal-light"
               : "border-button-light bg-white"
           }`}
         >

@@ -570,33 +570,28 @@ export default function RoutePanel({
 
       <div className="my-4 border-t border-button-light/60" />
 
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2
-          className={`text-base font-bold ${
-            darkMode ? "text-darkmode-gray" : "text-charcoal"
-          }`}
-        >
-          Directions
-          <span className="block text-xs font-normal opacity-70 md:hidden">
-            {steps.length} {steps.length === 1 ? "step" : "steps"}
-          </span>
-        </h2>
-
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-xs md:inline hidden ${
-              darkMode ? "text-darkmode-gray" : "text-button-darkest"
+      <div className="mb-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h2
+            className={`text-base font-bold ${
+              darkMode ? "text-darkmode-gray" : "text-charcoal"
             }`}
           >
+            Directions
+          </h2>
+          <span className={`text-xs opacity-70 ${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>
             {steps.length} {steps.length === 1 ? "step" : "steps"}
           </span>
+        </div>
+
+        <div className="flex items-center w-full gap-2">
           {(
             <button
               type="button"
               onClick={navigationActive ? onStopNavigation : onStartNavigation}
               title={navigationActive ? "Stop navigation" : "Start navigation"}
               aria-label={navigationActive ? "Stop navigation" : "Start navigation"}
-              className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+              className={`flex h-8 items-center flex-1 justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
                 navigationActive
                   ? "border-green bg-green text-white"
                   : darkMode

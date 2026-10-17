@@ -128,18 +128,27 @@ def _normalize(kind, rows, box, limit):
         if kind == "incidents" and str(item.get("EventType", "")).lower() == "roadwork":
             continue  # The construction feed has these separately.
         road = _clean_text(item.get("RoadwayName") or item.get("Roadway"), 120)
-        title = _clean_text(item.get("Location") or item.get("LocationDescription") or road, 160)
+        location = _clean_text(item.get("Location") or item.get("LocationDescription") or road, 280)
+        title = road or location[:90] or kind.title()
         if kind == "winter":
             details = _clean_text(item.get("Condition") or "Road condition reported")
             if item.get("Visibility"):
                 details += f" · Visibility: {_clean_text(item['Visibility'], 45)}"
         else:
-            details = _clean_text(item.get("Description") or item.get("Comment") or title)
+            details = _clean_text(item.get("Description") or item.get("Comment") or location, 3000)
+        # The provider description can be pages long. Use the first useful sentence
+        # on the map and keep the full report behind an expandable section.
+        first = next((bit.strip() for bit in details.replace("\n", ". ").split(".") if bit.strip()), "")
+        summary = first[:145].rstrip(" ,;:")
+        if len(first) > 145:
+            summary = summary.rsplit(" ", 1)[0] + "…"
         entry = {
             "id": str(item.get("ID") or item.get("Id") or item.get("SourceId") or index),
             "kind": kind,
-            "title": title or road or kind.title(),
+            "title": title,
+            "location": location,
             "road": road,
+            "summary": summary,
             "details": details,
             "direction": _clean_text(item.get("DirectionOfTravel") or item.get("Direction"), 80),
             "updated": item.get("LastUpdated"),
@@ -152,10 +161,24 @@ def _normalize(kind, rows, box, limit):
             entry["lanes"] = _clean_text(item.get("LanesAffected"), 80)
             entry["impact"] = _clean_text(item.get("Impact"), 140)
         if kind == "cameras":
-            views = item.get("Views") or []
-            entry["images"] = [v.get("Url") for v in views if isinstance(v, dict)
-                               and str(v.get("Status", "Enabled")).lower() == "enabled"
-                               and str(v.get("Url", "")).startswith("https://")][:3]
+            images = []
+            seen = set()
+            for view in item.get("Views") or []:
+                if not isinstance(view, dict):
+                    continue
+                url = str(view.get("Url") or "").strip()
+                if not url.startswith("https://") or url in seen:
+                    continue
+                if str(view.get("Status", "Enabled")).lower() != "enabled":
+                    continue
+                seen.add(url)
+                images.append({
+                    "url": url,
+                    "label": _clean_text(view.get("Description"), 110) or f"View {len(images) + 1}",
+                })
+                if len(images) >= 12:
+                    break
+            entry["images"] = images
         results.append(entry)
         if len(results) >= limit:
             break

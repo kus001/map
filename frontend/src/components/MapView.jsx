@@ -1016,7 +1016,7 @@ export default function MapView({
                     estimated ? "Scheduled estimate" : "Live"
                   } {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
                 </div>
-                {vehicle.headsign ? <div>toward {vehicle.headsign}</div> : null}
+                {vehicle.display_headsign || vehicle.headsign ? <div>toward {vehicle.display_headsign || vehicle.headsign}</div> : null}
                 {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
                 {estimated ? (
                   <div className="mt-1 text-[10px] opacity-70">

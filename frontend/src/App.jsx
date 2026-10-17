@@ -26,11 +26,13 @@ function transferCheck(steps) {
         let depart = clockMinutes(step.departure_time);
         if (arrive != null && depart != null) {
           if (arrive >= 18 * 60 && depart <= 6 * 60) depart += 1440;
-          const minutes = Math.round((depart - arrive - walking) * 10) / 10;
-          const status = minutes < 4 ? "critical" : minutes < 8 ? "tight"
-            : minutes < 12 ? "moderate" : "comfortable";
-          const label = { critical: "Connection at risk", tight: "Tight transfer",
-            moderate: "Limited buffer", comfortable: "Comfortable transfer" }[status];
+          const minutes = Math.floor((depart - arrive - walking) * 2) / 2;
+          const status = minutes < 5 ? "critical" : minutes < 7 ? "tight"
+            : minutes < 11 ? "moderate" : "comfortable";
+          const label = {
+            critical: "Connection at risk", tight: "Tight transfer",
+            moderate: "Limited buffer", comfortable: "Comfortable transfer"}[status];
+
           transfers.push({ from_route: lastRide.route, to_route: step.route,
             stop: step.from, margin_min: minutes, status, label,
             live_adjusted: Boolean(lastRide.realtime || step.realtime) });

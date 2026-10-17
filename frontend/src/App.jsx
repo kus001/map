@@ -1789,7 +1789,8 @@ export default function App() {
               onRouteHover={setHoveredRouteNumber}
               onStepSelect={focusStep}
               onShareRoute={shareRoute}
-          onClearRoute={clearRoute}
+              onClearRoute={clearRoute}
+              mapStyle={mapStyle}
               displayedMode={displayedMode}
               navigationActive={navigationActive}
               navigationInfo={navigationInfo}

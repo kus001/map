@@ -303,7 +303,11 @@ export default function RoutePanel({
             navigationOffRoute
               ? "border-amber-400 bg-amber-50 text-amber-950"
               : darkMode
-                ? "border-blue/50 bg-blue/10 text-darkmode-gray"
+                ? mapStyle === "hybrid"
+                  ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
+                  : mapStyle === "satellite"
+                    ? "border-green/50 bg-green/10 text-darkmode-gray"
+                    : "border-blue/50 bg-blue/10 text-darkmode-gray"
                 : "border-green/40 bg-green/10 text-charcoal"
           }`}
         >
@@ -593,7 +597,13 @@ export default function RoutePanel({
               aria-label={navigationActive ? "Stop navigation" : "Start navigation"}
               className={`flex h-8 items-center flex-1 justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
                 navigationActive
-                  ? "border-green bg-green text-white"
+                  ? darkMode 
+                    ? mapStyle === "hybrid"
+                      ? "border-hybrid-purple bg-hybrid-purple text-white"
+                      : mapStyle === "satellite"  
+                        ? "border-green bg-green text-white"
+                        : "border-blue bg-blue text-white"
+                  : "border-green bg-green text-white"
                   : darkMode
                     ? mapStyle === "hybrid"
                       ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light hover:border-hybrid-purple hover:bg-hybrid-purple/15"
@@ -766,7 +776,11 @@ export default function RoutePanel({
                             className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left ${
                               canFocusDirection
                                 ? darkMode
-                                  ? "hover:bg-blue/10"
+                                  ? mapStyle === "hybrid"
+                                    ? "hover:bg-purple/10"
+                                    : mapStyle === "satellite"
+                                      ? "hover:bg-green/10"
+                                      : "hover:bg-blue/10"
                                   : "hover:bg-green/10"
                                 : "cursor-default"
                             }`}

@@ -27,11 +27,13 @@ function transferCheck(steps) {
         let depart = clockMinutes(step.departure_time);
         if (arrive != null && depart != null) {
           if (arrive >= 18 * 60 && depart <= 6 * 60) depart += 1440;
-          const minutes = Math.round((depart - arrive - walking) * 10) / 10;
-          const status = minutes < 4 ? "critical" : minutes < 8 ? "tight"
-            : minutes < 12 ? "moderate" : "comfortable";
-          const label = { critical: "Connection at risk", tight: "Tight transfer",
-            moderate: "Limited buffer", comfortable: "Comfortable transfer" }[status];
+          const minutes = Math.floor((depart - arrive - walking) * 2) / 2;
+          const status = minutes < 5 ? "critical" : minutes < 7 ? "tight"
+            : minutes < 11 ? "moderate" : "comfortable";
+          const label = {
+            critical: "Connection at risk", tight: "Tight transfer",
+            moderate: "Limited buffer", comfortable: "Comfortable transfer"}[status];
+
           transfers.push({ from_route: lastRide.route, to_route: step.route,
             stop: step.from, margin_min: minutes, status, label,
             live_adjusted: Boolean(lastRide.realtime || step.realtime) });
@@ -47,6 +49,24 @@ function transferCheck(steps) {
   const ranks = { critical: 0, tight: 1, moderate: 2, comfortable: 3 };
   const worst = transfers.reduce((a, b) => ranks[a.status] <= ranks[b.status] ? a : b);
   return { status: worst.status, label: worst.label, transfers };
+}
+
+function replayArrival(steps, departureISO) {
+  let t = Date.parse(departureISO);
+  if (!Number.isFinite(t)) return null;
+  let missedMin = 0;
+  for (const step of steps || []) {
+    if (step.type === "transit") {
+      const dep = Date.parse(step.departure_datetime);
+      const arr = Date.parse(step.arrival_datetime);
+      if (!Number.isFinite(dep) || !Number.isFinite(arr)) return null;
+      if (t - dep > 30000) missedMin = Math.max(missedMin, (t - dep) / 60000);
+      t = arr;
+    } else {
+      t += Number(step.duration_min || 0) * 60000;
+    }
+  }
+  return { arrival: new Date(t), missedMin };
 }
 
 function applyWalkShapes(route, shapes) {
@@ -74,13 +94,18 @@ function applyWalkShapes(route, shapes) {
   const stillWaiting = route.pending_walks.filter(
     item => !shapes[walkId(item.start, item.end)]
   );
-  const duration = Math.max(0, Number(route.duration_min || 0) + timeChange);
+  const replay = replayArrival(steps, route.departure_datetime);
+  let duration = Math.max(0, Number(route.duration_min || 0) + timeChange);
   let arrival = route.arrival_estimate_datetime;
-  if (route.departure_datetime && timeChange) {
+  if (replay) {
+    arrival = replay.arrival.toISOString();
+    duration = Math.max(0, (replay.arrival.getTime() - new Date(route.departure_datetime).getTime()) / 60000);
+  } else if (route.departure_datetime && timeChange) {
     const t = new Date(route.departure_datetime).getTime();
     if (Number.isFinite(t)) arrival = new Date(t + duration * 60000).toISOString();
   }
   return { ...route, segments, steps, stops: steps,
+    missed_connection: replay ? replay.missedMin > 0 : route.missed_connection,
     pending_walks: stillWaiting,
     route_coordinates: segments.flatMap(segment => segment.coordinates || []),
     duration_min: duration,
@@ -683,46 +708,53 @@ export default function App() {
         window.setTimeout(async () => {
           if (requestId !== searchRequestId.current || altController.signal.aborted) return;
           const existing = [result.routes[0]];
-          for (const priority of ["fastest", "less_walking"]) {
-            if (requestId !== searchRequestId.current || altController.signal.aborted) break;
-            try {
-              const response = await fetch("/api/transit/alternatives", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                signal: altController.signal,
-                body: JSON.stringify({
-                  ...routeRequest, priority,
-                  departure_datetime: result.next_service ? result.departure_datetime : routeRequest.departure_datetime,
-                  timing_mode: result.next_service ? "scheduled" : effectiveTimingMode,
-                  existing_routes: existing.map(route => ({
-                    steps: (route.steps || []).filter(step => step.type === "transit")
-                      .map(step => ({ type: "transit", agency: step.agency,
-                        trip_id: step.trip_id, route_id: step.route_id, route: step.route })),
-                  })),
-                  start_coordinates: result.start?.coordinates || routeRequest.start_coordinates,
-                  destination_coordinates: result.end?.coordinates || routeRequest.destination_coordinates,
-                }),
-              });
-              if (!response.ok) continue;
+          try {
+            // One request: the server computes every alternative together.
+            const response = await fetch("/api/transit/alternatives", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: altController.signal,
+              body: JSON.stringify({
+                ...routeRequest, priority: "all",
+                transit_preference: routeRequest.transit_preference,
+                departure_datetime: result.next_service ? result.departure_datetime : routeRequest.departure_datetime,
+                timing_mode: result.next_service ? "scheduled" : effectiveTimingMode,
+                existing_routes: existing.map(route => ({
+                  steps: (route.steps || []).filter(step => step.type === "transit")
+                    .map(step => ({ type: "transit", agency: step.agency,
+                      trip_id: step.trip_id, route_id: step.route_id, route: step.route })),
+                })),
+                start_coordinates: result.start?.coordinates || routeRequest.start_coordinates,
+                destination_coordinates: result.end?.coordinates || routeRequest.destination_coordinates,
+              }),
+            });
+            if (response.ok) {
               const more = await response.json();
-              if (!more.success || !more.route || requestId !== searchRequestId.current) continue;
-              const candidate = more.route;
-              const signature = route => (route?.steps || [])
-                .filter(step => step.type === "transit")
-                .map(step => `${step.agency}:${step.trip_id}`).join("|");
-              if (existing.some(route => signature(route) === signature(candidate))) continue;
-              existing.push(candidate);
-              setData(current => {
-                if (!current || current.mode !== "transit") return current;
-                const routes = [...current.routes, { ...candidate, route_number: current.routes.length + 1 }];
-                const fastest = routes.reduce((best, route) => Number(route.duration_min) < Number(best.duration_min) ? route : best);
-                const shortest = routes.reduce((best, route) => Number(route.distance_km) < Number(best.distance_km) ? route : best);
-                return { ...current, routes, fastest_route_number: fastest.route_number,
-                  shortest_route_number: shortest.route_number };
-              });
-            } catch (error) {
-              if (error.name !== "AbortError") console.warn("Alternative route unavailable", error);
+              if (more.success && requestId === searchRequestId.current) {
+                const signature = route => (route?.steps || [])
+                  .filter(step => step.type === "transit")
+                  .map(step => `${step.agency}:${step.trip_id}`).join("|");
+                const fresh = [];
+                for (const candidate of more.routes || (more.route ? [more.route] : [])) {
+                  if ([...existing, ...fresh].some(route => signature(route) === signature(candidate))) continue;
+                  fresh.push(candidate);
+                }
+                if (fresh.length) {
+                  existing.push(...fresh);
+                  setData(current => {
+                    if (!current || current.mode !== "transit") return current;
+                    const routes = [...current.routes];
+                    for (const candidate of fresh) routes.push({ ...candidate, route_number: routes.length + 1 });
+                    const fastest = routes.reduce((best, route) => Number(route.duration_min) < Number(best.duration_min) ? route : best);
+                    const shortest = routes.reduce((best, route) => Number(route.distance_km) < Number(best.distance_km) ? route : best);
+                    return { ...current, routes, fastest_route_number: fastest.route_number,
+                      shortest_route_number: shortest.route_number };
+                  });
+                }
+              }
             }
+          } catch (error) {
+            if (error.name !== "AbortError") console.warn("Alternative routes unavailable", error);
           }
           if (requestId === searchRequestId.current) {
             setData(current => current?.mode === "transit" ? { ...current, alternatives_loading: false } : current);

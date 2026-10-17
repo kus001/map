@@ -89,8 +89,8 @@ export function directionText(step) {
   } else if (type === "transit") {
     text = step.route ? `Take route ${step.route}` : "Take transit";
 
-    if (step.headsign) {
-      text += ` toward ${step.headsign}`;
+    if (step.display_headsign || step.headsign) {
+      text += ` toward ${step.display_headsign || step.headsign}`;
     }
 
     if (step.from && step.to) {

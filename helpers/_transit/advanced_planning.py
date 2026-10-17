@@ -1,8 +1,9 @@
 """Schedule-based journey planning helpers, independent from Flask/network calls."""
 from datetime import timedelta
+from math import floor
 
 
-def latest_departure_before(deadline, probe, *, window_minutes=360, iterations=7, buffer_minutes=3):
+def latest_departure_before(deadline, probe, *, window_minutes=360, iterations=7, buffer_minutes=4):
     """Find a late feasible starting time via bounded timetable searches.
 
     `probe(dt)` returns (path, travel_minutes, start_stop, end_stop).  We probe
@@ -69,7 +70,7 @@ def connection_reliability(steps, *, minimum_transfer_minutes=4):
                 if arrival is not None and departure is not None:
                     if arrival >= 18 * 60 and departure <= 6 * 60:
                         departure += 1440
-                    margin = round(departure - arrival - walking_min, 1)
+                    margin = floor((departure - arrival - walking_min)*10)/10
                     if margin < minimum_transfer_minutes:
                         status, label = "critical", "Connection at risk"
                     elif margin < 8:

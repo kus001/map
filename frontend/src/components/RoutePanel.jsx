@@ -196,6 +196,24 @@ function transitNavigationSummary(info) {
   return { headline, lines };
 }
 
+// Route numbers that share the best (lowest) value, within `tolerance`.
+// Empty when nothing beats anything: a tag that every route would get means nothing.
+function bestTies(routes, valueOf, tolerance) {
+  const values = routes.map(route => ({ route, value: Number(valueOf(route)) }))
+    .filter(item => Number.isFinite(item.value));
+  if (values.length < 2) return new Set();
+  const best = Math.min(...values.map(item => item.value));
+  if (!values.some(item => item.value - best > tolerance)) return new Set();
+  return new Set(
+    values.filter(item => item.value - best <= tolerance).map(item => item.route.route_number)
+  );
+}
+
+function transferCount(route) {
+  const legs = (route?.steps || []).filter(step => step?.type === "transit").length;
+  return Math.max(0, legs - 1);
+}
+
 export default function RoutePanel({
   data,
   selectedRoute,
@@ -278,6 +296,17 @@ export default function RoutePanel({
       ? transitNavigationSummary(navigationInfo)
       : null;
 
+
+
+  // Tags are computed live from the routes themselves (arrival times shift a little
+  // once walking routes finish loading), and tied routes all get the tag.
+  const isTransit = mode === "transit";
+  const earliestArrival = isTransit
+    ? bestTies(data.routes, route => Date.parse(route.arrival_estimate_datetime), 30000) // 30 s
+    : new Set();
+  const fastestRoutes = bestTies(data.routes, route => route.duration_min, 0.5);          // 30 s
+  const shortestRoutes = bestTies(data.routes, route => route.distance_km, 0.025);        // 25 m
+  const leastTransfers = isTransit ? bestTies(data.routes, transferCount, 0) : new Set();
 
   return (
     <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
@@ -443,24 +472,15 @@ export default function RoutePanel({
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
-          if (
-            mode !== "transit" &&
-            data.routes.length > 1 &&
-            route.route_number === data.fastest_route_number
-          ) {
-            labels.push("FASTEST");
-          }
-
-          if (
-            mode !== "transit" &&
-            data.routes.length > 1 &&
-            route.route_number === data.shortest_route_number
-          ) {
-            if (mode === "transit") {
-              labels.push("SHORTEST WALK");
-            } else {
-              labels.push("SHORTEST")
-            }
+          // Ties share a tag. "Arrives earliest" uses the real arrival clock time, so a
+          // "leave later" option with a shorter ride can't win it; FASTEST is hidden on
+          // a route that already says ARRIVES EARLIEST.
+          const arrivesEarliest = earliestArrival.has(route.route_number);
+          if (arrivesEarliest) labels.push("ARRIVES EARLIEST");
+          if (fastestRoutes.has(route.route_number) && !arrivesEarliest) labels.push("FASTEST");
+          if (leastTransfers.has(route.route_number)) labels.push("LEAST TRANSFERS");
+          if (shortestRoutes.has(route.route_number)) {
+            labels.push(isTransit ? "SHORTEST WALK" : "SHORTEST");
           }
 
           return (
@@ -515,7 +535,7 @@ export default function RoutePanel({
                   </div>
 
 
-                  {mode === "transit" && transferRisk?.status && transferRisk.status !== "direct" && (
+                  {mode === "transit" && transferRisk?.status != "comfortable" && transferRisk.status !== "direct" && (
                     <div className={`mt-1 text-[11px] font-semibold ${
                       ["critical", "tight"].includes(transferRisk.status)
                         ? "text-amber-500"

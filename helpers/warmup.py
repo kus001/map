@@ -64,7 +64,9 @@ def _run(name, fn):
 
 def _address_index():
     from helpers import local_geocode
-    return f"{local_geocode.preload():,} address points"
+    points = local_geocode.preload()
+    files = local_geocode.loaded_files()
+    return f"{points:,} address points from {len(files)} file{'s' if len(files) != 1 else ''}"
 
 def _named_places():
     from helpers import geocoding

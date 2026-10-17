@@ -1,11 +1,26 @@
 """Fast, offline geocoding for Waterloo Region municipal address points.
 
-The local CSV is optional. If it is missing, this module simply returns no local
-matches and callers can fall back to another geocoder! This is just kinda like a local speedup for the region of waterloo.
+The local CSVs are optional. If they are missing, this module simply returns no local
+matches and callers can fall back to another geocoder! This is just kinda like a local speedup.
+
+Currently only supports the Region Of Waterloo.
+
+Address files (all CSV; every one found is loaded and merged into one index):
+  transit_data/addresses.csv, transit_data/address_points.csv
+  transit_data/addresses/*.csv        <- drop extra files (e.g. one per municipality) here
+  MAP_ADDRESS_FILES=a.csv:dir/:b/*.csv   replaces the list above (os.pathsep-separated
+                                         files, directories or globs; relative paths are
+                                         relative to the project root)
+Each file is read on its own terms: its own column names, and lat/lon or UTM 17N
+coordinates. A file with no settlement column takes its name as the settlement when
+that is a known town ("cambridge.csv"). A file that can't be read is skipped without
+stopping the others.
 """
 
 import csv
+import glob
 import math
+import os
 import pickle
 import re
 import sys
@@ -20,11 +35,23 @@ CANDIDATE_PATHS = [
     PROJECT_ROOT / "transit_data" / "addresses.csv",
     PROJECT_ROOT / "transit_data" / "address_points.csv",
 ]
-INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v3.pkl"
+ADDRESS_DIR = PROJECT_ROOT / "transit_data" / "addresses"  # every *.csv in here is loaded
+ADDRESS_FILES_ENV = "MAP_ADDRESS_FILES"
+
+# The index is cached as {"format", "sources", "index"}. "sources" is the name and size
+# of every address file, so adding, removing or changing a file rebuilds it (file times
+# are useless for this: git sets them at checkout). Bump INDEX_FORMAT if the parsing
+# below changes. The old single-file cache (v3, a bare dict) is still used as long as
+# the one address file it was built from is the only one.
+INDEX_FORMAT = 4
+INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v4.pkl"
+LEGACY_INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v3.pkl"
 
 UTM17N_TO_LATLON = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=True)
 
 _by_civic = None
+_index_lock = threading.Lock()
+_loaded_files = []  # names of the address files the index came from
 _settlements = set()  # lowercase settlement names found in the data
 
 # Street-level index
@@ -133,8 +160,11 @@ def _parse_query(address):
 
     core, direction, suffix = _parse_street(words)
     return {
-        "civic": civic, "core": core, "direction": direction,
-        "suffix": suffix, "cities": cities,
+        "civic": civic,
+        "core": core,
+        "direction": direction,
+        "suffix": suffix,
+        "cities": cities
     }
 
 
@@ -145,11 +175,52 @@ def _pick_field(fieldnames_lower, *candidates):
     return None
 
 
-def _resolve_csv_path():
-    for path in CANDIDATE_PATHS:
-        if path.exists():
-            return path
-    return None
+def _expand_source(spec):
+    """A file, a directory (all its *.csv) or a glob pattern -> [Path, ...]."""
+    spec = os.path.expanduser(str(spec).strip())
+    if not spec:
+        return []
+    if not os.path.isabs(spec):
+        spec = str(PROJECT_ROOT / spec)
+
+    path = Path(spec)
+    if path.is_dir():
+        return sorted(path.glob("*.csv"))
+    if path.is_file():
+        return [path]
+    return sorted(Path(match) for match in glob.glob(spec) if Path(match).is_file())
+
+
+def _resolve_csv_paths():
+    """Every address file to index, in load order, without duplicates."""
+    configured = os.environ.get(ADDRESS_FILES_ENV, "").strip()
+    if configured:
+        specs = [spec for spec in configured.split(os.pathsep) if spec.strip()]
+    else:
+        specs = [*CANDIDATE_PATHS, ADDRESS_DIR]
+
+    paths, seen = [], set()
+    for spec in specs:
+        for path in _expand_source(spec):
+            key = path.resolve()
+            if key not in seen:
+                seen.add(key)
+                paths.append(path)
+    return paths
+
+
+def _signature(paths):
+    """[[name, size], ...] for the files, order-independent, stable across checkouts."""
+    root = PROJECT_ROOT.resolve()
+    rows = []
+    for path in paths:
+        resolved = path.resolve()
+        try:
+            name = resolved.relative_to(root).as_posix()
+        except ValueError:
+            name = str(resolved)
+        rows.append([name, path.stat().st_size])
+    return sorted(rows)
 
 
 def _collect_settlements():
@@ -160,36 +231,64 @@ def _collect_settlements():
                 _settlements.add(entry[6])
 
 
-def _load_index(icp=INDEX_CACHE_PATH):
-    """Index layout: {civic: [(core, direction, lat, lon, label, suffix, settlement)]}."""
-    global _by_civic
-
-    if _by_civic is None:
-        _by_civic = {}
-
-    csv_path = _resolve_csv_path()
-    if csv_path is None:
-        return
-
+def _read_cache(path, signature):
+    try:
+        with path.open("rb") as file:
+            data = pickle.load(file)
+    except Exception:
+        return None
     if (
-        icp.exists()
-        and icp.stat().st_mtime >= csv_path.stat().st_mtime
+        isinstance(data, dict)
+        and data.get("format") == INDEX_FORMAT
+        and data.get("sources") == signature
+        and isinstance(data.get("index"), dict)
     ):
-        try:
-            with icp.open("rb") as file:
-                _by_civic |= pickle.load(file)
-            _collect_settlements()
-            return
-        except Exception:
-            pass
+        return data["index"]
+    return None
 
-    built = {}  # dedupe key -> entry; prefers the IsPrimary point of a building
 
-    with csv_path.open(encoding="utf-8-sig", newline="") as file:
+def _read_legacy_cache(csv_path):
+    """The old cache: a bare {civic: [...]} dict, trusted if newer than its CSV."""
+    try:
+        if LEGACY_INDEX_CACHE_PATH.stat().st_mtime < csv_path.stat().st_mtime:
+            return None
+        with LEGACY_INDEX_CACHE_PATH.open("rb") as file:
+            data = pickle.load(file)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_cache(path, signature, index):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")  # replaced atomically: another worker may
+        with temporary.open("wb") as file:    # be starting at the same moment
+            pickle.dump(
+                {"format": INDEX_FORMAT, "sources": signature, "index": index},
+                file, protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        os.replace(temporary, path)
+    except Exception:
+        pass  # an unwritable cache only costs startup time
+
+
+def _read_csv(path, built):
+    """Add one file's address points to ``built``; returns how many rows were used.
+
+    ``built`` maps a dedupe key to (entry, is_primary) and is shared by all files, so
+    the same address in two files is kept once (preferring the building's primary
+    point), while the same civic NUMBER on different streets or towns is kept for both.
+    Returns 0 for a file without usable coordinate columns.
+    """
+    stem = path.stem.lower()
+    default_settlement = stem.title() if stem in CITY_HINTS else ""
+    used = 0
+
+    with path.open(encoding="utf-8-sig", errors="replace", newline="") as file:
         reader = csv.DictReader(file)
         if not reader.fieldnames:
-            _by_civic = {}
-            return
+            return 0
 
         fields = {name.strip().lower(): name for name in reader.fieldnames}
 
@@ -213,10 +312,9 @@ def _load_index(icp=INDEX_CACHE_PATH):
         primary_field = _pick_field(fields, "isprimary")
 
         if not x_field or not y_field:
-            _by_civic = {}
-            return
+            return 0
 
-        is_utm = None
+        is_utm = None  # decided per file: files can use different coordinate systems
 
         for row in reader:
             x_raw = row.get(x_field)
@@ -266,7 +364,7 @@ def _load_index(icp=INDEX_CACHE_PATH):
 
             settlement = (
                 row.get(settlement_field, "").strip() if settlement_field else ""
-            )
+            ) or default_settlement
             settlement_key = sys.intern(settlement.lower())
             label = f"{civic_raw.upper()} {street_raw}"
             if settlement:
@@ -283,21 +381,93 @@ def _load_index(icp=INDEX_CACHE_PATH):
             )
             if key not in built or is_primary and not built[key][1]:
                 built[key] = (entry, is_primary)
+            used += 1
+
+    return used
+
+
+def _build_index(icp):
+    """Load every address file (from the cache when its sources are unchanged)."""
+    global _loaded_files
+
+    paths = _resolve_csv_paths()
+    _loaded_files = []
+    if not paths:
+        return {}
+
+    signature = _signature(paths)
+
+    cached = _read_cache(icp, signature)
+    if cached is not None:
+        _loaded_files = [name for name, _size in signature]
+        return cached
+
+    if (
+        icp == INDEX_CACHE_PATH
+        and len(paths) == 1
+        and paths[0].resolve() in {p.resolve() for p in CANDIDATE_PATHS}
+    ):
+        legacy = _read_legacy_cache(paths[0])
+        if legacy is not None:
+            _loaded_files = [signature[0][0]]
+            return legacy
+
+    built = {}  # dedupe key -> entry; prefers the IsPrimary point of a building
+    for path in paths:
+        try:
+            if _read_csv(path, built):
+                _loaded_files.append(_signature([path])[0][0])
+            else:
+                print(f"[local_geocode] skipped {path.name}: no usable address columns",
+                      file=sys.stderr, flush=True)
+        except Exception as error:  # one bad file must not take the others down
+            print(f"[local_geocode] skipped {path.name}: {type(error).__name__}: {error}",
+                  file=sys.stderr, flush=True)
 
     result = {}
     for (civic_raw, *_), (entry, _primary) in built.items():
         result.setdefault(civic_raw, []).append(entry)
     built.clear()  # done with the dedup scratch structure - free it before pickling
 
-    _by_civic = result
-    _collect_settlements()
+    if _loaded_files:
+        _write_cache(icp, signature, result)
+    return result
 
-    try:
-        icp.parent.mkdir(parents=True, exist_ok=True)
-        with icp.open("wb") as file:
-            pickle.dump(_by_civic, file, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        pass
+
+def _load_index(icp=INDEX_CACHE_PATH):
+    """Index layout: {civic: [(core, direction, lat, lon, label, suffix, settlement)]}.
+
+    Loads once; later calls return immediately. Use reload() after adding files.
+    """
+    global _by_civic
+
+    if _by_civic is not None:
+        return
+
+    with _index_lock:
+        if _by_civic is not None:
+            return
+        index = _build_index(icp)
+        _by_civic = index  # published whole, so other threads never see it half-built
+        _collect_settlements()
+
+
+def reload():
+    """Forget the loaded index; the next lookup re-reads the address files."""
+    global _by_civic, _streets, _streets_by_core
+
+    with _streets_lock:
+        with _index_lock:
+            _by_civic = None
+            _streets = None
+            _streets_by_core = {}
+            _settlements.clear()
+
+
+def loaded_files():
+    """Names of the address files the current index was built from."""
+    _load_index()
+    return list(_loaded_files)
 
 
 def preload():
@@ -610,4 +780,4 @@ def search_local(query, limit=6, bias=None):
 
 
 def is_available():
-    return _resolve_csv_path() is not None
+    return bool(_resolve_csv_paths())

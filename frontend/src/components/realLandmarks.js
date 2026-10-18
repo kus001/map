@@ -3,15 +3,13 @@ const ASSET_PATH = "/models/landmarks/";
 const LANDMARKS = [
   {
     id: "cn-tower",
-    center: [-79.38705, 43.64256],
+    center: [-79.387083, 43.642556],
     height: 553.3,
     radius: 75,
-    excludeRadius: 160,
+    excludeRadius: 90,
     minZoom: 14.5,
     type: "fbx",
     url: `${ASSET_PATH}cn-tower.fbx`,
-    scaleMultiplier: 0.94,
-    rotation: [0, Math.PI, 0],
   },
   {
     id: "eiffel-tower",
@@ -148,41 +146,42 @@ function modelMatrix(three, center, altitude) {
     .multiply(new three.Matrix4().makeRotationX(Math.PI / 2));
 }
 
-function pruneModel(root, three) {
-  root.updateMatrixWorld(true);
-  const overall = new three.Box3().setFromObject(root);
-  const overallSize = overall.getSize(new three.Vector3());
-  const overallCenter = overall.getCenter(new three.Vector3());
-  const maxDim = Math.max(overallSize.x, overallSize.y, overallSize.z) || 1;
-  const toRemove = [];
-  root.traverse(child => {
-    if (!child?.isMesh) return;
-    const box = new three.Box3().setFromObject(child);
-    if (box.isEmpty()) return;
-    const size = box.getSize(new three.Vector3());
-    const center = box.getCenter(new three.Vector3());
-    const dims = [Math.abs(size.x), Math.abs(size.y), Math.abs(size.z)].sort((a, b) => a - b);
-    const longest = dims[2] || 0;
-    const thinnest = dims[0] || 0;
-    const far = center.distanceTo(overallCenter) > maxDim * 0.42;
-    const longThin = thinnest < maxDim * 0.004 && longest > maxDim * 0.22;
-    const giantFar = far && longest > maxDim * 0.22;
-    if (longThin || giantFar) toRemove.push(child);
+function removeImportedScene(root) {
+  const blocked = new Set(["ground", "untitled2", "object001"]);
+  const removed = [];
+  const candidates = [];
+  root.traverse(node => {
+    if (node === root) return;
+    const name = (node.name || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (blocked.has(name)) candidates.push(node);
   });
-  for (const child of toRemove) child.parent?.remove(child);
-  return toRemove.length;
+  for (const node of candidates) {
+    if (!node.parent) continue;
+    node.parent.remove(node);
+    removed.push(node.name);
+    node.traverse(child => { child.geometry?.dispose(); });
+  }
+  return removed;
 }
 
 function normalizeModel(three, root, landmark) {
-  if (landmark.type === "fbx") pruneModel(root, three);
+  const removed = landmark.type === "fbx" ? removeImportedScene(root) : [];
   root.updateMatrixWorld(true);
   if (landmark.type === "stl") root.rotation.x = -Math.PI / 2;
   root.updateMatrixWorld(true);
   const box = new three.Box3().setFromObject(root);
   const height = box.max.y - box.min.y;
   if (!Number.isFinite(height) || height <= 0) throw new Error("Invalid model dimensions");
-  const scale = (landmark.height / height) * (landmark.scaleMultiplier || 1);
+  const scale = landmark.height / height;
   const group = new three.Group();
+  group.userData.kmModelInfo = {
+    removed,
+    targetHeightMeters: landmark.height,
+    rawHeight: height,
+    scale,
+    widthMeters: (box.max.x - box.min.x) * scale,
+    depthMeters: (box.max.z - box.min.z) * scale,
+  };
   root.position.set(-((box.min.x + box.max.x) / 2), -box.min.y, -((box.min.z + box.max.z) / 2));
   root.scale.multiplyScalar(scale);
   root.position.multiplyScalar(scale);
@@ -260,6 +259,7 @@ function createModelLayer() {
           if (!meshes) throw new Error("Model contains no drawable meshes");
           loaded.set(item.id, group);
           map.__kmLandmarkMeshCounts = { ...map.__kmLandmarkMeshCounts, [item.id]: meshes };
+          map.__kmLandmarkModelInfo = { ...map.__kmLandmarkModelInfo, [item.id]: group.userData.kmModelInfo };
           scene.add(group);
           refresh();
           map.triggerRepaint();

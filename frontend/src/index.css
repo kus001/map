@@ -108,6 +108,10 @@ button {
   margin-right: 16px;
 }
 
+@media (max-width: 760px) {
+  .leaflet-control-zoom { display: none; }
+}
+
 .leaflet-control-attribution {
   font-size: 9px !important;
 }

@@ -16,7 +16,7 @@ REQUEST_TIMEOUT = (1.8, 3.5)
 
 WALKING_PROFILES = {
     "regular": "foot-walking",
-    "hiking": "foot-walking",
+    "hiking": "foot-hiking",
 }
 
 _session = requests.Session()
@@ -45,16 +45,9 @@ def _ors_walking(profile, start_lat, start_lon, end_lat, end_lon):
             "coordinates": [
                 [start_lon, start_lat],
                 [end_lon, end_lat],
-            ],
-            "options": {
-                "profile_params":{
-                    "weightings" : {
-                        "green": {"factor": 0.8}
-                    }
-                }
-            },
+            ]
         },
-        timeout=(3,15),
+        timeout=(3, 15),
     )
     response.raise_for_status()
     return response.json()
@@ -136,6 +129,7 @@ def get_walking_route(
         data = _ors_walking(*key)
         mark("provider")
     except requests.RequestException as error:
+        print("ors error: ", repr(error))
         return {"success": False, "error": f"Walking routing server error: {error}"}
     except ValueError:
         return {

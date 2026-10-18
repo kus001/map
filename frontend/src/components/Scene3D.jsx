@@ -243,6 +243,22 @@ function buildingLayerInsertionPoint(map) {
     .find(layer => layer.type === "symbol")?.id;
 }
 
+// Keep Street, Satellite and Hybrid on the SAME building geometry/colour
+// pipeline.  These are lightweight, mapped-material approximations rather than
+// photographic facades; opacity must never depend on image sprites/atlases.
+function buildingMaterialColor(darkMode) {
+  const fallback = darkMode ? "#a8b3bc" : "#c9c2b8";
+  return ["match", ["coalesce", ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""],
+    "brick", darkMode ? "#916e64" : "#ba8a78",
+    "glass", darkMode ? "#759ba9" : "#94c2ce",
+    "concrete", darkMode ? "#8a9097" : "#b9b9b1",
+    "stone", darkMode ? "#9a968e" : "#c9c5b8",
+    "metal", darkMode ? "#7e939f" : "#a5b4bb",
+    "wood", darkMode ? "#917761" : "#bfa28a",
+    "plaster", darkMode ? "#b8b2a7" : "#e5dac6",
+    fallback];
+}
+
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
@@ -272,7 +288,7 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     layout: { visibility: "visible" },
     filter: ["!=", ["get", "hide_3d"], true],
     paint: {
-      "fill-extrusion-color": darkMode ? "#9fa8ae" : "#c7bfae",
+      "fill-extrusion-color": buildingMaterialColor(darkMode),
       "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
         startZoom, 0, startZoom + 0.5,
         ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]],
@@ -290,8 +306,8 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     console.warn("3D building extrusion failed to install", error);
     return false;
   }
-  // Keep known-valid opaque paint during source diagnosis. Provider-specific
-  // building colour metadata will be reinstated only after tiles are verified.
+  // Mapped materials are a single inexpensive expression; missing metadata
+  // safely falls back to an opaque neutral building colour in every basemap.
   diagnostic.lastError = null;
   return Boolean(map.getLayer("km-buildings-3d"));
 }
@@ -330,8 +346,11 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
 
   addGeo(map, "km-stops");
   map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
-    paint: { "circle-color": "#9b734b", "circle-radius": 5, "circle-opacity": 0.92,
-      "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+    paint: { "circle-color": "#9b734b", "circle-radius": 7, "circle-opacity": 0.96,
+      // Screen-aligned circles stay visible/clickable at high pitch rather than
+      // shrinking into the ground plane alongside pitched symbols.
+      "circle-pitch-alignment": "viewport", "circle-pitch-scale": "viewport",
+      "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
 
   addGeo(map, "km-routes");
   map.addLayer({ id: "km-route-casing", type: "line", source: "km-routes", paint: { "line-color": "#17212a", "line-opacity": 0.58, "line-width": ["case", ["==", ["get", "chosen"], 1], 10, 6] }, layout: { "line-join": "round", "line-cap": "round" } });
@@ -344,6 +363,105 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
     map.addLayer({ id: `${name}-lines`, type: "line", source: name, filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": FEED_COLORS[kind], "line-width": 4, "line-opacity": 0.85 } });
     map.addLayer({ id: `${name}-points`, type: "circle", source: name, filter: ["==", ["geometry-type"], "Point"], paint: { "circle-color": FEED_COLORS[kind], "circle-radius": 6, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
   }
+}
+
+// Use the same card hierarchy as 2D Leaflet popups.  MapLibre's Popup lives
+// in the DOM overlay (not the pitched WebGL canvas), so its text is always
+// upright relative to the user's screen, even while tilting or rotating.
+function popupElement(title, subtitle = "") {
+  const content = document.createElement("div");
+  content.className = "km-3d-info";
+  const heading = document.createElement("div");
+  heading.className = "km-3d-info-title";
+  heading.textContent = title || "Map information";
+  content.append(heading);
+  if (subtitle) {
+    const sub = document.createElement("div");
+    sub.className = "km-3d-subtitle";
+    sub.textContent = subtitle;
+    content.append(sub);
+  }
+  return content;
+}
+function popupText(text, className = "km-3d-body-text") {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+function scenePopup(gl, map, coordinates, content, options = {}) {
+  // A single popup at a time prevents overlapping boxes that can eat taps.
+  map.__kmOpenPopup?.remove();
+  const popup = new gl.Popup({
+    className: "km-3d-popup", maxWidth: "330px", offset: 13,
+    anchor: "bottom", closeOnClick: false, closeButton: true,
+    focusAfterOpen: false, ...options,
+  }).setLngLat(coordinates).setDOMContent(content).addTo(map);
+  map.__kmOpenPopup = popup;
+  popup.on("close", () => {
+    if (map.__kmOpenPopup === popup) map.__kmOpenPopup = null;
+  });
+  return popup;
+}
+function stopPopupContent(props) {
+  const agency = String(props.agency || "grt").toLowerCase();
+  const label = agency === "go" ? "GO Transit" : agency === "ttc" ? "TTC" : "GRT";
+  const body = popupElement(props.name || "Transit stop", `${label} · Departures`);
+  const board = document.createElement("div");
+  board.className = "km-3d-board";
+  board.append(popupText("Loading times…"));
+  body.append(board);
+  return { body, board };
+}
+function renderStopDepartures(board, info) {
+  board.replaceChildren();
+  if (info?.error) {
+    board.append(popupText(info.error, "km-3d-board-error"));
+    return;
+  }
+  const departures = info?.departures || [];
+  if (!departures.length) {
+    board.append(popupText("No departures listed for this stop right now."));
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "km-3d-board-list";
+  for (const item of departures) {
+    const card = document.createElement("div");
+    card.className = "km-3d-board-card";
+    const header = document.createElement("div");
+    header.className = "km-3d-board-row";
+    const route = document.createElement("span");
+    route.textContent = `${item.route || "Transit"}${item.direction ? ` → ${item.direction}` : ""}`;
+    const time = document.createElement("span");
+    time.className = "km-3d-board-time";
+    time.textContent = item.expected_time || item.scheduled_time || "";
+    header.append(route, time);
+    card.append(header);
+    if (item.boarding_stop) card.append(popupText(`Nearby boarding stop: ${item.boarding_stop}`, "km-3d-board-meta"));
+    const state = item.cancelled ? "Cancelled" : item.realtime ? "Live" : "Scheduled";
+    const delay = Number(item.delay_min);
+    const until = Number(item.minutes_until);
+    card.append(popupText(`${state}${delay >= 1 ? ` · +${Math.round(delay)} min` : ""}` +
+      `${item.minutes_until != null && Number.isFinite(until) ? ` · in ${Math.max(0, until)} min` : ""}`, "km-3d-board-meta"));
+    list.append(card);
+  }
+  board.append(list);
+}
+// GeoJSON circles are hard to hit at steep pitches.  Use screen-space distance
+// from actual loaded GTFS coordinates as a fallback to renderer hit-testing.
+function nearestStopOnScreen(map, point, radius = 34) {
+  let closest = null;
+  let best = radius * radius;
+  for (const stop of map.__kmNearbyStops || []) {
+    const projected = map.project(stop.geometry.coordinates);
+    if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) continue;
+    const dx = projected.x - point.x;
+    const dy = projected.y - point.y;
+    const distance = dx * dx + dy * dy;
+    if (distance < best) { closest = stop; best = distance; }
+  }
+  return closest;
 }
 
 function cameraMarker(gl, map, latLng, label, onMove) {
@@ -386,6 +504,8 @@ export default function Scene3D({
     terrainRef.current = terrainEnabled;
   }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const camera = useRef(initialCamera || DEFAULT_CAMERA);
   const previousGlobe = useRef(null);
@@ -597,18 +717,53 @@ export default function Scene3D({
         const root = document.createElement("div");
         root.className = "km-3d-picker";
         for (const [label, action] of [["Set as start", "onSetMapStart"], ["Set as destination", "onSetMapDestination"]]) {
-          const button = document.createElement("button"); button.type = "button"; button.textContent = label;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = label;
           button.onclick = () => { callbackRef.current[action]?.([event.lngLat.lat, event.lngLat.lng]); popup.remove(); };
-          root.appendChild(button);
+          root.append(button);
         }
-        const popup = new gl.Popup({ closeOnClick: true }).setLngLat(event.lngLat).setDOMContent(root).addTo(map);
+        root.append(popupText(`${event.lngLat.lat.toFixed(5)}, ${event.lngLat.lng.toFixed(5)}`, "km-3d-coordinates"));
+        const popup = scenePopup(gl, map, event.lngLat, root, { maxWidth: "235px" });
       });
+      const openStop = feature => {
+        const props = feature.properties || {};
+        // A tilted map's clicked ground coordinate can be far from a stop.
+        // Anchor the popup to the stop itself, never event.lngLat.
+        const coordinates = feature.geometry?.coordinates;
+        if (!Array.isArray(coordinates)) return;
+        const { body, board } = stopPopupContent(props);
+        const popup = scenePopup(gl, map, coordinates, body, { className: "km-3d-popup km-3d-transit-popup" });
+        const req = new AbortController();
+        popup.on("close", () => req.abort());
+        fetch(`/api/transit/stop-board?${new URLSearchParams({ stop_id: props.stop_id, limit: "8" })}`, { signal: req.signal })
+          .then(async r => {
+            const data = await r.json();
+            return r.ok ? data : { error: data.error || "Departures unavailable" };
+          })
+          .then(info => { if (!req.signal.aborted) renderStopDepartures(board, info); })
+          .catch(() => { if (!req.signal.aborted) renderStopDepartures(board, { error: "Could not load departures" }); });
+      };
       map.on("click", event => {
-        const ids = ["km-route-lines", "km-stops-points",
+        const ids = ["km-stops-points", "km-route-lines",
           ...Object.keys(FEED_COLORS).flatMap(kind => [`km-511-${kind}-points`, `km-511-${kind}-lines`])]
           .filter(id => map.getLayer(id));
         if (!ids.length) return;
-        const hit = map.queryRenderedFeatures(event.point, { layers: ids })[0];
+        const point = event.point;
+        // Query a small square instead of the exact single pixel. This also
+        // catches 3D stop dots during high pitch/terrain extrusion.
+        const hits = map.queryRenderedFeatures([
+          [point.x - 13, point.y - 13], [point.x + 13, point.y + 13],
+        ], { layers: ids });
+        const stopHit = hits.find(hit => hit.layer?.id === "km-stops-points");
+        const stop = modeRef.current === "transit" && map.getZoom() >= 16
+          ? nearestStopOnScreen(map, point)
+          : null;
+        if (stop || stopHit) {
+          openStop(stop || stopHit);
+          return;
+        }
+        const hit = hits[0];
         if (!hit) return;
         const props = hit.properties || {};
         if (hit.layer.id === "km-route-lines") {
@@ -616,37 +771,12 @@ export default function Scene3D({
           if (Number.isFinite(number)) callbackRef.current.onSelectRoute?.(number);
           return;
         }
-        if (hit.layer.id === "km-stops-points") {
-          const body = document.createElement("div");
-          body.className = "km-3d-info";
-          const title = document.createElement("strong"); title.textContent = props.name || "Transit stop";
-          body.appendChild(title);
-          const schedule = document.createElement("div"); schedule.textContent = "Loading departures…";
-          body.appendChild(schedule);
-          const popup = new gl.Popup({ maxWidth: "290px" }).setLngLat(event.lngLat).setDOMContent(body).addTo(map);
-          const req = new AbortController();
-          popup.on("close", () => req.abort());
-          fetch(`/api/transit/stop-board?${new URLSearchParams({ stop_id: props.stop_id, limit: "8" })}`, { signal: req.signal })
-            .then(r => r.json()).then(info => {
-              if (req.signal.aborted) return;
-              schedule.replaceChildren();
-              for (const item of info.departures || []) {
-                const row = document.createElement("div");
-                row.className = "km-3d-departure";
-                row.textContent = `${item.route || "Transit"}  ${item.expected_time || item.scheduled_time || ""}`;
-                schedule.appendChild(row);
-              }
-              if (!schedule.childNodes.length) schedule.textContent = info.error || "No upcoming departures";
-            }).catch(() => { if (!req.signal.aborted) schedule.textContent = "Departures unavailable"; });
-          return;
-        }
-        const body = document.createElement("div"); body.className = "km-3d-info";
-        const title = document.createElement("strong"); title.textContent = props.title || "Road update";
-        body.appendChild(title);
-        if (props.details) {
-          const summary = document.createElement("p"); summary.textContent = props.details;
-          body.appendChild(summary);
-        }
+        const body = popupElement(props.title || "Road update", props.direction || "");
+        if (props.closure) body.append(popupText("Road closed", "km-3d-board-error"));
+        if (props.details) body.append(popupText(props.details));
+        if (props.impact && props.impact !== props.details) body.append(popupText(props.impact, "km-3d-subtitle"));
+        if (props.lanes) body.append(popupText(props.lanes, "km-3d-subtitle"));
+        const coordinates = hit.geometry.type === "Point" ? hit.geometry.coordinates : event.lngLat;
         if (props.kind === "cameras") {
           let images = [];
           try { images = JSON.parse(props.images || "[]"); } catch { /* old camera records */ }
@@ -658,8 +788,6 @@ export default function Scene3D({
             const previous = document.createElement("button"); previous.textContent = "‹";
             const next = document.createElement("button"); next.textContent = "›";
             const show = () => {
-              // Force a new still at a reasonable interval while the popup is open.
-              // These provider snapshots are not actual video streams.
               try {
                 const url = new URL(images[index].url);
                 url.searchParams.set("_km_refresh", String(Math.floor(Date.now() / 30000)));
@@ -672,13 +800,13 @@ export default function Scene3D({
             next.onclick = () => { index = (index + 1) % images.length; show(); };
             bar.append(previous, caption, next);
             body.append(photo, bar); show();
-            const timer = setInterval(() => { index = (index + 1) % images.length; show(); }, 30000);
-            const popup = new gl.Popup({ maxWidth: "300px" }).setLngLat(event.lngLat).setDOMContent(body).addTo(map);
+            const timer = setInterval(show, 30000);
+            const popup = scenePopup(gl, map, coordinates, body);
             popup.on("close", () => clearInterval(timer));
             return;
           }
         }
-        new gl.Popup({ maxWidth: "290px" }).setLngLat(event.lngLat).setDOMContent(body).addTo(map);
+        scenePopup(gl, map, coordinates, body);
       });
       setReady(true);
     }).catch(error => { if (active) setProblem(error.message); });
@@ -687,6 +815,7 @@ export default function Scene3D({
       active = false; styles.current++;
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmSpinCleanup?.();
+      map?.__kmOpenPopup?.remove();
       map?.remove();
       if (typeof window !== "undefined") {
         delete window.__kmaps3DStats;
@@ -941,7 +1070,9 @@ export default function Scene3D({
             const features511 = [];
             for (const item of payload.items || []) {
               const properties = { id: item.id, title: item.title || kind,
-                details: item.summary || item.impact || item.details || "", kind,
+                details: item.summary || item.details || "", direction: item.direction || "",
+                impact: item.impact || "", lanes: item.lanes || "",
+                closure: Boolean(item.closure), kind,
                 images: kind === "cameras" ? JSON.stringify(item.images || []) : "[]" };
               if (validCoord(item.point)) features511.push({ type: "Feature",
                 geometry: { type: "Point", coordinates: [item.point[1], item.point[0]] }, properties });
@@ -977,17 +1108,20 @@ export default function Scene3D({
         controller?.abort(); controller = new AbortController();
         if (!map.getSource("km-stops")) return;
         if (mode !== "transit" || map.getZoom() < 16) {
+          map.__kmNearbyStops = [];
           setData(map, "km-stops", []); return;
         }
         const center = map.getCenter();
-        const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lng), radius: "650" });
+        const radius = map.getZoom() < 17 ? 1500 : map.getZoom() < 18 ? 1100 : 800;
+        const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lng), radius: String(radius) });
         try {
           const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
           if (controller.signal.aborted || !map.getSource("km-stops")) return;
           const stops = (result.stops || []).filter(s => validCoord(s.coordinates)).slice(0, 150).map(stop => ({
             type: "Feature", geometry: { type: "Point", coordinates: [stop.coordinates[1], stop.coordinates[0]] },
-            properties: { stop_id: stop.id, name: stop.name },
+            properties: { stop_id: stop.id, name: stop.name, agency: stop.agency || "grt" },
           }));
+          map.__kmNearbyStops = stops;
           setData(map, "km-stops", stops);
         } catch { /* No nearby stop data */ }
       }, 250);
@@ -1024,7 +1158,7 @@ export default function Scene3D({
   }, [ready, enabledLayers, darkMode, onLayerStatus]);
 
   return (
-    <div className="km-3d-scene absolute inset-0">
+    <div className={`km-3d-scene absolute inset-0 ${darkMode ? "km-3d-dark" : ""}`}>
       <div ref={holder} className={`km-3d-map h-full w-full ${globe ? "km-3d-globe" : "km-3d-flat"}`} aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
       <div className="km-3d-tools" role="group" aria-label="3D map controls">

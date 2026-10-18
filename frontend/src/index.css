@@ -233,29 +233,29 @@ button {
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
 
-/* MapLibre's globe is transparent outside the Earth: paint actual space behind it.
-   The colour belongs on the host, not a style background layer. */
-.km-3d-scene, .km-3d-map, .km-3d-map .maplibregl-canvas-container,
-.km-3d-map .maplibregl-canvas { background-color: #070b14; }
-/* Bottom-left placement keeps tilt accessible and avoids the map-style/layers
-   buttons and MapLibre's own navigation control at the right edge. */
+/* MapLibre's globe is transparent outside the planet. Atmosphere and a soft
+   sky remain visible instead of black void, including on low-end devices. */
+.km-3d-scene, .km-3d-map {
+  background: radial-gradient(ellipse at 50% 42%, #e8f4fd 0%, #b8d8f2 42%, #6d9ec8 78%, #345c86 100%);
+}
+.km-3d-map .maplibregl-canvas-container,
+.km-3d-map .maplibregl-canvas { background: transparent; }
+/* Bottom-left placement clears the map-style and layers controls. */
 .km-3d-tools { position: absolute; bottom: 22px; left: 16px; z-index: 410;
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
   max-width: calc(100% - 180px); pointer-events: auto; }
-.km-3d-pitch-control, .km-3d-toggle {
+.km-3d-toggle {
   display: flex; align-items: center; gap: 9px;
   min-height: 39px; padding: 7px 11px; border-radius: 9px;
   background: rgba(255, 255, 255, 0.96); color: #273a2d;
   box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600;
   white-space: nowrap;
 }
-.km-3d-pitch-control span { min-width: 53px; }
-.km-3d-pitch-control input { width: 100px; cursor: ew-resize; accent-color: #467454; }
 .km-3d-toggle[aria-pressed="false"] { opacity: 0.85; }
 .km-3d-toggle:hover { background: #edf4ef; }
 @media (max-width: 680px) {
   .km-3d-tools { left: 8px; bottom: 80px; max-width: calc(100% - 16px); }
-  .km-3d-pitch-control input { width: 75px; }
+  .km-3d-hint { left: 8px; top: 66px; transform: none; max-width: min(55vw, 200px); }
 }
 
 /* Avoid overlapping the app's top-right map-style and layers controls. */

@@ -7,7 +7,8 @@ const LANDMARKS = [
     height: 553.3,
     radius: 75,
     excludeRadius: 90,
-    minZoom: 14.5,
+    minZoom: 13.7,
+    fullZoom: 16.0,
     type: "fbx",
     url: `${ASSET_PATH}cn-tower.fbx`,
   },
@@ -89,6 +90,36 @@ function updateAttribution(map, active) {
   holder.append(credit);
 }
 
+function removeLegacyLandmarks(map) {
+  const layer = "km-landmark-models-3d";
+  const source = "km-landmark-models";
+  if (map.getLayer(layer)) map.removeLayer(layer);
+  if (map.getSource(source)) map.removeSource(source);
+}
+
+function modelZoomScale(item, zoom) {
+  if (zoom < item.minZoom) return 0;
+  if (!item.fullZoom || zoom >= item.fullZoom) return 1;
+  const t = Math.max(0, Math.min(1, (zoom - item.minZoom) / (item.fullZoom - item.minZoom)));
+  return 0.1 + 0.9 * t * t * (3 - 2 * t);
+}
+
+function landmarkNameExpression() {
+  return ["downcase", ["to-string", ["coalesce",
+    ["get", "name:en"], ["get", "name"], ["get", "name_en"], ""]]];
+}
+
+function landmarkNameMatch(item) {
+  const name = landmarkNameExpression();
+  if (item.id === "cn-tower") {
+    return ["any", [">=", ["index-of", "cn tower", name], 0], ["==", name, "tour cn"]];
+  }
+  if (item.id === "eiffel-tower") {
+    return ["in", name, ["literal", ["eiffel tower", "tour eiffel"]]];
+  }
+  return ["in", name, ["literal", ["arc de triomphe", "arc de triomphe de l'étoile"]]];
+}
+
 function combinedFilter(originalFilter, exclusions) {
   if (!exclusions.length) return originalFilter ?? null;
   if (!originalFilter) return ["all", ...exclusions];
@@ -101,14 +132,16 @@ function updateBuildingFilter(map) {
   for (const id of active) {
     const item = LANDMARKS.find(entry => entry.id === id);
     if (!item) continue;
-    exclusions.push(["!", ["within", footprint(item.center, item.excludeRadius || item.radius)]]);
+    exclusions.push(["!", ["any", landmarkNameMatch(item),
+      ["within", footprint(item.center, item.excludeRadius || item.radius)]]]);
   }
   const layers = map.getStyle?.()?.layers || [];
   map.__kmStoredBuildingFilters ||= {};
   for (const layer of layers) {
-    if (layer.type !== "fill-extrusion") continue;
+    if (layer.type !== "fill-extrusion" || layer.id === "km-landmark-models-3d") continue;
     const sourceLayer = layer["source-layer"] || "";
-    if (layer.id !== "km-buildings-3d" && sourceLayer !== "building") continue;
+    if (layer.id !== "km-buildings-3d" && sourceLayer !== "building" &&
+      !/building/i.test(layer.id)) continue;
     const cached = map.__kmStoredBuildingFilters;
     if (!(layer.id in cached)) cached[layer.id] = map.getFilter?.(layer.id) ?? null;
     try {
@@ -240,7 +273,10 @@ function createModelLayer() {
     for (const item of LANDMARKS) {
       const visible = zoom >= item.minZoom && kilometers(location, item.center) < 6;
       const object = loaded.get(item.id);
-      if (object) object.visible = visible;
+      if (object) {
+        object.visible = visible;
+        object.scale.setScalar(modelZoomScale(item, zoom));
+      }
       if (object && visible && map.__kmLandmarkRendered?.[item.id]) active.push(item.id);
       if (!visible || object || loading.has(item.id) || rejected.has(item.id) || !loaders) continue;
       loading.add(item.id);
@@ -289,7 +325,9 @@ function createModelLayer() {
     for (const [id, object] of loaded) {
       const item = LANDMARKS.find(entry => entry.id === id);
       const c = map?.getCenter();
-      object.visible = Boolean(c && map.getZoom() >= item.minZoom && kilometers([c.lng, c.lat], item.center) < 6);
+      const zoom = map?.getZoom() ?? 0;
+      object.visible = Boolean(c && zoom >= item.minZoom && kilometers([c.lng, c.lat], item.center) < 6);
+      object.scale.setScalar(modelZoomScale(item, zoom));
     }
   }
 
@@ -299,6 +337,7 @@ function createModelLayer() {
     renderingMode: "3d",
     onAdd(activeMap, gl) {
       map = activeMap;
+      removeLegacyLandmarks(map);
       context = gl;
       removed = false;
       map.on("moveend", refresh);
@@ -366,6 +405,7 @@ function createModelLayer() {
 }
 
 export function ensureRealLandmarks(map, enabled) {
+  removeLegacyLandmarks(map);
   const id = "km-real-landmarks";
   if (!enabled) {
     if (map.getLayer(id)) map.removeLayer(id);

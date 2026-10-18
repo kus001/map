@@ -137,7 +137,16 @@ async function getStyle(mapStyle, darkMode, signal) {
       if (result.status === 401 || result.status === 403) maptilerUnavailable = true;
       if (result.ok && result.headers.get("content-type")?.includes("json")) {
         const style = await result.json();
-        if (style.version === 8 && style.sources && Array.isArray(style.layers)) return { style, buildingSource: freeBuildingSource, fallback: satelliteFallback };
+        if (style.version === 8 && style.sources && Array.isArray(style.layers)) {
+          return {
+            style: { ...style, sources: {
+              ...style.sources,
+              ...(freeBuildingSource ? { "km-building-vectors": freeBuildingSource } : {}),
+            } },
+            buildingSource: freeBuildingSource,
+            fallback: satelliteFallback,
+          };
+        }
       }
     } catch (error) { if (signal.aborted) throw error; }
   }
@@ -178,6 +187,9 @@ function syncTerrain(map, enabled, profile) {
 function pickBuildingSource(map, buildingSource) {
   const style = map.getStyle();
   const sources = style.sources || {};
+  if (sources["km-building-vectors"]?.type === "vector" && map.getSource("km-building-vectors")) {
+    return "km-building-vectors";
+  }
   const usedByBuildings = (style.layers || [])
     .filter(layer => layer["source-layer"] === "building" && sources[layer.source]?.type === "vector")
     .map(layer => layer.source);
@@ -283,9 +295,20 @@ function syncNativeBuildings(map, buildingsEnabled) {
         map.querySourceFeatures(layer.source, { sourceLayer: "building" }).length > 0;
     } catch { customReady = false; }
   }
+  const styled = map.__kmStyledNativeBuildings || (map.__kmStyledNativeBuildings = new Set());
   for (const nativeLayer of map.getStyle()?.layers || []) {
     if (nativeLayer.type !== "fill-extrusion" || nativeLayer.id === "km-buildings-3d") continue;
-    const visibility = !buildingsEnabled || customReady ? "none" : "visible";
+    if (buildingsEnabled && !customReady && !styled.has(nativeLayer.id)) {
+      try {
+        if (map.getPaintProperty(nativeLayer.id, "fill-extrusion-pattern") != null) {
+          map.setPaintProperty(nativeLayer.id, "fill-extrusion-pattern", null);
+        }
+        map.setPaintProperty(nativeLayer.id, "fill-extrusion-color", buildingMaterialColor(map.__kmBuildingDarkMode || false));
+        map.setPaintProperty(nativeLayer.id, "fill-extrusion-opacity", 1);
+        styled.add(nativeLayer.id);
+      } catch (error) { console.warn("Building colour fallback unavailable", error); }
+    }
+    const visibility = buildingsEnabled && !customReady ? "visible" : "none";
     if (map.getLayoutProperty(nativeLayer.id, "visibility") !== visibility) {
       map.setLayoutProperty(nativeLayer.id, "visibility", visibility);
     }
@@ -311,6 +334,8 @@ function removeLegacyLandmarks(map) {
 }
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
+  map.__kmBuildingDarkMode = darkMode;
+  map.__kmStyledNativeBuildings = new Set();
   removeLegacyLandmarks(map);
   if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
   syncNativeBuildings(map, buildingsEnabled);

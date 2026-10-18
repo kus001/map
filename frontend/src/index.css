@@ -224,7 +224,6 @@ button {
 .km-3d-info p { margin-top: 7px; line-height: 1.5; }
 .km-3d-error { position: absolute; top: 65px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; border-radius: 11px; background: #fff; color: #2a332e; padding: 12px 16px; box-shadow: 0 3px 18px #0003; z-index: 20; font-size: 13px; }
 .km-3d-error button { background: #315a41; color: white; border-radius: 7px; padding: 6px 10px; white-space: nowrap; }
-.km-3d-hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); padding: 6px 10px; border-radius: 8px; background: #1b2a2899; color: white; pointer-events: none; font-size: 11px; z-index: 3; }
 
 .km-3d-departure { padding: 6px 2px; border-bottom: 1px solid #e2e8e4; font-size: 12px; }
 .km-3d-photo { width: 265px; height: 160px; object-fit: contain; margin-top: 8px; background: #edf1ed; border-radius: 7px; }
@@ -233,13 +232,18 @@ button {
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
 
-/* MapLibre's globe is transparent outside the planet. Atmosphere and a soft
-   sky remain visible instead of black void, including on low-end devices. */
+/* Atmospheric fallback is behind a transparent WebGL canvas even when
+   MapLibre's experimental globe fog/terrain effect is unavailable. A cheap
+   static gradient adds no extra WebGL draw calls and works on weak devices. */
 .km-3d-scene, .km-3d-map {
-  background: radial-gradient(ellipse at 50% 42%, #e8f4fd 0%, #b8d8f2 42%, #6d9ec8 78%, #345c86 100%);
+  background-color: #87badf;
+  background-image: linear-gradient(to bottom, #335c90 0%, #608fc1 33%, #a5d0ed 72%, #e6f5ff 100%);
+}
+.km-3d-globe {
+  background-image: radial-gradient(ellipse at 50% 45%, #d5efff 0%, #acd5f1 47%, #6e9ecb 83%, #446e9c 100%);
 }
 .km-3d-map .maplibregl-canvas-container,
-.km-3d-map .maplibregl-canvas { background: transparent; }
+.km-3d-map .maplibregl-canvas { background: transparent !important; }
 /* Bottom-left placement clears the map-style and layers controls. */
 .km-3d-tools { position: absolute; bottom: 22px; left: 16px; z-index: 410;
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
@@ -255,7 +259,6 @@ button {
 .km-3d-toggle:hover { background: #edf4ef; }
 @media (max-width: 680px) {
   .km-3d-tools { left: 8px; bottom: 80px; max-width: calc(100% - 16px); }
-  .km-3d-hint { left: 8px; top: 66px; transform: none; max-width: min(55vw, 200px); }
 }
 
 /* Avoid overlapping the app's top-right map-style and layers controls. */

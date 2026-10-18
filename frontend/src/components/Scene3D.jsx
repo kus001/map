@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ensureRealLandmarks, LANDMARKS } from "./realLandmarks";
 
 const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-// Independent elevation sources: MapLibre renders lower-quality hillshade when
-// the identical raster-dem source is also used by the 3D terrain mesh.
 const TERRAIN_MIN_ZOOM = 7;
-const MAX_FREE_PITCH = 85; // Keep orbital camera above terrain; bearing/roll remain unrestricted.
-// A surface-anchored map camera with pitch beyond 90 degrees can orbit
-// underneath terrain. Clamp pitch *before* native gestures/animations move;
-// bearing, roll, and drag-to-spin globe remain free in every direction.
+const MAX_FREE_PITCH = 85;
 function safeCameraPitch(zoom, pitch) {
   const limit = zoom >= 10 ? 80 : MAX_FREE_PITCH;
   return Math.max(0, Math.min(limit, Number.isFinite(pitch) ? pitch : 0));
@@ -21,7 +17,6 @@ function deviceProfile() {
   const cores = typeof navigator === "undefined" ? 0 : Number(navigator.hardwareConcurrency) || 0;
   const mobile = typeof navigator !== "undefined" &&
     (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || navigator.userAgentData?.mobile === true);
-  // Unknown RAM is not proof that a device has a strong GPU.
   const tier = mobile || (memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)
     ? "low" : (memory > 0 && memory <= 8) || (cores > 0 && cores <= 8)
       ? "medium" : "high";
@@ -36,9 +31,6 @@ function deviceProfile() {
   };
 }
 
-// MapLibre's sky differs from Mapbox's fog. Never remove the sky at zoom 7:
-// this was the direct cause of the previous black horizon. A transparent GL
-// canvas and CSS atmosphere provide a fallback when looking above the horizon.
 function applyAtmosphere(map, darkMode, globe) {
   const nextSky = globe ? {
     "sky-color": darkMode ? "#214565" : "#8dc5ed",
@@ -53,8 +45,6 @@ function applyAtmosphere(map, darkMode, globe) {
     "fog-ground-blend": 0.12,
     "atmosphere-blend": 0,
   };
-  // Don't repeatedly recompile sky shaders during animation; update only on
-  // projection and theme changes. The expression handles changes in zoom.
   const id = `${globe ? "globe" : "flat"}:${darkMode ? "dark" : "light"}`;
   if (map.__kmSkyKey === id) return;
   map.setSky(nextSky);
@@ -77,9 +67,8 @@ function loadMapLibre() {
         css.href = "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.css";
         document.head.appendChild(css);
       }
-      // Keep 3D's MapLibre separate from the older Leaflet adapter used in 2D.
       const url = "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.mjs";
-      const gl = await import(/* @vite-ignore */ url);
+      const gl = await import(url);
       if (!gl?.Map) throw new Error("3D renderer unavailable");
       return gl;
     })().catch(error => { loader = null; throw error; });
@@ -116,14 +105,12 @@ function buildingSourceFromStyle(style) {
 }
 
 async function getStyle(mapStyle, darkMode, signal) {
-  // We use one vector source for buildings in all three map modes.
   const freeName = darkMode ? "dark" : "liberty";
   let freeStyle = freeStyleCache.get(freeName);
   if (!freeStyle) {
     const response = await fetch(`${FREE}${freeName}`, { signal });
     if (!response.ok) throw new Error("The free map provider isn't responding");
     freeStyle = await response.json();
-    // Do not cache failed/partial downloads; clone before handing styles to GL.
     if (freeStyle.version === 8 && buildingSourceFromStyle(freeStyle))
       freeStyleCache.set(freeName, freeStyle);
   }
@@ -155,7 +142,6 @@ async function getStyle(mapStyle, darkMode, signal) {
 
   if (mapStyle === "street") return { style: freeStyle, buildingSource: freeBuildingSource, fallback: freeStyle };
 
-  // The satellite remains Esri in 3D, including its imagery when a key is absent.
   const imagery = {
     id: "km-imagery", type: "raster", source: "km-satellite",
     paint: darkMode ? { "raster-brightness-max": 0.82 } : {},
@@ -166,8 +152,6 @@ async function getStyle(mapStyle, darkMode, signal) {
       version: 8,
       glyphs: freeStyle.glyphs,
       sprite: freeStyle.sprite,
-      // Satellite needs raster imagery only. Avoid loading OpenMapTiles city
-      // vectors unless buildings are deliberately enabled by the user.
       sources: { ...(mapStyle === "hybrid" ? freeStyle.sources : {}),
         "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
       layers: [imagery, ...roadLabels],
@@ -177,40 +161,20 @@ async function getStyle(mapStyle, darkMode, signal) {
   };
 }
 
-// Limit expensive elevation requests at world scale, but retain real DEM-driven
-// terrain in BOTH projections and all three basemap styles. This runs after
-// style.load, after zoomend, and when the user changes the terrain toggle.
 function syncTerrain(map, enabled, profile) {
   if (!map.getSource("km-elevation")) return;
-  // MapLibre's >90° camera is experimental. Avoid expensive terrain meshes
-  // when the user is looking skyward or down at the globe's underside.
   const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM && map.getPitch() <= 89;
   const current = map.getTerrain();
   if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: profile.tier === "low" ? 1.25 : 1.45 });
   else if (!shouldRender && current) map.setTerrain(null);
-  // Hillshade shows relief on all map styles even before the expensive 3D
-  // terrain mesh becomes visible. Independent DEM sources avoid quality loss.
   if (map.getLayer("km-terrain-shading")) {
     map.setLayoutProperty("km-terrain-shading", "visibility", enabled ? "visible" : "none");
   }
 }
 
-// Solid extrusion is the reliable baseline on satellite imagery. A style
-// pattern overrides fill-extrusion-color entirely; v10.7 applied experimental
-// facade patterns at close zoom and could leave buildings invisible if an image
-// was not resolved by MapLibre. Keep 100%-opaque, data-coloured walls instead.
-// Real photographic facades require separately licensed 3D mesh data.
-
-// Satellite and Hybrid contain opaque raster imagery, but building footprints
-// must come from a *vector* source. In particular, do not pick an arbitrary
-// provider's building source: its schema or availability may differ from the
-// OpenMapTiles source used by our extrusion expressions.
-// Reuse OpenFreeMap when it is already in the style (the free Hybrid fallback).
 function pickBuildingSource(map, buildingSource) {
   const style = map.getStyle();
   const sources = style.sources || {};
-  // Prefer vector data already included by the active basemap. This avoids
-  // duplicate downloads and avoids a second endpoint that may return HTTP 403.
   const usedByBuildings = (style.layers || [])
     .filter(layer => layer["source-layer"] === "building" && sources[layer.source]?.type === "vector")
     .map(layer => layer.source);
@@ -219,7 +183,6 @@ function pickBuildingSource(map, buildingSource) {
   if (candidates.length) {
     return candidates.find(id => map.isSourceLoaded(id)) || candidates[0];
   }
-  // Raster-only satellite style: install a single building vector source.
   const sourceId = "km-buildings";
   if (!map.getSource(sourceId)) {
     const supplied = buildingSource?.type === "vector" ? buildingSource : {
@@ -232,9 +195,6 @@ function pickBuildingSource(map, buildingSource) {
 
 function buildingLayerInsertionPoint(map) {
   const layers = map.getStyle().layers || [];
-  // A raster above the extrusion completely masks 3D buildings. Insert only
-  // AFTER satellite/traffic raster and hillshade layers, but still underneath
-  // geographic labels where the style permits this ordering.
   let lastGroundIndex = -1;
   for (let i = 0; i < layers.length; i++) {
     if (["raster", "hillshade", "background"].includes(layers[i].type)) lastGroundIndex = i;
@@ -243,20 +203,26 @@ function buildingLayerInsertionPoint(map) {
     .find(layer => layer.type === "symbol")?.id;
 }
 
-// Keep Street, Satellite and Hybrid on the SAME building geometry/colour
-// pipeline.  These are lightweight, mapped-material approximations rather than
-// photographic facades; opacity must never depend on image sprites/atlases.
 function buildingMaterialColor(darkMode) {
-  const fallback = darkMode ? "#a8b3bc" : "#c9c2b8";
-  return ["match", ["coalesce", ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""],
-    "brick", darkMode ? "#916e64" : "#ba8a78",
-    "glass", darkMode ? "#759ba9" : "#94c2ce",
-    "concrete", darkMode ? "#8a9097" : "#b9b9b1",
-    "stone", darkMode ? "#9a968e" : "#c9c5b8",
-    "metal", darkMode ? "#7e939f" : "#a5b4bb",
-    "wood", darkMode ? "#917761" : "#bfa28a",
-    "plaster", darkMode ? "#b8b2a7" : "#e5dac6",
-    fallback];
+  const neutral = darkMode ? "#aeb5bb" : "#d1c8ba";
+  const material = ["downcase", ["to-string", ["coalesce",
+    ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
+  const byMaterial = ["match", material,
+    "brick", darkMode ? "#9d786e" : "#bb8e7e",
+    "glass", darkMode ? "#759baa" : "#9bbec9",
+    "concrete", darkMode ? "#9b9ea1" : "#c2bfba",
+    "stone", darkMode ? "#b1aaa0" : "#d4c9b6",
+    "metal", darkMode ? "#8497a1" : "#a9b7ba",
+    "wood", darkMode ? "#997c67" : "#c6a88d",
+    "plaster", darkMode ? "#b8b2a7" : "#e1d7c8",
+    ["interpolate", ["linear"], ["to-number", ["coalesce",
+      ["get", "render_height"], ["get", "height"], 8]],
+      0, neutral, 18, darkMode ? "#aea59a" : "#d6c9ba",
+      50, darkMode ? "#a5b0ba" : "#b5c2c7",
+      180, darkMode ? "#839eac" : "#a2b6bf"]];
+  return ["to-color", ["coalesce", ["get", "render_colour"],
+    ["get", "building:colour"], ["get", "building:color"],
+    ["get", "colour"], ["get", "color"]], byMaterial];
 }
 
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
@@ -280,8 +246,6 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     return false;
   }
   const startZoom = Math.min(profile.buildingZoom, 15.3);
-  // Build the SIMPLE, valid extrusion first. Add colour expressions afterward:
-  // a malformed provider property must never stop the entire building layer.
   const layer = {
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
     "source-layer": "building", minzoom: startZoom,
@@ -306,25 +270,18 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     console.warn("3D building extrusion failed to install", error);
     return false;
   }
-  // Mapped materials are a single inexpensive expression; missing metadata
-  // safely falls back to an opaque neutral building colour in every basemap.
   diagnostic.lastError = null;
   return Boolean(map.getLayer("km-buildings-3d"));
 }
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
-  // Buildings are installed first, independently of optional terrain.
   const customBuildingsReady = buildingsEnabled && ensureBuildingLayer(
     map, buildingSource, darkMode, mapStyle, profile);
   for (const layer of map.getStyle().layers) {
     if (layer.type !== "fill-extrusion" || layer.id === "km-buildings-3d") continue;
-    // Preserve the provider's own 3D buildings as a fallback if the custom
-    // source/layer is missing, rather than blanking the entire city.
     map.setLayoutProperty(layer.id, "visibility", customBuildingsReady ? "none" : (buildingsEnabled ? "visible" : "none"));
   }
-  // Hillshade is separate from terrain geometry. Place it after ground raster/
-  // polygons but before roads and labels, so shading remains visible without
-  // obscuring geographic labels. Low-end devices skip distant hillshade tiles.
+  ensureRealLandmarks(map, buildingsEnabled);
   if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     try { map.addLayer({
@@ -343,12 +300,9 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
     }
   }
 
-
   addGeo(map, "km-stops");
   map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
     paint: { "circle-color": "#9b734b", "circle-radius": 7, "circle-opacity": 0.96,
-      // Screen-aligned circles stay visible/clickable at high pitch rather than
-      // shrinking into the ground plane alongside pitched symbols.
       "circle-pitch-alignment": "viewport", "circle-pitch-scale": "viewport",
       "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
 
@@ -365,9 +319,6 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   }
 }
 
-// Use the same card hierarchy as 2D Leaflet popups.  MapLibre's Popup lives
-// in the DOM overlay (not the pitched WebGL canvas), so its text is always
-// upright relative to the user's screen, even while tilting or rotating.
 function popupElement(title, subtitle = "") {
   const content = document.createElement("div");
   content.className = "km-3d-info";
@@ -390,7 +341,6 @@ function popupText(text, className = "km-3d-body-text") {
   return el;
 }
 function scenePopup(gl, map, coordinates, content, options = {}) {
-  // A single popup at a time prevents overlapping boxes that can eat taps.
   map.__kmOpenPopup?.remove();
   const popup = new gl.Popup({
     className: "km-3d-popup", maxWidth: "330px", offset: 13,
@@ -448,8 +398,6 @@ function renderStopDepartures(board, info) {
   }
   board.append(list);
 }
-// GeoJSON circles are hard to hit at steep pitches.  Use screen-space distance
-// from actual loaded GTFS coordinates as a fallback to renderer hit-testing.
 function nearestStopOnScreen(map, point, radius = 34) {
   let closest = null;
   let best = radius * radius;
@@ -465,9 +413,6 @@ function nearestStopOnScreen(map, point, radius = 34) {
 }
 
 function cameraMarker(gl, map, latLng, label, onMove) {
-  // MapLibre writes its position/rotation transform to the marker's outer
-  // element. Do not rotate that element with CSS: it can override map
-  // placement and leave pins angled when the camera is pitched or rolled.
   const element = document.createElement("div");
   element.className = "km-3d-pin-anchor";
   const shell = document.createElement("div");
@@ -480,7 +425,6 @@ function cameraMarker(gl, map, latLng, label, onMove) {
   glyph.textContent = label;
   shell.append(shape, glyph);
   element.append(shell);
-  // Pitch and bearing rotate only the world, never this screen-facing pin.
   return new gl.Marker({
     element, draggable: Boolean(onMove), anchor: "bottom",
     pitchAlignment: "viewport", rotationAlignment: "viewport", rotation: 0,
@@ -510,7 +454,6 @@ export default function Scene3D({
   const buildingStyleRef = useRef(null);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
-  // Conservative defaults on low-memory devices; manually override via UI.
   const [buildingsEnabled, setBuildingsEnabled] = useState(true);
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
@@ -521,7 +464,7 @@ export default function Scene3D({
   }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
   const modeRef = useRef(mode);
-  modeRef.current = mode;
+  useEffect(() => { modeRef.current = mode; }, [mode]);
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const camera = useRef(initialCamera || DEFAULT_CAMERA);
   const previousGlobe = useRef(null);
@@ -567,49 +510,31 @@ export default function Scene3D({
         pitch: safeCameraPitch(initial.zoom, initial.pitch ?? 58),
         bearing: initial.bearing || 0, roll: initial.roll || 0,
         maxZoom: 20, minZoom: 0, maxPitch: MAX_FREE_PITCH,
-        // At street scale the camera pivots on terrain rather than sea level.
         centerClampedToGround: true,
         transformCameraUpdate: next => {
           const pitch = safeCameraPitch(next.zoom, next.pitch);
           return pitch === next.pitch ? {} : { pitch };
         },
-        // Native MapLibre interactions are essential here. v10.5 disabled
-        // dragPan at globe zooms and tried to replace it with canvas pointer
-        // events; that left the sphere completely frozen on some devices.
-        // Never disable native panning. Globe dragPan rotates the globe with
-        // mouse/touch; flat dragPan wraps around the antimeridian.
         dragPan: true, dragRotate: true, touchZoomRotate: true, touchPitch: true,
         rollEnabled: true, aroundCenter: false, bearingSnap: 0,
         cooperativeGestures: false,
         rotateSpeed: 0.56, pitchSpeed: -0.4,
         antialias: false, fadeDuration: 0,
-        // Continuous horizontal navigation in flat/mercator projection.
-        // The globe has only one physical Earth; it needs no world copies.
         renderWorldCopies: !globeRef.current,
         maxTileCacheSize: profile.tileCache, maxTileCacheZoomLevels: 2,
         pixelRatio: profile.pixelRatio, crossSourceCollisions: false,
         anisotropicFilterPitch: profile.tier === "low" ? 180 : 75,
         maxCanvasSize: [2048, 2048], reduceMotion: profile.tier === "low",
-        // Canvas alpha is essential for displaying CSS atmosphere behind the globe.
         canvasContextAttributes: { alpha: true, antialias: false, powerPreference: "low-power" },
         cancelPendingTileRequestsWhileZooming: true,
         attributionControl: true,
       });
       mapRef.current = map;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
-      map.dragRotate.enable(); // Right-drag: yaw and pitch; native roll supported.
+      map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
-      map.touchPitch?.enable(); // Two-finger tilt on phones and tablets.
-      // If the CDN stylesheet has not loaded yet, do not let the browser's
-      // scroll gesture steal touches from the map canvas.
+      map.touchPitch?.enable();
       map.getCanvasContainer().style.touchAction = "none";
-      // Use MapLibre's built-in gesture engine in BOTH projections. It receives
-      // real mouse, touch and trackpad events and owns gesture arbitration:
-      // one finger / left-drag pans (spins the globe), two fingers pinch and
-      // rotate, right-drag changes bearing/pitch, Ctrl+right-drag rolls.
-      // A custom pointer tracker used to disable native pan at globe zooms;
-      // when its pointerdown was missed, rotation had no fallback at all.
-      // Keep native gesture handlers enabled through style/projection changes.
       const syncGestures = () => {
         map.dragPan.enable();
         map.dragRotate.enable();
@@ -627,9 +552,6 @@ export default function Scene3D({
         delete map.__kmNotifyCamera;
       };
       syncGestures();
-      // In-browser instrumentation: sample actual rendered frames while moving.
-      // If an integrated GPU cannot keep up, lower the device-pixel workload
-      // (pixel count scales with DPR squared). Never force a continuous repaint.
       let lastFrame = 0;
       let samples = 0;
       let totalFrameMs = 0;
@@ -653,7 +575,6 @@ export default function Scene3D({
           buildingLayer: Boolean(map.getLayer("km-buildings-3d") &&
             map.getLayoutProperty("km-buildings-3d", "visibility") !== "none"),
         };
-        // Downgrade on sustained measured slowness, not a single tile load.
         slowWindows = mean > 28 ? slowWindows + 1 : 0;
         if (slowWindows >= 2 && now - lastAdjustment > 3000 && map.getPixelRatio() > 0.76) {
           map.setPixelRatio(Math.max(0.75, Math.round((map.getPixelRatio() - 0.2) * 100) / 100));
@@ -662,14 +583,11 @@ export default function Scene3D({
         }
         samples = 0; totalFrameMs = 0;
       });
-      // Terrain and camera constraints update after gesture zoom/pitch settle.
       map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
       map.on("zoomend", () => {
         setZoom(map.getZoom());
         syncTerrain(map, terrainRef.current, profile);
       });
-      // Some third-party basemaps refer to icons missing from their sprite.
-      // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
       map.on("styleimagemissing", event => {
         const id = event.id;
         if ((id === " " || id === "transportation:road_") && !map.hasImage(id)) {
@@ -683,8 +601,6 @@ export default function Scene3D({
         });
       };
       map.on("moveend", map.__kmNotifyCamera);
-      // Show the exact failing resource when a provider rejects a tile. A 403
-      // on the DEM/sprite is different from a 403 on a building vector tile.
       map.__kmBuildingErrors = [];
       map.on("error", event => {
         const message = String(event?.error?.message || event?.message || "");
@@ -693,8 +609,6 @@ export default function Scene3D({
         list.push(message.slice(0, 360));
         if (list.length > 12) list.shift();
       });
-      // Inspect the building source on demand from the browser console. Avoid
-      // querying every city footprint on each move/idle (a performance cost).
       if (typeof window !== "undefined") window.__kmaps3DBuildings = () => {
         const layer = map.getLayer("km-buildings-3d");
         const sourceId = layer?.source;
@@ -721,10 +635,12 @@ export default function Scene3D({
           lastSource: map.__kmBuildingInfo?.sourceId ?? null,
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
+          landmarkLayer: Boolean(map.getLayer("km-real-landmarks")),
+          landmarkModels: LANDMARKS.map(item => item.id),
+          activeModels: map.__kmActiveModels || [],
+          failedModels: map.__kmLandmarkErrors || [],
         };
       };
-      // A completed right-drag rotates the camera; it must not also open a
-      // "Set as start" context menu when the right mouse button is released.
       let lastRotateAt = -Infinity;
       map.on("rotate", () => { lastRotateAt = performance.now(); });
       map.on("contextmenu", event => {
@@ -744,8 +660,6 @@ export default function Scene3D({
       });
       const openStop = feature => {
         const props = feature.properties || {};
-        // A tilted map's clicked ground coordinate can be far from a stop.
-        // Anchor the popup to the stop itself, never event.lngLat.
         const coordinates = feature.geometry?.coordinates;
         if (!Array.isArray(coordinates)) return;
         const { body, board } = stopPopupContent(props);
@@ -766,8 +680,6 @@ export default function Scene3D({
           .filter(id => map.getLayer(id));
         if (!ids.length) return;
         const point = event.point;
-        // Query a small square instead of the exact single pixel. This also
-        // catches 3D stop dots during high pitch/terrain extrusion.
         const hits = map.queryRenderedFeatures([
           [point.x - 13, point.y - 13], [point.x + 13, point.y + 13],
         ], { layers: ids });
@@ -795,7 +707,7 @@ export default function Scene3D({
         const coordinates = hit.geometry.type === "Point" ? hit.geometry.coordinates : event.lngLat;
         if (props.kind === "cameras") {
           let images = [];
-          try { images = JSON.parse(props.images || "[]"); } catch { /* old camera records */ }
+          try { images = JSON.parse(props.images || "[]"); } catch { images = []; }
           if (images.length) {
             let index = 0;
             const photo = document.createElement("img"); photo.className = "km-3d-photo";
@@ -841,7 +753,6 @@ export default function Scene3D({
     };
   }, [profile]);
 
-  // Keep the camera. Calling setStyle() doesn't reset it.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
@@ -864,19 +775,16 @@ export default function Scene3D({
           try { applyAtmosphere(map, darkMode, globeRef.current); }
           catch (error) { console.warn("3D atmosphere unavailable", error); }
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
-          // Install critical city geometry BEFORE optional visual effects.
-          // A sky, light or terrain exception must not disable the buildings.
           addSceneLayers(map, buildingSource, darkMode, mapStyle,
             buildingsRef.current, terrainRef.current, profile);
-          if (mapStyle !== "street" && typeof map.setLight === "function") {
+          if (typeof map.setLight === "function") {
             try { map.setLight({ anchor: "map", color: "#fff7e8",
               intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
-            catch { /* Preserve provider lighting. */ }
+            catch { console.debug("Using default map lighting"); }
           }
           setData(map, "km-routes", newestLines.current);
           syncTerrain(map, terrainRef.current, profile);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
-        // Do not rely solely on idle: 511 and transit refreshes can delay it.
         for (const delay of [700, 2400]) {
           repairTimers.push(setTimeout(() => {
             if (controller.signal.aborted || stylesRef.current !== version ||
@@ -888,8 +796,6 @@ export default function Scene3D({
       };
       styleInstall = install;
       map.on("style.load", install);
-      // Some styles emit style.load before source metadata has settled. Retry
-      // at most three times on idle, without rebuilding the whole map.
       const repairBuildings = () => {
         if (controller.signal.aborted || stylesRef.current !== version ||
             !buildingsRef.current || map.getLayer("km-buildings-3d") ||
@@ -913,10 +819,7 @@ export default function Scene3D({
       map.on("error", providerFailure);
       const prepare = base => ({
         ...base,
-        // Fix malformed expression branches in some provider label styles.
         layers: (base.layers || []).filter(layer => {
-          // Keep roads, transit labels and towns, but discard dense, tiny
-          // points-of-interest glyphs on phones / integrated GPUs.
           if (profile.tier !== "low" || layer.type !== "symbol") return true;
           return !/poi|housenumber|house.number|address.label/i.test(layer.id);
         }).map(layer => {
@@ -925,7 +828,6 @@ export default function Scene3D({
           return { ...layer, layout: { ...layer.layout,
             "text-size": fixSize(layer.layout["text-size"]) } };
         }),
-        // Keep terrain available in street, satellite AND hybrid styles.
         sources: { ...base.sources,
           "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
             maxzoom: profile.demZoom, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
@@ -948,7 +850,6 @@ export default function Scene3D({
       map.__kmBuildingRepairCleanup?.();
       delete map.__kmBuildingRepairCleanup;
     };
-    // Line data changes shouldn't rebuild the whole basemap.
   }, [ready, mapStyle, darkMode, profile]);
 
   useEffect(() => {
@@ -956,8 +857,6 @@ export default function Scene3D({
     if (!ready || !map) return;
     if (previousGlobe.current !== globe) {
       previousGlobe.current = globe;
-      // A globe is a projection, not a different zoom preset. Preserve the
-      // camera without easeTo/flyTo or a trip out to zoom level 3.
       const view = { center: map.getCenter(), zoom: map.getZoom(),
         pitch: map.getPitch(), bearing: map.getBearing(), roll: map.getRoll() };
       map.setProjection({ type: globe ? "globe" : "mercator" });
@@ -981,13 +880,14 @@ export default function Scene3D({
       for (const layer of map.getStyle().layers) {
         if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
       }
+      ensureRealLandmarks(map, false);
       return;
     }
-    // Lazy load city vector data only when the user enables buildings.
     if (buildingStyleRef.current) {
       const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
     }
+    ensureRealLandmarks(map, true);
   }, [ready, buildingsEnabled, profile]);
 
   useEffect(() => {
@@ -1024,7 +924,6 @@ export default function Scene3D({
     }
   }, [ready, route, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive, startDraggable, startLabel, destinationLabel]);
 
-  // Route cards and the focus controls work in either renderer.
   const previousFocus = useRef([locationFocusKey, routeFocusKey, stepFocusKey]);
   useEffect(() => {
     const map = mapRef.current;
@@ -1044,9 +943,6 @@ export default function Scene3D({
     }
   }, [ready, locationFocusKey, routeFocusKey, stepFocusKey, stepFocusCoordinate, currentLocation, route]);
 
-  // Fetch only enabled Ontario 511 layers inside the viewport. Parallel
-  // requests avoid a 4x serial latency penalty; delayed/aborted moves don't
-  // queue a backlog of stale GeoJSON/CPU work.
   const layerList = enabledLayers.join(",");
   useEffect(() => {
     const map = mapRef.current;
@@ -1139,7 +1035,9 @@ export default function Scene3D({
           }));
           map.__kmNearbyStops = stops;
           setData(map, "km-stops", stops);
-        } catch { /* No nearby stop data */ }
+        } catch (error) {
+          if (error.name !== "AbortError") console.debug("Nearby stops unavailable", error);
+        }
       }, 250);
     };
     map.on("moveend", fetchStops); map.on("style.load", fetchStops);
@@ -1147,7 +1045,6 @@ export default function Scene3D({
     return () => { controller?.abort(); clearTimeout(timer); map.off("moveend", fetchStops); map.off("style.load", fetchStops); };
   }, [ready, mode, mapStyle, darkMode]);
 
-  // The traffic raster also works in the 3D view; it is kept separate from the elevation data.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !enabledLayers.includes("traffic")) return;

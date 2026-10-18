@@ -232,15 +232,31 @@ button {
 .km-3d-camera-controls button { background: #e9eee9; border-radius: 6px; padding: 3px 10px; font-size: 18px; }
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
-.km-3d-tilt { position: absolute; top: 121px; right: 10px; z-index: 5; background: #fff; color: #273a2d; padding: 8px 10px; border-radius: 7px; box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600; }
-.km-3d-tilt:hover { background: #edf4ef; }
 
 /* MapLibre's globe is transparent outside the Earth: paint actual space behind it.
    The colour belongs on the host, not a style background layer. */
 .km-3d-scene, .km-3d-map, .km-3d-map .maplibregl-canvas-container,
 .km-3d-map .maplibregl-canvas { background-color: #070b14; }
-.km-3d-buildings { position: absolute; top: 164px; right: 10px; z-index: 5;
-  color: #273a2d; background: #fff; padding: 8px 10px; border-radius: 7px;
-  box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600; }
-.km-3d-buildings[aria-pressed="false"] { opacity: 0.75; }
-.km-3d-buildings:hover { background: #edf4ef; }
+/* Bottom-left placement keeps tilt accessible and avoids the map-style/layers
+   buttons and MapLibre's own navigation control at the right edge. */
+.km-3d-tools { position: absolute; bottom: 22px; left: 16px; z-index: 410;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  max-width: calc(100% - 180px); pointer-events: auto; }
+.km-3d-pitch-control, .km-3d-toggle {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 39px; padding: 7px 11px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.96); color: #273a2d;
+  box-shadow: 0 2px 10px #0003; font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.km-3d-pitch-control span { min-width: 53px; }
+.km-3d-pitch-control input { width: 100px; cursor: ew-resize; accent-color: #467454; }
+.km-3d-toggle[aria-pressed="false"] { opacity: 0.85; }
+.km-3d-toggle:hover { background: #edf4ef; }
+@media (max-width: 680px) {
+  .km-3d-tools { left: 8px; bottom: 80px; max-width: calc(100% - 16px); }
+  .km-3d-pitch-control input { width: 75px; }
+}
+
+/* Avoid overlapping the app's top-right map-style and layers controls. */
+.km-3d-map .maplibregl-ctrl-top-right { top: 66px; right: 6px; }

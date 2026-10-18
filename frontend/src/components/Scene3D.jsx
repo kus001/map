@@ -55,6 +55,7 @@ const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, beari
 const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
 const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
 const freeStyleCache = new Map();
+let maptilerUnavailable = false;
 
 let loader;
 function loadMapLibre() {
@@ -117,11 +118,9 @@ async function getStyle(mapStyle, darkMode, signal) {
   freeStyle = structuredClone(freeStyle);
   if (freeStyle.version !== 8 || !freeStyle.sources) throw new Error("Unexpected map style data");
   const freeBuildingSource = buildingSourceFromStyle(freeStyle);
-  const dedicatedBuildingSource = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap"
-    ? { type: "vector", url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${encodeURIComponent(MAPTILER_KEY)}` }
-    : freeBuildingSource;
+  const dedicatedBuildingSource = freeBuildingSource;
 
-  const keyAllowed = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
+  const keyAllowed = MAPTILER_KEY && !maptilerUnavailable && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
   const satelliteFallback = mapStyle === "hybrid" ? {
     version: 8, glyphs: freeStyle.glyphs, sprite: freeStyle.sprite,
     sources: { ...freeStyle.sources, "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
@@ -136,6 +135,7 @@ async function getStyle(mapStyle, darkMode, signal) {
     try {
       const key = encodeURIComponent(MAPTILER_KEY);
       const result = await fetch(`https://api.maptiler.com/maps/${styleName}/style.json?key=${key}`, { signal });
+      if (result.status === 401 || result.status === 403) maptilerUnavailable = true;
       if (result.ok && result.headers.get("content-type")?.includes("json")) {
         const style = await result.json();
         if (style.version === 8 && style.sources && Array.isArray(style.layers)) return { style, buildingSource: freeBuildingSource, fallback: satelliteFallback };
@@ -219,14 +219,10 @@ function buildingMaterialColor(darkMode) {
     "metal", darkMode ? "#8497a1" : "#a9b7ba",
     "wood", darkMode ? "#997c67" : "#c6a88d",
     "plaster", darkMode ? "#b8b2a7" : "#e1d7c8",
-    ["interpolate", ["linear"], ["to-number", ["coalesce",
-      ["get", "render_height"], ["get", "height"], 8]],
-      0, neutral, 18, darkMode ? "#aea59a" : "#d6c9ba",
-      50, darkMode ? "#a5b0ba" : "#b5c2c7",
-      180, darkMode ? "#839eac" : "#a2b6bf"]];
+    neutral];
   return ["to-color", ["coalesce", ["get", "render_colour"],
     ["get", "building:colour"], ["get", "building:color"],
-    ["get", "colour"], ["get", "color"]], byMaterial];
+    ["get", "colour"], ["get", "color"], byMaterial]];
 }
 
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
@@ -836,6 +832,7 @@ export default function Scene3D({
       const providerFailure = event => {
         const description = String(event.error?.message || event.message || "");
         if (style === fallback || !/maptiler/i.test(description)) return;
+        if (/403|401|forbidden|unauthori[sz]ed/i.test(description)) maptilerUnavailable = true;
         styleFailures++;
         if (styleFailures < 2) return;
         map.off("error", providerFailure);

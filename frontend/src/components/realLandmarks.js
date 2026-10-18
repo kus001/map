@@ -113,6 +113,18 @@ function disposeObject(root) {
   });
 }
 
+function modelMatrix(three, center, altitude) {
+  const longitude = center[0];
+  const latitude = center[1] * Math.PI / 180;
+  const mercatorX = (longitude + 180) / 360;
+  const mercatorY = (1 - Math.log(Math.tan(latitude) + 1 / Math.cos(latitude)) / Math.PI) / 2;
+  const unitsPerMeter = 1 / (40075016.68557849 * Math.cos(latitude));
+  return new three.Matrix4()
+    .makeTranslation(mercatorX, mercatorY, altitude * unitsPerMeter)
+    .scale(new three.Vector3(unitsPerMeter, -unitsPerMeter, unitsPerMeter))
+    .multiply(new three.Matrix4().makeRotationX(Math.PI / 2));
+}
+
 function normalizeModel(three, root, landmark) {
   root.updateMatrixWorld(true);
   const initial = new three.Box3().setFromObject(root);
@@ -240,9 +252,9 @@ function createModelLayer() {
     },
     render(gl, args) {
       if (!renderer || !three || !loaded.size) return;
-      const projectionData = args?.defaultProjectionData?.mainMatrix;
-      const getModelMatrix = map.transform?.getMatrixForModel?.bind(map.transform);
-      if (!projectionData || !getModelMatrix) {
+      refreshVisibility();
+      const projectionData = args?.defaultProjectionData?.mainMatrix || args?.modelViewProjectionMatrix;
+      if (!projectionData) {
         if (!projectionError) {
           projectionError = "MapLibre model projection unavailable";
           map.__kmLandmarkProjectionError = projectionError;
@@ -257,14 +269,16 @@ function createModelLayer() {
         try {
           const altitude = map.queryTerrainElevation?.(item.center, { exaggerated: true }) || 0;
           const projection = new three.Matrix4().fromArray(projectionData);
-          const model = new three.Matrix4().fromArray(getModelMatrix(item.center, altitude));
-          camera.projectionMatrix.copy(projection).multiply(model)
-            .multiply(new three.Matrix4().makeRotationX(Math.PI / 2))
-            .multiply(new three.Matrix4().makeScale(1, 1, -1));
+          const model = modelMatrix(three, item.center, altitude);
+          camera.projectionMatrix.copy(projection).multiply(model);
           for (const [id, object] of loaded) object.visible = id === item.id;
           renderer.resetState();
           renderer.render(scene, camera);
           drew = true;
+          if (projectionError) {
+            projectionError = null;
+            map.__kmLandmarkProjectionError = null;
+          }
           map.__kmLandmarkRendered = { ...map.__kmLandmarkRendered, [item.id]: true };
         } catch (error) {
           if (!map.__kmLandmarkProjectionWarned) {

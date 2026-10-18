@@ -465,10 +465,26 @@ function nearestStopOnScreen(map, point, radius = 34) {
 }
 
 function cameraMarker(gl, map, latLng, label, onMove) {
+  // MapLibre writes its position/rotation transform to the marker's outer
+  // element. Do not rotate that element with CSS: it can override map
+  // placement and leave pins angled when the camera is pitched or rolled.
   const element = document.createElement("div");
-  element.className = "km-3d-pin";
-  element.textContent = label;
-  return new gl.Marker({ element, draggable: Boolean(onMove), anchor: "bottom" })
+  element.className = "km-3d-pin-anchor";
+  const shell = document.createElement("div");
+  shell.className = "km-3d-pin-shell";
+  const shape = document.createElement("span");
+  shape.className = "km-3d-pin-shape";
+  shape.setAttribute("aria-hidden", "true");
+  const glyph = document.createElement("span");
+  glyph.className = "km-3d-pin-glyph";
+  glyph.textContent = label;
+  shell.append(shape, glyph);
+  element.append(shell);
+  // Pitch and bearing rotate only the world, never this screen-facing pin.
+  return new gl.Marker({
+    element, draggable: Boolean(onMove), anchor: "bottom",
+    pitchAlignment: "viewport", rotationAlignment: "viewport", rotation: 0,
+  })
     .setLngLat([Number(latLng[1]), Number(latLng[0])])
     .addTo(map);
 }

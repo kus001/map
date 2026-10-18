@@ -263,3 +263,61 @@ button {
 
 /* Avoid overlapping the app's top-right map-style and layers controls. */
 .km-3d-map .maplibregl-ctrl-top-right { top: 66px; right: 6px; }
+
+/* v10.11: Make the MapLibre DOM popup match the compact Leaflet cards.
+   Never transform the popup container: MapLibre positions that on screen;
+   the content itself stays upright as the map pitches and rotates. */
+.km-3d-map .km-3d-popup { z-index: 650; max-width: min(330px, calc(100vw - 28px)); }
+.km-3d-map .km-3d-popup .maplibregl-popup-content {
+  background: #fff;
+  color: #17212c;
+  border-radius: 12px;
+  padding: 13px 15px;
+  box-shadow: 0 5px 22px rgba(15, 23, 42, .22);
+  transform: none;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.km-3d-map .km-3d-popup .maplibregl-popup-tip { border-top-color: #fff; }
+.km-3d-map .km-3d-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-top-color: transparent; border-bottom-color: #fff; }
+.km-3d-map .km-3d-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-top-color: transparent; border-right-color: #fff; }
+.km-3d-map .km-3d-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-top-color: transparent; border-left-color: #fff; }
+.km-3d-map .km-3d-popup .maplibregl-popup-close-button {
+  display: grid; place-items: center;
+  width: 25px; height: 25px;
+  top: 5px; right: 5px;
+  border-radius: 7px;
+  color: #64748b; background: transparent;
+  font-family: inherit; font-size: 19px; font-weight: 400; line-height: 1;
+  padding: 0; box-shadow: none; border: none;
+}
+.km-3d-map .km-3d-popup .maplibregl-popup-close-button:hover { background: #f1f5f9; color: #0f172a; }
+.km-3d-info { min-width: min(230px, 70vw); max-width: 298px; padding-right: 13px; color: #0f172a; }
+.km-3d-info-title { font-size: 14px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.km-3d-subtitle { font-size: 12px; color: #64748b; margin-top: 4px; }
+.km-3d-body-text { font-size: 12px; line-height: 1.5; margin-top: 10px; color: #334155; white-space: pre-line; overflow-wrap: anywhere; }
+.km-3d-board { margin-top: 10px; }
+.km-3d-board-list { max-height: 240px; overflow-y: auto; display: grid; gap: 6px; scrollbar-width: thin; }
+.km-3d-board-card { border-radius: 9px; padding: 8px 10px; background: #f1f5f9; font-size: 12px; }
+.km-3d-board-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-weight: 650; }
+.km-3d-board-time { white-space: nowrap; flex-shrink: 0; }
+.km-3d-board-meta { margin-top: 5px; font-size: 11px; color: #475569; line-height: 1.4; }
+.km-3d-board-error { font-size: 12px; color: #92400e; margin-top: 9px; }
+.km-3d-coordinates { color: #94a3b8; font-size: 10px; margin-top: 7px; }
+.km-3d-map .km-3d-popup .km-3d-picker { min-width: 175px; gap: 6px; }
+.km-3d-map .km-3d-popup .km-3d-picker button { padding: 8px 10px; background: #f1f5f9; color: #334155; border: 0; border-radius: 7px; font-size: 12px; font-weight: 600; }
+.km-3d-map .km-3d-popup .km-3d-picker button:hover { background: #e5eee7; }
+.km-3d-map .km-3d-popup .km-3d-camera-controls button { background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 16px; color: #334155; }
+/* Match the existing 2D dark-map convention: dark information popups, but a
+   white departure board for readability (the same 2D transit exception). */
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .maplibregl-popup-content {
+  background: #2f3e46; color: #d0d8d1;
+}
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .km-3d-info,
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .km-3d-info-title { color: #d0d8d1; }
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .km-3d-body-text,
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .km-3d-subtitle { color: #c1d0d8; }
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup).maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: #2f3e46; }
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup).maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: #2f3e46; }
+.km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .maplibregl-popup-close-button { color: #d0d8d1; }

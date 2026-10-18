@@ -130,6 +130,40 @@ def finished_transit_walks():
     return jsonify({"success": True, "shapes": ready_walks(pairs)})
 
 
+@app.get("/api/landmarks/<name>.stl")
+def landmark_asset(name):
+    from urllib.request import Request, urlopen
+
+    sources = {
+        "eiffel-tower": "https://upload.wikimedia.org/wikipedia/commons/f/ff/Eiffel.stl",
+        "arc-de-triomphe": "https://upload.wikimedia.org/wikipedia/commons/e/ee/Arc_de_Triomphe.stl",
+    }
+    url = sources.get(name)
+    if not url:
+        return jsonify({"error": "Unknown landmark"}), 404
+
+    def get_asset(asset_url):
+        cached = app.config.setdefault("LANDMARK_ASSET_CACHE", {})
+        if asset_url in cached:
+            return cached[asset_url]
+        req = Request(asset_url, headers={"User-Agent": "kmaps-landmarks/1.0 (Wikimedia Commons attribution preserved)"})
+        with urlopen(req, timeout=15) as response:
+            size = int(response.headers.get("Content-Length", "0") or 0)
+            if size > 8_000_000:
+                raise ValueError("Model exceeds the download limit")
+            body = response.read(8_000_001)
+            if len(body) > 8_000_000:
+                raise ValueError("Model exceeds the download limit")
+            cached[asset_url] = body
+            return body
+
+    try:
+        data = get_asset(url)
+    except Exception:
+        return jsonify({"error": "Landmark source unavailable"}), 502
+    return Response(data, mimetype="application/octet-stream", headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api/layers/ontario511")
 def ontario_511_layer():
     from helpers.ontario511 import get_layer

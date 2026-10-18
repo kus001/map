@@ -6,15 +6,19 @@ const LANDMARKS = [
     center: [-79.38705, 43.64256],
     height: 553.3,
     radius: 75,
+    excludeRadius: 160,
     minZoom: 14.5,
     type: "fbx",
     url: `${ASSET_PATH}cn-tower.fbx`,
+    scaleMultiplier: 0.94,
+    rotation: [0, Math.PI, 0],
   },
   {
     id: "eiffel-tower",
     center: [2.294481, 48.85837],
     height: 330,
     radius: 100,
+    excludeRadius: 120,
     minZoom: 14.5,
     type: "stl",
     url: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Eiffel.stl",
@@ -25,6 +29,7 @@ const LANDMARKS = [
     center: [2.29502, 48.873793],
     height: 50,
     radius: 45,
+    excludeRadius: 65,
     minZoom: 15,
     type: "stl",
     url: "https://upload.wikimedia.org/wikipedia/commons/e/ee/Arc_de_Triomphe.stl",
@@ -54,8 +59,8 @@ function kilometers(a, b) {
 
 function footprint(center, radius) {
   const points = [];
-  for (let i = 0; i <= 12; i++) {
-    const angle = Math.PI * 2 * i / 12;
+  for (let i = 0; i <= 24; i++) {
+    const angle = Math.PI * 2 * i / 24;
     points.push([
       center[0] + Math.cos(angle) * radius / (111320 * Math.cos(center[1] * Math.PI / 180)),
       center[1] + Math.sin(angle) * radius / 111320,
@@ -86,17 +91,35 @@ function updateAttribution(map, active) {
   holder.append(credit);
 }
 
+function combinedFilter(originalFilter, exclusions) {
+  if (!exclusions.length) return originalFilter ?? null;
+  if (!originalFilter) return ["all", ...exclusions];
+  return ["all", originalFilter, ...exclusions];
+}
+
 function updateBuildingFilter(map) {
-  if (!map.getLayer("km-buildings-3d")) return;
-  const ids = map.__kmActiveModels || [];
-  const filters = [["!=", ["get", "hide_3d"], true]];
-  for (const id of ids) {
+  const active = map.__kmActiveModels || [];
+  const exclusions = [];
+  for (const id of active) {
     const item = LANDMARKS.find(entry => entry.id === id);
     if (!item) continue;
-    filters.push(["!", ["within", footprint(item.center, item.radius)]]);
+    exclusions.push(["!", ["within", footprint(item.center, item.excludeRadius || item.radius)]]);
   }
-  try { map.setFilter("km-buildings-3d", ["all", ...filters]); }
-  catch (error) { console.warn("Landmark building exclusion unavailable", error); }
+  const layers = map.getStyle?.()?.layers || [];
+  map.__kmStoredBuildingFilters ||= {};
+  for (const layer of layers) {
+    if (layer.type !== "fill-extrusion") continue;
+    const sourceLayer = layer["source-layer"] || "";
+    if (layer.id !== "km-buildings-3d" && sourceLayer !== "building") continue;
+    const cached = map.__kmStoredBuildingFilters;
+    if (!(layer.id in cached)) cached[layer.id] = map.getFilter?.(layer.id) ?? null;
+    try {
+      const next = combinedFilter(cached[layer.id], exclusions);
+      map.setFilter(layer.id, next);
+    } catch (error) {
+      console.warn("Landmark building exclusion unavailable", error);
+    }
+  }
 }
 
 function disposeObject(root) {
@@ -125,21 +148,47 @@ function modelMatrix(three, center, altitude) {
     .multiply(new three.Matrix4().makeRotationX(Math.PI / 2));
 }
 
-function normalizeModel(three, root, landmark) {
+function pruneModel(root, three) {
   root.updateMatrixWorld(true);
-  const initial = new three.Box3().setFromObject(root);
-  const extents = initial.getSize(new three.Vector3());
+  const overall = new three.Box3().setFromObject(root);
+  const overallSize = overall.getSize(new three.Vector3());
+  const overallCenter = overall.getCenter(new three.Vector3());
+  const maxDim = Math.max(overallSize.x, overallSize.y, overallSize.z) || 1;
+  const toRemove = [];
+  root.traverse(child => {
+    if (!child?.isMesh) return;
+    const box = new three.Box3().setFromObject(child);
+    if (box.isEmpty()) return;
+    const size = box.getSize(new three.Vector3());
+    const center = box.getCenter(new three.Vector3());
+    const dims = [Math.abs(size.x), Math.abs(size.y), Math.abs(size.z)].sort((a, b) => a - b);
+    const longest = dims[2] || 0;
+    const thinnest = dims[0] || 0;
+    const far = center.distanceTo(overallCenter) > maxDim * 0.42;
+    const longThin = thinnest < maxDim * 0.004 && longest > maxDim * 0.22;
+    const giantFar = far && longest > maxDim * 0.22;
+    if (longThin || giantFar) toRemove.push(child);
+  });
+  for (const child of toRemove) child.parent?.remove(child);
+  return toRemove.length;
+}
+
+function normalizeModel(three, root, landmark) {
+  if (landmark.type === "fbx") pruneModel(root, three);
+  root.updateMatrixWorld(true);
   if (landmark.type === "stl") root.rotation.x = -Math.PI / 2;
-  else if (extents.z > extents.y * 1.4) root.rotation.x = -Math.PI / 2;
   root.updateMatrixWorld(true);
   const box = new three.Box3().setFromObject(root);
   const height = box.max.y - box.min.y;
   if (!Number.isFinite(height) || height <= 0) throw new Error("Invalid model dimensions");
-  const scale = landmark.height / height;
+  const scale = (landmark.height / height) * (landmark.scaleMultiplier || 1);
   const group = new three.Group();
   root.position.set(-((box.min.x + box.max.x) / 2), -box.min.y, -((box.min.z + box.max.z) / 2));
   root.scale.multiplyScalar(scale);
   root.position.multiplyScalar(scale);
+  if (Array.isArray(landmark.rotation)) {
+    group.rotation.set(landmark.rotation[0] || 0, landmark.rotation[1] || 0, landmark.rotation[2] || 0);
+  }
   group.add(root);
   return group;
 }
@@ -158,7 +207,6 @@ function createModelLayer() {
   let loaders;
   let loadingLibraries = false;
   let context;
-  let libraryError = null;
   let projectionError = null;
 
   function refresh() {
@@ -176,7 +224,6 @@ function createModelLayer() {
         three = libs.three;
         camera = new three.Camera();
         scene = new three.Scene();
-        libraryError = null;
         map.__kmLandmarkLibraryError = null;
         scene.add(new three.AmbientLight(0xffffff, 1.4));
         const sun = new three.DirectionalLight(0xfff4dc, 2);
@@ -187,8 +234,7 @@ function createModelLayer() {
         refresh();
       }).catch(error => {
         loadingLibraries = false;
-        libraryError = String(error?.message || error);
-        map.__kmLandmarkLibraryError = libraryError;
+        map.__kmLandmarkLibraryError = String(error?.message || error);
         console.warn("Architectural 3D models unavailable", error);
       });
     }
@@ -236,6 +282,14 @@ function createModelLayer() {
     if (key !== activeKey) {
       activeKey = key;
       updateBuildingFilter(map);
+    }
+  }
+
+  function refreshVisibility() {
+    for (const [id, object] of loaded) {
+      const item = LANDMARKS.find(entry => entry.id === id);
+      const c = map?.getCenter();
+      object.visible = Boolean(c && map.getZoom() >= item.minZoom && kilometers([c.lng, c.lat], item.center) < 6);
     }
   }
 
@@ -309,14 +363,6 @@ function createModelLayer() {
       map = null;
     },
   };
-
-  function refreshVisibility() {
-    for (const [id, object] of loaded) {
-      const item = LANDMARKS.find(entry => entry.id === id);
-      const c = map?.getCenter();
-      object.visible = Boolean(c && map.getZoom() >= item.minZoom && kilometers([c.lng, c.lat], item.center) < 6);
-    }
-  }
 }
 
 export function ensureRealLandmarks(map, enabled) {

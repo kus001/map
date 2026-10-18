@@ -1,0 +1,21 @@
+{
+  "cn-tower": {
+    "asset": "cn-tower.fbx",
+    "origin": "User-supplied FBX archive",
+    "license": "Not specified in upload"
+  },
+  "eiffel-tower": {
+    "asset": "https://upload.wikimedia.org/wikipedia/commons/f/ff/Eiffel.stl",
+    "author": "ingoenius",
+    "license": "CC0 1.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Eiffel.stl"
+  },
+  "arc-de-triomphe": {
+    "asset": "https://upload.wikimedia.org/wikipedia/commons/e/ee/Arc_de_Triomphe.stl",
+    "author": "Microsoft",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "source": "https://commons.wikimedia.org/wiki/File:Arc_de_Triomphe.stl",
+    "changes": "Placed, rotated, and scaled to fit real-world map coordinates"
+  }
+}

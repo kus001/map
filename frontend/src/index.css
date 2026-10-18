@@ -215,8 +215,11 @@ button {
 }
 
 /* 3D renderer */
-.km-3d-pin { width: 31px; height: 31px; border-radius: 50% 50% 50% 3px; transform: rotate(-45deg); background: #f7fbf9; border: 2px solid #39584a; color: #253e33; display: grid; place-items: center; font-size: 12px; font-weight: 700; box-shadow: 0 3px 14px #0006; }
-.km-3d-pin::first-letter { transform: rotate(45deg); }
+.km-3d-pin-anchor { width: 36px; height: 43px; user-select: none; touch-action: none; }
+.km-3d-pin-shell { position: relative; width: 36px; height: 43px; }
+/* The pin body may rotate, but the MapLibre marker root and its text may not. */
+.km-3d-pin-shape { position: absolute; top: 3px; left: 2px; width: 32px; height: 32px; box-sizing: border-box; border-radius: 50% 50% 50% 3px; transform: rotate(-45deg); background: #f7fbf9; border: 2px solid #39584a; box-shadow: 0 3px 14px #0006; }
+.km-3d-pin-glyph { position: absolute; top: 5px; left: 2px; width: 32px; height: 32px; display: grid; place-items: center; color: #253e33; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; }
 .km-3d-picker { min-width: 155px; display: grid; gap: 5px; }
 .km-3d-picker button { text-align: left; border-radius: 7px; padding: 9px; background: #f0f4f1; color: #24392f; font-size: 13px; }
 .km-3d-picker button:hover { background: #e0ebe4; }

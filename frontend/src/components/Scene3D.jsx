@@ -6,11 +6,49 @@ const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery
 const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
 // Buildings are optional and are only drawn close to the ground. A large-city
 // full-detail extrusion at zoom 14 can overwhelm an integrated GPU.
-const BUILDING_MIN_ZOOM = 16.5;
 // DEM tiles are needed when regional contours start to be discernible. In the
 // distant planet view they're both wasteful and imperceptible. The same terrain
 // setting applies to Street, Satellite and Hybrid basemaps.
 const TERRAIN_MIN_ZOOM = 7;
+// The map is a GPU-intensive surface. Render fewer device pixels and fewer
+// cached tiles on phones and integrated GPUs; don't wait for a crash to adapt.
+function deviceProfile() {
+  if (typeof navigator === "undefined") return { tier: "medium", pixelRatio: 1.25, tileCache: 20, buildingZoom: 17.5, demZoom: 11, shadeZoom: 7 };
+  const memory = Number(navigator.deviceMemory) || 0;
+  const cores = Number(navigator.hardwareConcurrency) || 0;
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || navigator.userAgentData?.mobile === true;
+  const tier = mobile || (memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)
+    ? "low" : (memory > 0 && memory <= 8) || (cores > 0 && cores <= 8) ? "medium" : "high";
+  const ratio = Math.max(1, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
+  return {
+    tier,
+    pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.35 : 1.7),
+    tileCache: tier === "low" ? 12 : tier === "medium" ? 20 : 30,
+    buildingZoom: tier === "low" ? 18 : tier === "medium" ? 17.5 : 16.5,
+    demZoom: tier === "low" ? 10 : tier === "medium" ? 11 : 12,
+    shadeZoom: tier === "low" ? 8 : 6,
+  };
+}
+
+// MapLibre's sky API is different from Mapbox's fog API. Fade the planet halo
+// before terrain is enabled, avoiding globe fog/terrain shader warnings.
+function applyAtmosphere(map, darkMode, globe) {
+  if (globe && map.getZoom() >= TERRAIN_MIN_ZOOM) {
+    map.setSky(undefined);
+    return;
+  }
+  map.setSky({
+    "sky-color": darkMode ? "#243c5a" : "#8bc1ed",
+    "horizon-color": darkMode ? "#6587a6" : "#e3f3ff",
+    "fog-color": darkMode ? "#708da4" : "#d5e9f9",
+    "sky-horizon-blend": 0.58,
+    "horizon-fog-blend": 0.72,
+    "fog-ground-blend": 0.22,
+    "atmosphere-blend": globe
+      ? ["interpolate", ["linear"], ["zoom"], 0, 1, 3, 1, 5, 0.9, TERRAIN_MIN_ZOOM, 0]
+      : 0,
+  });
+}
 const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
 const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
 const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
@@ -108,7 +146,10 @@ async function getStyle(mapStyle, darkMode, signal) {
       version: 8,
       glyphs: freeStyle.glyphs,
       sprite: freeStyle.sprite,
-      sources: { ...freeStyle.sources, "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
+      // Satellite needs raster imagery only. Avoid loading OpenMapTiles city
+      // vectors unless buildings are deliberately enabled by the user.
+      sources: { ...(mapStyle === "hybrid" ? freeStyle.sources : {}),
+        "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
       layers: [imagery, ...roadLabels],
     },
     buildingSource: freeStyle.sources.openmaptiles,
@@ -119,40 +160,70 @@ async function getStyle(mapStyle, darkMode, signal) {
 // Limit expensive elevation requests at world scale, but retain real DEM-driven
 // terrain in BOTH projections and all three basemap styles. This runs after
 // style.load, after zoomend, and when the user changes the terrain toggle.
-function syncTerrain(map, enabled) {
+function syncTerrain(map, enabled, profile) {
   if (!map.getSource("km-elevation")) return;
   const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM;
   const current = map.getTerrain();
-  if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: 1.2 });
+  if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: profile.tier === "low" ? 1.25 : 1.45 });
   else if (!shouldRender && current) map.setTerrain(null);
+  // Hillshade shows relief on all map styles even before the expensive 3D
+  // terrain mesh becomes visible. Independent DEM sources avoid quality loss.
+  if (map.getLayer("km-terrain-shading")) {
+    map.setLayoutProperty("km-terrain-shading", "visibility", enabled ? "visible" : "none");
+  }
 }
 
-function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled) {
-  // Reuse a basemap's vector tiles rather than loading the same city a second time.
+function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
+  if (map.getLayer("km-buildings-3d")) {
+    map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
+    return;
+  }
   const style = map.getStyle();
   const native = style.layers.find(l => l["source-layer"] === "building" && style.sources?.[l.source]?.type === "vector");
   const existing = native?.source || (style.sources?.openmaptiles?.type === "vector" ? "openmaptiles" : null);
   const sourceId = existing || "km-buildings";
+  // Do not request a second expensive vector tile source for satellite unless
+  // buildings are actually switched on (phones default to off).
   if (!existing && buildingSource && !map.getSource(sourceId)) map.addSource(sourceId, { ...buildingSource, type: "vector" });
-  // The original style may already contain 3D buildings.
-  for (const layer of map.getStyle().layers) {
-    if (layer.type === "fill-extrusion" && layer.id !== "km-buildings-3d") map.setLayoutProperty(layer.id, "visibility", "none");
-  }
-  if (!map.getLayer("km-buildings-3d")) {
-    const before = map.getStyle().layers.find(layer => layer.type === "symbol")?.id;
+  if (!map.getSource(sourceId)) return;
+  const before = map.getStyle().layers.find(layer => layer.type === "symbol")?.id;
+  map.addLayer({
+    id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
+    "source-layer": native?.["source-layer"] || "building", minzoom: profile.buildingZoom,
+    paint: {
+      "fill-extrusion-base": ["coalesce", ["to-number", ["get", "render_min_height"]], 0],
+      "fill-extrusion-height": ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
+      "fill-extrusion-color": darkMode ? (mapStyle === "hybrid" ? "#8976a8" : "#72808c") : (mapStyle === "satellite" ? "#c3bbb0" : "#b6b9b3"),
+      "fill-extrusion-opacity": 0.79,
+    },
+  }, before);
+}
+
+function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
+  // Hillshade is separate from terrain geometry. Place it after ground raster/
+  // polygons but before roads and labels, so shading remains visible without
+  // obscuring geographic labels. Low-end devices skip distant hillshade tiles.
+  if (map.getSource("km-hillshade") && !map.getLayer("km-terrain-shading")) {
+    const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     map.addLayer({
-      id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
-      "source-layer": native?.["source-layer"] || "building", minzoom: BUILDING_MIN_ZOOM,
-      layout: { visibility: buildingsEnabled ? "visible" : "none" },
-      // A single GPU-drawn vector extrusion layer, not per-building meshes.
+      id: "km-terrain-shading", type: "hillshade", source: "km-hillshade",
+      minzoom: profile.shadeZoom, maxzoom: 16,
+      layout: { visibility: terrainEnabled ? "visible" : "none" },
       paint: {
-        "fill-extrusion-base": ["coalesce", ["to-number", ["get", "render_min_height"]], 0],
-        "fill-extrusion-height": ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
-        "fill-extrusion-color": darkMode ? (mapStyle === "hybrid" ? "#8976a8" : "#72808c") : (mapStyle === "satellite" ? "#c3bbb0" : "#b6b9b3"),
-        "fill-extrusion-opacity": 0.79,
+        "hillshade-exaggeration": profile.tier === "low" ? 0.45 : mapStyle === "satellite" ? 0.56 : 0.7,
+        "hillshade-shadow-color": darkMode ? "#111c2c" : "#374b55",
+        "hillshade-highlight-color": darkMode ? "#a4bdd7" : "#fff3dc",
+        "hillshade-accent-color": darkMode ? "#30475d" : "#758b78",
+        "hillshade-illumination-direction": 315,
       },
     }, before);
   }
+  // Turn off expensive built-in extrusions in provider styles. Only draw our
+  // single batched extrusion at close range when explicitly enabled.
+  for (const layer of map.getStyle().layers) {
+    if (layer.type === "fill-extrusion" && layer.id !== "km-buildings-3d") map.setLayoutProperty(layer.id, "visibility", "none");
+  }
+  if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
 
   addGeo(map, "km-stops");
   map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
@@ -197,24 +268,25 @@ export default function Scene3D({
   const callbackRef = useRef({});
   const [problem, setProblem] = useState("");
   const [ready, setReady] = useState(false);
-  const [pitch, setPitch] = useState(() => initialCamera?.pitch ?? DEFAULT_CAMERA.pitch);
   const [zoom, setZoom] = useState(() => initialCamera?.zoom ?? DEFAULT_CAMERA.zoom);
+  const profile = useRef(deviceProfile()).current;
+  const buildingStyleRef = useRef(null);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
   // Conservative defaults on low-memory devices; manually override via UI.
-  const [buildingsEnabled, setBuildingsEnabled] = useState(() =>
-    !(typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4));
+  const [buildingsEnabled, setBuildingsEnabled] = useState(() => deviceProfile().tier === "high");
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
+  const darkModeRef = useRef(darkMode);
   useEffect(() => {
     buildingsRef.current = buildingsEnabled;
     globeRef.current = globe;
+    darkModeRef.current = darkMode;
     terrainRef.current = terrainEnabled;
   }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const camera = useRef(initialCamera || DEFAULT_CAMERA);
-  const flatCamera = useRef(null);
   const previousGlobe = useRef(null);
   const newestLines = useRef([]);
   useEffect(() => {
@@ -257,18 +329,52 @@ export default function Scene3D({
         center: initial.center, zoom: initial.zoom, pitch: Math.max(35, initial.pitch || 58),
         bearing: initial.bearing || 0, maxZoom: 22, minZoom: 0, maxPitch: 85,
         antialias: false, fadeDuration: 0, renderWorldCopies: false,
-        maxTileCacheSize: 36, attributionControl: true,
+        maxTileCacheSize: profile.tileCache, pixelRatio: profile.pixelRatio,
+        maxCanvasSize: [2560, 2560], reduceMotion: profile.tier === "low",
+        cancelPendingTileRequestsWhileZooming: true,
+        attributionControl: true,
       });
       mapRef.current = map;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
-      map.dragRotate.enable();
+      map.dragRotate.enable(); // Right-drag: rotate horizontally, pitch vertically.
       map.touchZoomRotate.enableRotation();
+      map.touchPitch?.enable(); // Two-finger tilt on phones and tablets.
+      // In-browser instrumentation: sample actual rendered frames while moving.
+      // If an integrated GPU cannot keep up, lower the device-pixel workload
+      // (pixel count scales with DPR squared). Never force a continuous repaint.
+      let lastFrame = 0;
+      let samples = 0;
+      let totalFrameMs = 0;
+      let lastAdjustment = 0;
+      map.on("render", () => {
+        const now = performance.now();
+        const moving = map.isMoving();
+        if (!moving) { lastFrame = 0; return; }
+        if (lastFrame) {
+          const frameMs = now - lastFrame;
+          if (frameMs < 150) { samples++; totalFrameMs += frameMs; }
+        }
+        lastFrame = now;
+        if (samples < 45) return;
+        const mean = totalFrameMs / samples;
+        if (typeof window !== "undefined") {
+          window.__kmaps3DStats = { tier: profile.tier, frameMs: Math.round(mean * 10) / 10,
+            movingFps: Math.round(1000 / mean), pixelRatio: map.getPixelRatio(), samples };
+        }
+        // Require a genuinely slow run and space adjustments apart; reduce
+        // the expensive canvas first, rather than disabling terrain/buildings.
+        if (mean > 30 && now - lastAdjustment > 6000 && map.getPixelRatio() > 1.01) {
+          map.setPixelRatio(Math.max(1, Math.round((map.getPixelRatio() - 0.25) * 100) / 100));
+          lastAdjustment = now;
+        }
+        samples = 0; totalFrameMs = 0;
+      });
       // Avoid expensive DEM setup during continuous zooming; sync after zoom.
       map.on("zoomend", () => {
         setZoom(map.getZoom());
-        syncTerrain(map, terrainRef.current);
+        syncTerrain(map, terrainRef.current, profile);
+        applyAtmosphere(map, darkModeRef.current, globeRef.current);
       });
-      map.on("pitchend", () => setPitch(map.getPitch()));
       // Some third-party basemaps refer to icons missing from their sprite.
       // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
       map.on("styleimagemissing", event => {
@@ -375,6 +481,7 @@ export default function Scene3D({
       active = false; styles.current++;
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.remove();
+      if (typeof window !== "undefined") delete window.__kmaps3DStats;
       if (mapRef.current === map) mapRef.current = null;
     };
   }, []);
@@ -394,20 +501,12 @@ export default function Scene3D({
         if (controller.signal.aborted || stylesRef.current !== version) return;
         try {
           map.setProjection({ type: globeRef.current ? "globe" : "mercator" });
-          // A sky fog matrix can cause globe/terrain warnings on some GPUs.
-          // The globe has a real dark DOM backdrop instead of Mercator sky fog.
-          if (globeRef.current) {
-            map.setSky(undefined);
-          } else {
-            map.setSky({
-              "sky-color": darkMode ? "#162336" : "#b5cee8",
-              "horizon-color": darkMode ? "#304252" : "#e4eef7",
-              "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
-            });
-          }
-          addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsRef.current);
+          applyAtmosphere(map, darkMode, globeRef.current);
+          buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
+          addSceneLayers(map, buildingSource, darkMode, mapStyle,
+            buildingsRef.current, terrainRef.current, profile);
           setData(map, "km-routes", newestLines.current);
-          syncTerrain(map, terrainRef.current);
+          syncTerrain(map, terrainRef.current, profile);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
       };
       styleInstall = install;
@@ -425,7 +524,12 @@ export default function Scene3D({
       const prepare = base => ({
         ...base,
         // Fix malformed expression branches in some provider label styles.
-        layers: (base.layers || []).map(layer => {
+        layers: (base.layers || []).filter(layer => {
+          // Keep roads, transit labels and towns, but discard dense, tiny
+          // points-of-interest glyphs on phones / integrated GPUs.
+          if (profile.tier !== "low" || layer.type !== "symbol") return true;
+          return !/poi|housenumber|house.number|address.label/i.test(layer.id);
+        }).map(layer => {
           if (layer.id !== "Sea labels" || !layer.layout?.["text-size"]) return layer;
           const fixSize = value => Array.isArray(value) ? value.map(fixSize) : value == null ? 16 : value;
           return { ...layer, layout: { ...layer.layout,
@@ -434,7 +538,9 @@ export default function Scene3D({
         // Keep terrain available in street, satellite AND hybrid styles.
         sources: { ...base.sources,
           "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
-            maxzoom: 13, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
+            maxzoom: profile.demZoom, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
+          "km-hillshade": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
+            maxzoom: profile.tier === "low" ? 9 : 11, encoding: "terrarium" },
         },
       });
       try { map.setStyle(prepare(style), { diff: false }); }
@@ -455,41 +561,37 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const projectionChanged = previousGlobe.current !== globe;
-    previousGlobe.current = globe;
-    map.setProjection({ type: globe ? "globe" : "mercator" });
-    // Switching the projection without changing basemap must also update sky.
-    if (globe) map.setSky(undefined);
-    else map.setSky({ "sky-color": darkMode ? "#162336" : "#b5cee8",
-      "horizon-color": darkMode ? "#304252" : "#e4eef7" });
-    if (!projectionChanged) return;
-    if (globe) {
-      // Save the local camera before zooming out. Don't flatten pitch to zero:
-      // right-drag, the compass and the Tilt slider must keep working.
-      flatCamera.current = {
-        center: [map.getCenter().lng, map.getCenter().lat],
-        zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing(),
-      };
-      map.easeTo({ zoom: Math.min(map.getZoom(), 3), pitch: Math.min(map.getPitch(), 50), duration: 650 });
-    } else if (flatCamera.current) {
-      // Return to the local view without discarding the planet's new center.
-      const view = flatCamera.current;
-      map.easeTo({ zoom: view.zoom, pitch: view.pitch, bearing: map.getBearing(), duration: 650 });
-      flatCamera.current = null;
+    if (previousGlobe.current !== globe) {
+      previousGlobe.current = globe;
+      // A globe is a projection, not a different zoom preset. Preserve the
+      // camera without easeTo/flyTo or a trip out to zoom level 3.
+      const view = { center: map.getCenter(), zoom: map.getZoom(),
+        pitch: map.getPitch(), bearing: map.getBearing() };
+      map.setProjection({ type: globe ? "globe" : "mercator" });
+      if (Math.abs(map.getZoom() - view.zoom) > 0.001) map.jumpTo(view);
     }
-    syncTerrain(map, terrainRef.current);
-  }, [ready, globe, darkMode]);
+    applyAtmosphere(map, darkMode, globe);
+    syncTerrain(map, terrainRef.current, profile);
+  }, [ready, globe, darkMode, profile]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (ready && map) syncTerrain(map, terrainEnabled);
-  }, [ready, terrainEnabled]);
+    if (ready && map) syncTerrain(map, terrainEnabled, profile);
+  }, [ready, terrainEnabled, profile]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (ready && map?.getLayer("km-buildings-3d"))
-      map.setLayoutProperty("km-buildings-3d", "visibility", buildingsEnabled ? "visible" : "none");
-  }, [ready, buildingsEnabled]);
+    if (!ready || !map) return;
+    if (!buildingsEnabled) {
+      if (map.getLayer("km-buildings-3d")) map.setLayoutProperty("km-buildings-3d", "visibility", "none");
+      return;
+    }
+    // Lazy load city vector data only when the user enables buildings.
+    if (buildingStyleRef.current && map.getSource("km-elevation")) {
+      const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
+      ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
+    }
+  }, [ready, buildingsEnabled, profile]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -545,56 +647,72 @@ export default function Scene3D({
     }
   }, [ready, locationFocusKey, routeFocusKey, stepFocusKey, stepFocusCoordinate, currentLocation, route]);
 
-  // Reuse the same Flask layer endpoints. Only request enabled layers in view.
+  // Fetch only enabled Ontario 511 layers inside the viewport. Parallel
+  // requests avoid a 4x serial latency penalty; delayed/aborted moves don't
+  // queue a backlog of stale GeoJSON/CPU work.
   const layerList = enabledLayers.join(",");
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const selected = layerList.split(",").filter(Boolean);
-    let requestId = 0;
+    const selected = new Set(layerList.split(",").filter(Boolean));
     let timer;
     let dead = false;
     let controller;
+    const refreshed = new Map();
     const refresh = () => {
       if (dead || !map.getSource("km-routes")) return;
       clearTimeout(timer);
       timer = setTimeout(async () => {
-        controller?.abort(); controller = new AbortController();
-        const token = ++requestId;
-        const b = map.getBounds();
-        const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(n => n.toFixed(5)).join(",");
-        for (const kind of Object.keys(FEED_COLORS)) {
-          if (!map.getSource(`km-511-${kind}`)) continue;
-          if (!selected.includes(kind) || map.getZoom() < (kind === "cameras" ? 12 : 9)) { setData(map, `km-511-${kind}`, []); continue; }
+        controller?.abort();
+        controller = new AbortController();
+        const signal = controller.signal;
+        const bounds = map.getBounds();
+        const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+          .map(n => n.toFixed(4)).join(",");
+        const zoom = map.getZoom();
+        const tasks = Object.keys(FEED_COLORS).map(async kind => {
+          const id = `km-511-${kind}`;
+          if (!map.getSource(id)) return;
+          if (!selected.has(kind) || zoom < (kind === "cameras" ? 12 : 9)) {
+            if (refreshed.has(kind)) { setData(map, id, []); refreshed.delete(kind); }
+            return;
+          }
+          const key = `${kind}:${bbox}`;
+          const previous = refreshed.get(kind);
+          if (previous && previous.key === key && Date.now() - previous.when < 20000) return;
           try {
-            const res = await fetch(`/api/layers/ontario511?${new URLSearchParams({ kind, bbox })}`, { signal: controller.signal });
+            const res = await fetch(`/api/layers/ontario511?${new URLSearchParams({ kind, bbox })}`, { signal });
             if (!res.ok) throw new Error("Layer unavailable");
             const payload = await res.json();
-            if (dead || token !== requestId || !map.getSource(`km-511-${kind}`)) return;
+            if (dead || signal.aborted || !map.getSource(id)) return;
             onLayerStatus(kind, payload.message || "");
             const features511 = [];
             for (const item of payload.items || []) {
-              const properties = {
-                id: item.id, title: item.title || kind,
+              const properties = { id: item.id, title: item.title || kind,
                 details: item.summary || item.impact || item.details || "", kind,
-                images: kind === "cameras" ? JSON.stringify(item.images || []) : "[]",
-              };
-              if (validCoord(item.point)) features511.push({ type: "Feature", geometry: { type: "Point", coordinates: [item.point[1], item.point[0]] }, properties });
+                images: kind === "cameras" ? JSON.stringify(item.images || []) : "[]" };
+              if (validCoord(item.point)) features511.push({ type: "Feature",
+                geometry: { type: "Point", coordinates: [item.point[1], item.point[0]] }, properties });
               for (const line of item.lines || []) {
                 const geometry = geoLine(line);
                 if (geometry) features511.push({ type: "Feature", geometry, properties });
               }
             }
-            setData(map, `km-511-${kind}`, features511);
-          } catch { if (!controller.signal.aborted) onLayerStatus(kind, "Unable to load this layer"); }
-        }
-      }, 300);
+            setData(map, id, features511);
+            refreshed.set(kind, { key, when: Date.now() });
+          } catch {
+            if (!signal.aborted && !dead) onLayerStatus(kind, "Unable to load this layer");
+          }
+        });
+        await Promise.all(tasks);
+      }, profile.tier === "low" ? 650 : 350);
     };
     map.on("moveend", refresh);
     map.on("style.load", refresh);
     refresh();
-    return () => { dead = true; clearTimeout(timer); controller?.abort(); map.off("moveend", refresh); map.off("style.load", refresh); };
-  }, [ready, layerList, mapStyle, darkMode, onLayerStatus]);
+    return () => { dead = true; clearTimeout(timer); controller?.abort();
+      map.off("moveend", refresh); map.off("style.load", refresh); };
+  }, [ready, layerList, mapStyle, darkMode, onLayerStatus, profile]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -638,7 +756,8 @@ export default function Scene3D({
       const add = () => {
         if (!map.getSource("km-routes") || map.getSource("km-traffic")) return;
         map.addSource("km-traffic", { type: "raster", tiles: [`/api/layers/traffic/tile/{z}/{x}/{y}.png?style=${darkMode ? "dark" : "light"}`], tileSize: 256, maxzoom: 20 });
-        map.addLayer({ id: "km-traffic", type: "raster", source: "km-traffic", minzoom: 8, paint: { "raster-opacity": 0.85 } }, "km-buildings-3d");
+        const before = map.getLayer("km-buildings-3d") ? "km-buildings-3d" : undefined;
+        map.addLayer({ id: "km-traffic", type: "raster", source: "km-traffic", minzoom: 8, paint: { "raster-opacity": 0.85 } }, before);
       };
       addTraffic = add;
       map.on("style.load", add);
@@ -657,16 +776,6 @@ export default function Scene3D({
       <div ref={holder} className="km-3d-map h-full w-full" aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
       <div className="km-3d-tools" role="group" aria-label="3D map controls">
-        <label className="km-3d-pitch-control">
-          <span>Tilt <output>{Math.round(pitch)}°</output></span>
-          <input type="range" min="0" max="80" step="5" value={Math.round(pitch / 5) * 5}
-            aria-label="Tilt the 3D map"
-            onChange={event => {
-              const next = Number(event.target.value);
-              setPitch(next);
-              mapRef.current?.easeTo({ pitch: next, duration: 0 });
-            }} />
-        </label>
         <button type="button" className="km-3d-toggle" aria-pressed={terrainEnabled}
           title={`True 3D terrain elevation loads at map zoom ${TERRAIN_MIN_ZOOM}+`}
           onClick={() => setTerrainEnabled(value => !value)}>
@@ -678,7 +787,7 @@ export default function Scene3D({
           Buildings {buildingsEnabled ? "On" : "Off"}
         </button>
       </div>
-      <div className="km-3d-hint">Drag to move · Right-drag to rotate</div>
+      <div className="km-3d-hint">Drag to move · Right-drag to rotate and tilt · Two-finger tilt on touch</div>
     </div>
   );
 }

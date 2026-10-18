@@ -21,7 +21,8 @@ const LANDMARKS = [
     minZoom: 14.5,
     fullZoom: 17,
     type: "stl",
-    url: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Eiffel.stl",
+    url: "/api/landmarks/eiffel-tower.stl",
+    backupUrl: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Eiffel.stl",
     color: 0x826a50,
     expectedWidth: 125,
     expectedDepth: 125,
@@ -35,7 +36,8 @@ const LANDMARKS = [
     minZoom: 14.5,
     fullZoom: 17,
     type: "stl",
-    url: "https://upload.wikimedia.org/wikipedia/commons/e/ee/Arc_de_Triomphe.stl",
+    url: "/api/landmarks/arc-de-triomphe.stl",
+    backupUrl: "https://upload.wikimedia.org/wikipedia/commons/e/ee/Arc_de_Triomphe.stl",
     color: 0xd4c9b5,
     expectedWidth: 44.8,
     expectedDepth: 22.0,
@@ -60,18 +62,6 @@ function kilometers(a, b) {
   const dx = (a[0] - b[0]) * 111.3 * Math.cos(lat);
   const dy = (a[1] - b[1]) * 111.3;
   return Math.hypot(dx, dy);
-}
-
-function footprint(center, radius) {
-  const points = [];
-  for (let i = 0; i <= 24; i++) {
-    const angle = Math.PI * 2 * i / 24;
-    points.push([
-      center[0] + Math.cos(angle) * radius / (111320 * Math.cos(center[1] * Math.PI / 180)),
-      center[1] + Math.sin(angle) * radius / 111320,
-    ]);
-  }
-  return { type: "Polygon", coordinates: [points] };
 }
 
 function updateAttribution(map, active) {
@@ -112,7 +102,7 @@ function modelZoomScale(item, zoom) {
   if (zoom < item.minZoom) return 0;
   if (!item.fullZoom || zoom >= item.fullZoom) return 1;
   const t = Math.max(0, Math.min(1, (zoom - item.minZoom) / (item.fullZoom - item.minZoom)));
-  return 0.1 + 0.9 * t * t * (3 - 2 * t);
+  return Math.min(1, 0.1 + 0.9 * t * t * (3 - 2 * t));
 }
 
 function landmarkNameExpression() {
@@ -142,26 +132,40 @@ function updateBuildingFilter(map) {
   const exclusions = active.flatMap(id => {
     const item = LANDMARKS.find(entry => entry.id === id);
     if (!item) return [];
+    const point = { type: "Point", coordinates: item.center };
+    const distance = ["distance", point];
+    const height = ["to-number", ["get", "render_height"], ["get", "height"], 0];
+    const tallLimit = item.id === "cn-tower" ? 275 : item.id === "eiffel-tower" ? 150 : 55;
+    const outerRadius = item.id === "cn-tower" ? 300 : item.id === "eiffel-tower" ? 250 : 105;
     return [["!", ["any", landmarkNameMatch(item),
-      ["within", footprint(item.center, item.excludeRadius || item.radius)]]]];
+      ["<", distance, item.excludeRadius || item.radius],
+      ["all", [">", height, tallLimit], ["<", distance, outerRadius]]]]];
   });
   const layers = map.getStyle?.()?.layers || [];
   const cache = map.__kmStoredBuildingFilters || (map.__kmStoredBuildingFilters = new Map());
   const existingIds = new Set(layers.map(layer => layer.id));
   for (const id of cache.keys()) if (!existingIds.has(id)) cache.delete(id);
+  const results = {};
   for (const layer of layers) {
-    if (layer.type !== "fill-extrusion" || layer.id === "km-landmark-models-3d") continue;
-    const sourceLayer = layer["source-layer"] || "";
-    if (layer.id !== "km-buildings-3d" && sourceLayer !== "building" && !/building/i.test(layer.id)) continue;
+    if (layer.type !== "fill-extrusion") continue;
+    if (layer.id.startsWith("km-landmark-")) continue;
     const existing = map.getFilter?.(layer.id) ?? null;
-    const record = cache.get(layer.id);
-    if (!record) cache.set(layer.id, { original: existing });
-    const saved = cache.get(layer.id).original;
-    const next = combinedFilter(saved, exclusions);
-    if (JSON.stringify(existing) === JSON.stringify(next)) continue;
-    try { map.setFilter(layer.id, next); }
-    catch (error) { console.warn("Landmark building exclusion unavailable", error); }
+    if (!cache.has(layer.id)) cache.set(layer.id, { original: existing });
+    const original = cache.get(layer.id).original;
+    const next = combinedFilter(original, exclusions);
+    if (JSON.stringify(existing) === JSON.stringify(next)) {
+      results[layer.id] = "current";
+      continue;
+    }
+    try {
+      map.setFilter(layer.id, next);
+      results[layer.id] = "updated";
+    } catch (error) {
+      results[layer.id] = String(error?.message || error);
+      console.warn("Landmark building exclusion unavailable", error);
+    }
   }
+  map.__kmLandmarkFilters = results;
 }
 
 function disposeObject(root) {
@@ -240,10 +244,52 @@ function orientMesh(three, root, item) {
     sourceDimensions: size.toArray() };
 }
 
+function orientTowerMesh(three, root) {
+  root.updateMatrixWorld(true);
+  const bounds = new three.Box3().setFromObject(root);
+  const dimensions = bounds.getSize(new three.Vector3());
+  const axis = dimensions.z >= dimensions.x && dimensions.z >= dimensions.y ? "z"
+    : dimensions.x >= dimensions.y ? "x" : "y";
+  const start = bounds.min[axis];
+  const length = dimensions[axis];
+  const end = start + length;
+  const position = root.geometry?.attributes?.position;
+  let baseAtHighEnd = false;
+  if (position?.count && length > 0) {
+    const low = { minA: Infinity, maxA: -Infinity, minB: Infinity, maxB: -Infinity };
+    const high = { minA: Infinity, maxA: -Infinity, minB: Infinity, maxB: -Infinity };
+    const axes = ["x", "y", "z"].filter(value => value !== axis);
+    const step = Math.max(1, Math.floor(position.count / 8000));
+    for (let i = 0; i < position.count; i += step) {
+      const v = { x: position.getX(i), y: position.getY(i), z: position.getZ(i) };
+      const side = v[axis] < start + length * 0.15 ? low
+        : v[axis] > end - length * 0.15 ? high : null;
+      if (!side) continue;
+      const a = v[axes[0]];
+      const b = v[axes[1]];
+      side.minA = Math.min(side.minA, a);
+      side.maxA = Math.max(side.maxA, a);
+      side.minB = Math.min(side.minB, b);
+      side.maxB = Math.max(side.maxB, b);
+    }
+    const area = side => Number.isFinite(side.minA) ?
+      (side.maxA - side.minA) * (side.maxB - side.minB) : 0;
+    if (area(low) > 0 && area(high) > 0) baseAtHighEnd = area(high) > area(low);
+  }
+  root.rotation.set(0, 0, 0);
+  if (axis === "z") root.rotation.x = baseAtHighEnd ? Math.PI / 2 : -Math.PI / 2;
+  else if (axis === "x") root.rotation.z = baseAtHighEnd ? -Math.PI / 2 : Math.PI / 2;
+  else if (baseAtHighEnd) root.rotation.z = Math.PI;
+  root.updateMatrixWorld(true);
+  return { axis: root.rotation.toArray().slice(0, 3), sourceDimensions: dimensions.toArray(), baseAtHighEnd };
+}
+
 function normalizeModel(three, root, landmark) {
   const removed = landmark.type === "fbx" ? removeImportedScene(root) : [];
   root.updateMatrixWorld(true);
-  const orientation = landmark.type === "stl" ? orientMesh(three, root, landmark) : null;
+  const orientation = landmark.id === "eiffel-tower"
+    ? orientTowerMesh(three, root)
+    : landmark.type === "stl" ? orientMesh(three, root, landmark) : null;
   const box = new three.Box3().setFromObject(root);
   const height = box.max.y - box.min.y;
   if (!Number.isFinite(height) || height <= 0) throw new Error("Invalid model dimensions");
@@ -281,6 +327,16 @@ function createModelLayer() {
   let loadingLibraries = false;
   let context;
   let projectionError = null;
+  let filterQueued = false;
+
+  function applyFiltersSoon() {
+    if (filterQueued) return;
+    filterQueued = true;
+    Promise.resolve().then(() => {
+      filterQueued = false;
+      if (!removed && map?.isStyleLoaded?.()) updateBuildingFilter(map);
+    });
+  }
 
   function refresh() {
     if (!map || removed) return;
@@ -323,7 +379,7 @@ function createModelLayer() {
       loading.add(item.id);
       const loader = item.type === "fbx" ? new loaders.FBXLoader() : new loaders.STLLoader();
       if (item.type === "fbx") loader.setResourcePath(ASSET_PATH);
-      loader.load(item.url, value => {
+      const acceptModel = value => {
         loading.delete(item.id);
         if (removed) return;
         try {
@@ -345,11 +401,17 @@ function createModelLayer() {
           map.__kmLandmarkLoadErrors = { ...map.__kmLandmarkLoadErrors, [item.id]: String(error?.message || error) };
           console.warn(`Could not position ${item.id}`, error);
         }
-      }, undefined, error => {
+      };
+      const reportFailure = error => {
         loading.delete(item.id);
+        if (removed || !map) return;
         rejected.add(item.id);
         map.__kmLandmarkLoadErrors = { ...map.__kmLandmarkLoadErrors, [item.id]: String(error?.message || error) };
         console.warn(`Could not load ${item.id}`, error);
+      };
+      loader.load(item.url, acceptModel, undefined, error => {
+        if (item.backupUrl && !removed) loader.load(item.backupUrl, acceptModel, undefined, reportFailure);
+        else reportFailure(error);
       });
     }
     map.__kmActiveModels = active;
@@ -358,7 +420,7 @@ function createModelLayer() {
     const key = active.slice().sort().join("|");
     if (key !== activeKey) {
       activeKey = key;
-      updateBuildingFilter(map);
+      applyFiltersSoon();
     }
   }
 
@@ -404,7 +466,8 @@ function createModelLayer() {
         const group = loaded.get(item.id);
         if (!group?.visible) continue;
         try {
-          const altitude = map.queryTerrainElevation?.(item.center, { exaggerated: true }) || 0;
+          const elevation = map.queryTerrainElevation?.(item.center, { exaggerated: true });
+          const altitude = Number.isFinite(elevation) ? elevation : 0;
           const projection = new three.Matrix4().fromArray(projectionData);
           const model = modelMatrix(three, item.center, altitude);
           camera.projectionMatrix.copy(projection).multiply(model);

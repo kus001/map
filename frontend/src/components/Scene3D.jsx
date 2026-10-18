@@ -4,8 +4,8 @@ const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-// The same DEM is shared by terrain and hillshade: two raster DEM sources
-// unnecessarily decode and cache the same elevation tiles twice.
+// Independent elevation sources: MapLibre renders lower-quality hillshade when
+// the identical raster-dem source is also used by the 3D terrain mesh.
 const TERRAIN_MIN_ZOOM = 7;
 const MAX_FREE_PITCH = 85; // Keep orbital camera above terrain; bearing/roll remain unrestricted.
 // A surface-anchored map camera with pitch beyond 90 degrees can orbit
@@ -108,6 +108,13 @@ function lineFeature(points, color, routeNumber, walking = false, chosen = false
   return geometry ? { type: "Feature", geometry, properties: { color, routeNumber: String(routeNumber), walking: walking ? 1 : 0, chosen: chosen ? 1 : 0 } } : null;
 }
 
+function buildingSourceFromStyle(style) {
+  const sources = style?.sources || {};
+  const layer = (style?.layers || []).find(item => item["source-layer"] === "building" &&
+    sources[item.source]?.type === "vector");
+  return (layer && sources[layer.source]) || sources.openmaptiles || sources.openfreemap || null;
+}
+
 async function getStyle(mapStyle, darkMode, signal) {
   // We use one vector source for buildings in all three map modes.
   const freeName = darkMode ? "dark" : "liberty";
@@ -117,11 +124,12 @@ async function getStyle(mapStyle, darkMode, signal) {
     if (!response.ok) throw new Error("The free map provider isn't responding");
     freeStyle = await response.json();
     // Do not cache failed/partial downloads; clone before handing styles to GL.
-    if (freeStyle.version === 8 && freeStyle.sources?.openmaptiles)
+    if (freeStyle.version === 8 && buildingSourceFromStyle(freeStyle))
       freeStyleCache.set(freeName, freeStyle);
   }
   freeStyle = structuredClone(freeStyle);
-  if (freeStyle.version !== 8 || !freeStyle.sources?.openmaptiles) throw new Error("Unexpected map style data");
+  if (freeStyle.version !== 8 || !freeStyle.sources) throw new Error("Unexpected map style data");
+  const freeBuildingSource = buildingSourceFromStyle(freeStyle);
 
   const keyAllowed = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
   const satelliteFallback = mapStyle === "hybrid" ? {
@@ -140,12 +148,12 @@ async function getStyle(mapStyle, darkMode, signal) {
       const result = await fetch(`https://api.maptiler.com/maps/${styleName}/style.json?key=${key}`, { signal });
       if (result.ok && result.headers.get("content-type")?.includes("json")) {
         const style = await result.json();
-        if (style.version === 8 && style.sources && Array.isArray(style.layers)) return { style, buildingSource: freeStyle.sources.openmaptiles, fallback: satelliteFallback };
+        if (style.version === 8 && style.sources && Array.isArray(style.layers)) return { style, buildingSource: freeBuildingSource, fallback: satelliteFallback };
       }
     } catch (error) { if (signal.aborted) throw error; }
   }
 
-  if (mapStyle === "street") return { style: freeStyle, buildingSource: freeStyle.sources.openmaptiles, fallback: freeStyle };
+  if (mapStyle === "street") return { style: freeStyle, buildingSource: freeBuildingSource, fallback: freeStyle };
 
   // The satellite remains Esri in 3D, including its imagery when a key is absent.
   const imagery = {
@@ -164,7 +172,7 @@ async function getStyle(mapStyle, darkMode, signal) {
         "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
       layers: [imagery, ...roadLabels],
     },
-    buildingSource: freeStyle.sources.openmaptiles,
+    buildingSource: freeBuildingSource,
     fallback: freeStyle,
   };
 }
@@ -192,10 +200,6 @@ function syncTerrain(map, enabled, profile) {
 // facade patterns at close zoom and could leave buildings invisible if an image
 // was not resolved by MapLibre. Keep 100%-opaque, data-coloured walls instead.
 // Real photographic facades require separately licensed 3D mesh data.
-const REAL_BUILDING_COLOR = ["to-color", ["get", "colour"],
-  ["interpolate", ["linear"],
-    ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
-    0, "#d4c9b9", 16, "#c7bfae", 65, "#a8b4b8", 180, "#899ca9"]];
 
 // Satellite and Hybrid contain opaque raster imagery, but building footprints
 // must come from a *vector* source. In particular, do not pick an arbitrary
@@ -205,16 +209,17 @@ const REAL_BUILDING_COLOR = ["to-color", ["get", "colour"],
 function pickBuildingSource(map, buildingSource) {
   const style = map.getStyle();
   const sources = style.sources || {};
-  // Only reuse a provider source when it really is the free OpenMapTiles
-  // endpoint. MapTiler may use the same source ID for a different tileset.
-  if (sources.openmaptiles?.type === "vector" &&
-      sources.openmaptiles.url === buildingSource?.url &&
-      map.getSource("openmaptiles")) {
-    return "openmaptiles";
+  // Prefer vector data already included by the active basemap. This avoids
+  // duplicate downloads and avoids a second endpoint that may return HTTP 403.
+  const usedByBuildings = (style.layers || [])
+    .filter(layer => layer["source-layer"] === "building" && sources[layer.source]?.type === "vector")
+    .map(layer => layer.source);
+  const candidates = [...new Set([...usedByBuildings, "openmaptiles", "openfreemap", "maptiler_planet"])]
+    .filter(id => sources[id]?.type === "vector" && map.getSource(id));
+  if (candidates.length) {
+    return candidates.find(id => map.isSourceLoaded(id)) || candidates[0];
   }
-  // Use the known OpenMapTiles schema for raster Satellite/Hybrid as well as
-  // any Street provider lacking the expected source. One vector source is
-  // shared by ALL building extrusions rather than one source per material.
+  // Raster-only satellite style: install a single building vector source.
   const sourceId = "km-buildings";
   if (!map.getSource(sourceId)) {
     const supplied = buildingSource?.type === "vector" ? buildingSource : {
@@ -238,82 +243,76 @@ function buildingLayerInsertionPoint(map) {
     .find(layer => layer.type === "symbol")?.id;
 }
 
-const BUILDING_HEIGHT = ["max", 3,
-  ["coalesce", ["to-number", ["get", "render_height"]],
-    ["to-number", ["get", "height"]], 12]];
-const BUILDING_BASE = ["max", 0,
-  ["coalesce", ["to-number", ["get", "render_min_height"]],
-    ["to-number", ["get", "min_height"]], 0]];
-
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
-  const existingLayer = map.getLayer("km-buildings-3d");
-  if (existingLayer) {
+  if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
-    const before = buildingLayerInsertionPoint(map);
-    // Correct older styles or traffic overlays that ended up above buildings.
-    if (before !== "km-buildings-3d") map.moveLayer("km-buildings-3d", before);
     return true;
   }
+  const diagnostic = map.__kmBuildingInfo || (map.__kmBuildingInfo = { attempts: 0, lastError: null });
+  diagnostic.attempts++;
   let sourceId;
   try {
     sourceId = pickBuildingSource(map, buildingSource);
   } catch (error) {
-    console.warn("3D building vector source unavailable", error);
+    diagnostic.lastError = `Source: ${String(error?.message || error)}`;
+    console.warn("3D building source setup failed", error);
     return false;
   }
-  if (!sourceId || !map.getSource(sourceId)) return false;
-
-  // In MapLibre the fill-extrusion paint is independent of satellite pixels.
-  // No pattern textures: an unresolved sprite used to make *all* walls vanish.
+  diagnostic.sourceId = sourceId;
+  if (!sourceId || !map.getSource(sourceId)) {
+    diagnostic.lastError = "Vector source not registered in map style";
+    return false;
+  }
   const startZoom = Math.min(profile.buildingZoom, 15.3);
-  const color = mapStyle === "street" ? (darkMode ? "#82919b" : "#b6b9b3") : REAL_BUILDING_COLOR;
+  // Build the SIMPLE, valid extrusion first. Add colour expressions afterward:
+  // a malformed provider property must never stop the entire building layer.
   const layer = {
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
     "source-layer": "building", minzoom: startZoom,
     layout: { visibility: "visible" },
     filter: ["!=", ["get", "hide_3d"], true],
     paint: {
-      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5, BUILDING_BASE],
+      "fill-extrusion-color": darkMode ? "#9fa8ae" : "#c7bfae",
       "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5, BUILDING_HEIGHT],
-      "fill-extrusion-color": color,
+        startZoom, 0, startZoom + 0.5,
+        ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]],
+      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
+        startZoom, 0, startZoom + 0.5,
+        ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]],
       "fill-extrusion-opacity": 1,
-      "fill-extrusion-vertical-gradient": true,
     },
   };
   const before = buildingLayerInsertionPoint(map);
   try {
     map.addLayer(layer, before);
   } catch (error) {
-    console.warn("Data-coloured building style unavailable; trying solid buildings", error);
-    try {
-      layer.paint["fill-extrusion-color"] = darkMode ? "#899aa3" : "#c7bfae";
-      map.addLayer(layer, before);
-    } catch (fallbackError) {
-      console.warn("3D building layer unavailable", fallbackError);
-      return false;
-    }
+    diagnostic.lastError = `Layer: ${String(error?.message || error)}`;
+    console.warn("3D building extrusion failed to install", error);
+    return false;
   }
+  // Keep known-valid opaque paint during source diagnosis. Provider-specific
+  // building colour metadata will be reinstated only after tiles are verified.
+  diagnostic.lastError = null;
   return Boolean(map.getLayer("km-buildings-3d"));
 }
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
-  // Buildings must be independent of optional elevation and hillshade layers.
-  // A missing DEM must never prevent city geometry from rendering.
+  // Buildings are installed first, independently of optional terrain.
   const customBuildingsReady = buildingsEnabled && ensureBuildingLayer(
     map, buildingSource, darkMode, mapStyle, profile);
   for (const layer of map.getStyle().layers) {
     if (layer.type !== "fill-extrusion" || layer.id === "km-buildings-3d") continue;
+    // Preserve the provider's own 3D buildings as a fallback if the custom
+    // source/layer is missing, rather than blanking the entire city.
     map.setLayoutProperty(layer.id, "visibility", customBuildingsReady ? "none" : (buildingsEnabled ? "visible" : "none"));
   }
   // Hillshade is separate from terrain geometry. Place it after ground raster/
   // polygons but before roads and labels, so shading remains visible without
   // obscuring geographic labels. Low-end devices skip distant hillshade tiles.
-  if (map.getSource("km-elevation") && !map.getLayer("km-terrain-shading")) {
+  if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     try { map.addLayer({
-      id: "km-terrain-shading", type: "hillshade", source: "km-elevation",
+      id: "km-terrain-shading", type: "hillshade", source: "km-hillshade-dem",
       minzoom: profile.shadeZoom, maxzoom: 16,
       layout: { visibility: terrainEnabled ? "visible" : "none" },
       paint: {
@@ -327,9 +326,7 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
       console.warn("3D hillshade unavailable; buildings remain enabled", error);
     }
   }
-  // Hillshade is now added behind the buildings, even if the imagery style
-  // loads symbols or raster layers in a nonstandard order.
-  if (customBuildingsReady) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+
 
   addGeo(map, "km-stops");
   map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
@@ -550,11 +547,24 @@ export default function Scene3D({
         });
       };
       map.on("moveend", map.__kmNotifyCamera);
+      // Show the exact failing resource when a provider rejects a tile. A 403
+      // on the DEM/sprite is different from a 403 on a building vector tile.
+      map.__kmBuildingErrors = [];
+      map.on("error", event => {
+        const message = String(event?.error?.message || event?.message || "");
+        if (!message || /abort/i.test(message)) return;
+        const list = map.__kmBuildingErrors;
+        list.push(message.slice(0, 360));
+        if (list.length > 12) list.shift();
+      });
       // Inspect the building source on demand from the browser console. Avoid
       // querying every city footprint on each move/idle (a performance cost).
       if (typeof window !== "undefined") window.__kmaps3DBuildings = () => {
         const layer = map.getLayer("km-buildings-3d");
         const sourceId = layer?.source;
+        const style = map.getStyle();
+        const candidateSources = Object.entries(style?.sources || {})
+          .filter(([, source]) => source.type === "vector").map(([id]) => id);
         let sourceFeatures = null;
         if (sourceId && map.isSourceLoaded(sourceId)) {
           try { sourceFeatures = map.querySourceFeatures(sourceId, { sourceLayer: "building" }).length; }
@@ -562,10 +572,19 @@ export default function Scene3D({
         }
         return {
           source: sourceId || null,
-          sourceLoaded: sourceId ? map.isSourceLoaded(sourceId) : false,
+          sourceLoaded: sourceId ? (() => {
+            try { return map.isSourceLoaded(sourceId); } catch { return false; }
+          })() : false,
           sourceFeatures,
           zoom: Number(map.getZoom().toFixed(1)),
           visible: layer ? map.getLayoutProperty("km-buildings-3d", "visibility") !== "none" : false,
+          candidateSources,
+          layerInstalled: Boolean(layer),
+          attempts: map.__kmBuildingInfo?.attempts ?? 0,
+          lastError: map.__kmBuildingInfo?.lastError ?? null,
+          lastSource: map.__kmBuildingInfo?.sourceId ?? null,
+          style: style?.name ?? null,
+          providerErrors: (map.__kmBuildingErrors || []).slice(-4),
         };
       };
       // A completed right-drag rotates the camera; it must not also open a
@@ -685,35 +704,61 @@ export default function Scene3D({
     const version = ++stylesRef.current;
     let onProviderError;
     let styleInstall;
+    const repairTimers = [];
     setProblem("");
     getStyle(mapStyle, darkMode, controller.signal).then(({ style, buildingSource, fallback }) => {
       if (controller.signal.aborted || stylesRef.current !== version) return;
       const install = () => {
         if (controller.signal.aborted || stylesRef.current !== version) return;
         try {
-          map.setProjection({ type: globeRef.current ? "globe" : "mercator" });
-          map.__kmSyncGlobeGestures?.();
+          try { map.setProjection({ type: globeRef.current ? "globe" : "mercator" }); }
+          catch (error) { console.warn("Projection unavailable", error); }
+          try { map.__kmSyncGlobeGestures?.(); }
+          catch (error) { console.warn("Gesture sync unavailable", error); }
           map.__kmSkyKey = null;
-          applyAtmosphere(map, darkMode, globeRef.current);
+          try { applyAtmosphere(map, darkMode, globeRef.current); }
+          catch (error) { console.warn("3D atmosphere unavailable", error); }
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
-          // Directional, warm daylight makes walls readable without lights or
-          // hundreds of costly individual building meshes.
+          // Install critical city geometry BEFORE optional visual effects.
+          // A sky, light or terrain exception must not disable the buildings.
+          addSceneLayers(map, buildingSource, darkMode, mapStyle,
+            buildingsRef.current, terrainRef.current, profile);
           if (mapStyle !== "street" && typeof map.setLight === "function") {
             try { map.setLight({ anchor: "map", color: "#fff7e8",
               intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
-            catch { /* Leave provider lighting intact on older GL versions. */ }
+            catch { /* Preserve provider lighting. */ }
           }
-          addSceneLayers(map, buildingSource, darkMode, mapStyle,
-            buildingsRef.current, terrainRef.current, profile);
           setData(map, "km-routes", newestLines.current);
           syncTerrain(map, terrainRef.current, profile);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
+        // Do not rely solely on idle: 511 and transit refreshes can delay it.
+        for (const delay of [700, 2400]) {
+          repairTimers.push(setTimeout(() => {
+            if (controller.signal.aborted || stylesRef.current !== version ||
+                !buildingsRef.current || map.getLayer("km-buildings-3d") ||
+                (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
+            ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+          }, delay));
+        }
       };
       styleInstall = install;
       map.on("style.load", install);
+      // Some styles emit style.load before source metadata has settled. Retry
+      // at most three times on idle, without rebuilding the whole map.
+      const repairBuildings = () => {
+        if (controller.signal.aborted || stylesRef.current !== version ||
+            !buildingsRef.current || map.getLayer("km-buildings-3d") ||
+            !buildingStyleRef.current || (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
+        ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+      };
+      map.on("idle", repairBuildings);
+      const oldCleanup = map.__kmBuildingRepairCleanup;
+      oldCleanup?.();
+      map.__kmBuildingRepairCleanup = () => map.off("idle", repairBuildings);
       let styleFailures = 0;
       const providerFailure = event => {
-        if (style === fallback || !/maptiler/i.test(String(event.error?.message || event.message || ""))) return;
+        const description = String(event.error?.message || event.message || "");
+        if (style === fallback || !/maptiler/i.test(description)) return;
         styleFailures++;
         if (styleFailures < 2) return;
         map.off("error", providerFailure);
@@ -739,6 +784,8 @@ export default function Scene3D({
         sources: { ...base.sources,
           "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
             maxzoom: profile.demZoom, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
+          "km-hillshade-dem": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
+            maxzoom: Math.min(9, profile.demZoom), encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
         },
       });
       try { map.setStyle(prepare(style), { diff: false }); }
@@ -750,8 +797,11 @@ export default function Scene3D({
     }).catch(error => { if (!controller.signal.aborted) setProblem(error.message); });
     return () => {
       controller.abort();
+      repairTimers.forEach(clearTimeout);
       if (onProviderError) map.off("error", onProviderError);
       if (styleInstall) map.off("style.load", styleInstall);
+      map.__kmBuildingRepairCleanup?.();
+      delete map.__kmBuildingRepairCleanup;
     };
     // Line data changes shouldn't rebuild the whole basemap.
   }, [ready, mapStyle, darkMode, profile]);
@@ -789,7 +839,7 @@ export default function Scene3D({
       return;
     }
     // Lazy load city vector data only when the user enables buildings.
-    if (buildingStyleRef.current && map.getSource("km-elevation")) {
+    if (buildingStyleRef.current) {
       const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
     }

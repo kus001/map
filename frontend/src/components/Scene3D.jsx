@@ -197,46 +197,96 @@ const REAL_BUILDING_COLOR = ["to-color", ["get", "colour"],
     ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
     0, "#d4c9b9", 16, "#c7bfae", 65, "#a8b4b8", 180, "#899ca9"]];
 
+// Satellite and Hybrid contain opaque raster imagery, but building footprints
+// must come from a *vector* source. In particular, do not pick an arbitrary
+// provider's building source: its schema or availability may differ from the
+// OpenMapTiles source used by our extrusion expressions.
+// Reuse OpenFreeMap when it is already in the style (the free Hybrid fallback).
+function pickBuildingSource(map, buildingSource) {
+  const style = map.getStyle();
+  const sources = style.sources || {};
+  // Only reuse a provider source when it really is the free OpenMapTiles
+  // endpoint. MapTiler may use the same source ID for a different tileset.
+  if (sources.openmaptiles?.type === "vector" &&
+      sources.openmaptiles.url === buildingSource?.url &&
+      map.getSource("openmaptiles")) {
+    return "openmaptiles";
+  }
+  // Use the known OpenMapTiles schema for raster Satellite/Hybrid as well as
+  // any Street provider lacking the expected source. One vector source is
+  // shared by ALL building extrusions rather than one source per material.
+  const sourceId = "km-buildings";
+  if (!map.getSource(sourceId)) {
+    const supplied = buildingSource?.type === "vector" ? buildingSource : {
+      type: "vector", url: "https://tiles.openfreemap.org/planet",
+    };
+    map.addSource(sourceId, { ...supplied, type: "vector" });
+  }
+  return sourceId;
+}
+
+function buildingLayerInsertionPoint(map) {
+  const layers = map.getStyle().layers || [];
+  // A raster above the extrusion completely masks 3D buildings. Insert only
+  // AFTER satellite/traffic raster and hillshade layers, but still underneath
+  // geographic labels where the style permits this ordering.
+  let lastGroundIndex = -1;
+  for (let i = 0; i < layers.length; i++) {
+    if (["raster", "hillshade", "background"].includes(layers[i].type)) lastGroundIndex = i;
+  }
+  return layers.slice(lastGroundIndex + 1)
+    .find(layer => layer.type === "symbol")?.id;
+}
+
+const BUILDING_HEIGHT = ["max", 3,
+  ["coalesce", ["to-number", ["get", "render_height"]],
+    ["to-number", ["get", "height"]], 12]];
+const BUILDING_BASE = ["max", 0,
+  ["coalesce", ["to-number", ["get", "render_min_height"]],
+    ["to-number", ["get", "min_height"]], 0]];
+
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
-  if (map.getLayer("km-buildings-3d")) {
+  const existingLayer = map.getLayer("km-buildings-3d");
+  if (existingLayer) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
+    const before = buildingLayerInsertionPoint(map);
+    // Correct older styles or traffic overlays that ended up above buildings.
+    if (before !== "km-buildings-3d") map.moveLayer("km-buildings-3d", before);
     return true;
   }
-  const style = map.getStyle();
-  const native = style.layers.find(l => l["source-layer"] === "building" && style.sources?.[l.source]?.type === "vector");
-  const existing = native?.source || (style.sources?.openmaptiles?.type === "vector" ? "openmaptiles" : null);
-  const sourceId = existing || "km-buildings";
-  // Satellite is raster-only; it must explicitly load the OpenMapTiles vector
-  // building source, even though the raster imagery itself is already loaded.
-  if (!existing && buildingSource && !map.getSource(sourceId)) {
-    try { map.addSource(sourceId, { ...buildingSource, type: "vector" }); }
-    catch (error) { console.warn("3D building vector source unavailable", error); return false; }
+  let sourceId;
+  try {
+    sourceId = pickBuildingSource(map, buildingSource);
+  } catch (error) {
+    console.warn("3D building vector source unavailable", error);
+    return false;
   }
-  if (!map.getSource(sourceId)) return false;
-  const before = style.layers.find(layer => layer.type === "symbol")?.id;
+  if (!sourceId || !map.getSource(sourceId)) return false;
+
+  // In MapLibre the fill-extrusion paint is independent of satellite pixels.
+  // No pattern textures: an unresolved sprite used to make *all* walls vanish.
+  const startZoom = Math.min(profile.buildingZoom, 15.3);
   const color = mapStyle === "street" ? (darkMode ? "#82919b" : "#b6b9b3") : REAL_BUILDING_COLOR;
   const layer = {
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
-    "source-layer": native?.["source-layer"] || "building", minzoom: profile.buildingZoom,
+    "source-layer": "building", minzoom: startZoom,
+    layout: { visibility: "visible" },
     filter: ["!=", ["get", "hide_3d"], true],
     paint: {
       "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
-        profile.buildingZoom, 0, profile.buildingZoom + 0.45,
-        ["coalesce", ["to-number", ["get", "render_min_height"]], ["to-number", ["get", "min_height"]], 0]],
+        startZoom, 0, startZoom + 0.5, BUILDING_BASE],
       "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
-        profile.buildingZoom, 0, profile.buildingZoom + 0.45,
-        ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8]],
+        startZoom, 0, startZoom + 0.5, BUILDING_HEIGHT],
       "fill-extrusion-color": color,
       "fill-extrusion-opacity": 1,
       "fill-extrusion-vertical-gradient": true,
     },
   };
+  const before = buildingLayerInsertionPoint(map);
   try {
     map.addLayer(layer, before);
   } catch (error) {
-    // Never lose *all* buildings because a provider or browser rejects a
-    // data-driven colour expression. Retry once with a plain opaque colour.
-    console.warn("Detailed 3D building style rejected; falling back", error);
+    console.warn("Data-coloured building style unavailable; trying solid buildings", error);
     try {
       layer.paint["fill-extrusion-color"] = darkMode ? "#899aa3" : "#c7bfae";
       map.addLayer(layer, before);
@@ -249,12 +299,20 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
 }
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
+  // Buildings must be independent of optional elevation and hillshade layers.
+  // A missing DEM must never prevent city geometry from rendering.
+  const customBuildingsReady = buildingsEnabled && ensureBuildingLayer(
+    map, buildingSource, darkMode, mapStyle, profile);
+  for (const layer of map.getStyle().layers) {
+    if (layer.type !== "fill-extrusion" || layer.id === "km-buildings-3d") continue;
+    map.setLayoutProperty(layer.id, "visibility", customBuildingsReady ? "none" : (buildingsEnabled ? "visible" : "none"));
+  }
   // Hillshade is separate from terrain geometry. Place it after ground raster/
   // polygons but before roads and labels, so shading remains visible without
   // obscuring geographic labels. Low-end devices skip distant hillshade tiles.
   if (map.getSource("km-elevation") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
-    map.addLayer({
+    try { map.addLayer({
       id: "km-terrain-shading", type: "hillshade", source: "km-elevation",
       minzoom: profile.shadeZoom, maxzoom: 16,
       layout: { visibility: terrainEnabled ? "visible" : "none" },
@@ -265,16 +323,13 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
         "hillshade-accent-color": darkMode ? "#30475d" : "#758b78",
         "hillshade-illumination-direction": 315,
       },
-    }, before);
+    }, before); } catch (error) {
+      console.warn("3D hillshade unavailable; buildings remain enabled", error);
+    }
   }
-  // Never hide a provider's native buildings before our replacement exists.
-  // The old code hid them *first*, leaving no buildings if source/style failed.
-  const customBuildingsReady = buildingsEnabled && ensureBuildingLayer(
-    map, buildingSource, darkMode, mapStyle, profile);
-  for (const layer of map.getStyle().layers) {
-    if (layer.type !== "fill-extrusion" || layer.id === "km-buildings-3d") continue;
-    map.setLayoutProperty(layer.id, "visibility", customBuildingsReady ? "none" : (buildingsEnabled ? "visible" : "none"));
-  }
+  // Hillshade is now added behind the buildings, even if the imagery style
+  // loads symbols or raster layers in a nonstandard order.
+  if (customBuildingsReady) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
 
   addGeo(map, "km-stops");
   map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
@@ -495,6 +550,24 @@ export default function Scene3D({
         });
       };
       map.on("moveend", map.__kmNotifyCamera);
+      // Inspect the building source on demand from the browser console. Avoid
+      // querying every city footprint on each move/idle (a performance cost).
+      if (typeof window !== "undefined") window.__kmaps3DBuildings = () => {
+        const layer = map.getLayer("km-buildings-3d");
+        const sourceId = layer?.source;
+        let sourceFeatures = null;
+        if (sourceId && map.isSourceLoaded(sourceId)) {
+          try { sourceFeatures = map.querySourceFeatures(sourceId, { sourceLayer: "building" }).length; }
+          catch (error) { console.warn("3D building query", error); }
+        }
+        return {
+          source: sourceId || null,
+          sourceLoaded: sourceId ? map.isSourceLoaded(sourceId) : false,
+          sourceFeatures,
+          zoom: Number(map.getZoom().toFixed(1)),
+          visible: layer ? map.getLayoutProperty("km-buildings-3d", "visibility") !== "none" : false,
+        };
+      };
       // A completed right-drag rotates the camera; it must not also open a
       // "Set as start" context menu when the right mouse button is released.
       let lastRotateAt = -Infinity;
@@ -596,7 +669,10 @@ export default function Scene3D({
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmSpinCleanup?.();
       map?.remove();
-      if (typeof window !== "undefined") delete window.__kmaps3DStats;
+      if (typeof window !== "undefined") {
+        delete window.__kmaps3DStats;
+        delete window.__kmaps3DBuildings;
+      }
       if (mapRef.current === map) mapRef.current = null;
     };
   }, [profile]);
@@ -707,7 +783,9 @@ export default function Scene3D({
     const map = mapRef.current;
     if (!ready || !map) return;
     if (!buildingsEnabled) {
-      if (map.getLayer("km-buildings-3d")) map.setLayoutProperty("km-buildings-3d", "visibility", "none");
+      for (const layer of map.getStyle().layers) {
+        if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
+      }
       return;
     }
     // Lazy load city vector data only when the user enables buildings.

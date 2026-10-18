@@ -26,7 +26,7 @@ app = Flask(__name__)
 
 VALID_CYCLING_TYPES = {"regular", "road", "mountain", "electric"}
 VALID_TRANSIT_PREFERENCES = {"balanced", "less_walking", "fastest"}
-VALID_WALKING_TYPES = {"regular", "hiking"}
+VALID_WALKING_TYPES = {"regular", "scenic"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
 
 # Local-development mode brings back the convenient testing behaviour from the

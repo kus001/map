@@ -73,8 +73,7 @@ const BIKE_TYPES = [
 
 const WALK_TYPES = [
   { id: "regular", label: "Regular"},
-  { id: "hiking", label: "Hiking"},
-  { id: "scenic", label: "Scenic"}
+  { id: "scenic", label: "Scenic"},
 ];
 
 const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 }; // Kitchener-Waterloo
@@ -669,7 +668,7 @@ export default function SearchPanel({
       )}
 
       {mode === "walking" && (
-        <div className="soft-enter mt-2 grid grid-cols-3 gap-1.5">
+        <div className="soft-enter mt-2 grid grid-cols-2 gap-1.5">
           {WALK_TYPES.map(option => (
             <button
               type="button"

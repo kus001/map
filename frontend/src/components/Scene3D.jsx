@@ -7,8 +7,15 @@ const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 // The same DEM is shared by terrain and hillshade: two raster DEM sources
 // unnecessarily decode and cache the same elevation tiles twice.
 const TERRAIN_MIN_ZOOM = 7;
-const MAX_FREE_PITCH = 130; // >90 is experimental in MapLibre; avoid a 180° singularity.
+const MAX_FREE_PITCH = 85; // Keep orbital camera above terrain; bearing/roll remain unrestricted.
 const GLOBE_SPIN_MAX_ZOOM = 5.5;
+// A surface-anchored map camera with pitch beyond 90 degrees can orbit
+// underneath terrain. Clamp pitch *before* native gestures/animations move;
+// bearing, roll, and drag-to-spin globe remain free in every direction.
+function safeCameraPitch(zoom, pitch) {
+  const limit = zoom >= 10 ? 80 : MAX_FREE_PITCH;
+  return Math.max(0, Math.min(limit, Number.isFinite(pitch) ? pitch : 0));
+}
 
 function deviceProfile() {
   const memory = typeof navigator === "undefined" ? 0 : Number(navigator.deviceMemory) || 0;
@@ -24,7 +31,7 @@ function deviceProfile() {
     tier,
     pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.2 : 1.4),
     tileCache: tier === "low" ? 8 : tier === "medium" ? 14 : 22,
-    buildingZoom: tier === "low" ? 18.5 : tier === "medium" ? 18 : 17.4,
+    buildingZoom: tier === "low" ? 16.4 : tier === "medium" ? 15.8 : 15.2,
     demZoom: tier === "low" ? 9 : tier === "medium" ? 10 : 11,
     shadeZoom: tier === "low" ? 8 : 6,
   };
@@ -212,9 +219,15 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   map.addLayer({
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
     "source-layer": native?.["source-layer"] || "building", minzoom: profile.buildingZoom,
+    // Use the provider's documented 3D visibility flag when available.
+    filter: ["!=", ["get", "hide_3d"], true],
     paint: {
-      "fill-extrusion-base": ["coalesce", ["to-number", ["get", "render_min_height"]], 0],
-      "fill-extrusion-height": ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
+      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
+        profile.buildingZoom, 0, profile.buildingZoom + 0.45,
+        ["coalesce", ["to-number", ["get", "render_min_height"]], ["to-number", ["get", "min_height"]], 0]],
+      "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
+        profile.buildingZoom, 0, profile.buildingZoom + 0.45,
+        ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8]],
       "fill-extrusion-color": darkMode ? (mapStyle === "hybrid" ? "#8976a8" : "#72808c") : (mapStyle === "satellite" ? "#c3bbb0" : "#b6b9b3"),
       "fill-extrusion-opacity": 0.79,
     },
@@ -291,12 +304,12 @@ export default function Scene3D({
   const [problem, setProblem] = useState("");
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(() => initialCamera?.zoom ?? DEFAULT_CAMERA.zoom);
-  const profile = useRef(deviceProfile()).current;
+  const [profile] = useState(deviceProfile);
   const buildingStyleRef = useRef(null);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
   // Conservative defaults on low-memory devices; manually override via UI.
-  const [buildingsEnabled, setBuildingsEnabled] = useState(() => deviceProfile().tier === "high");
+  const [buildingsEnabled, setBuildingsEnabled] = useState(true);
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
   useEffect(() => {
@@ -346,11 +359,16 @@ export default function Scene3D({
       map = new gl.Map({
         container: holder.current,
         style: { version: 8, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#d9e3de" } }] },
-        center: initial.center, zoom: initial.zoom, pitch: Math.min(MAX_FREE_PITCH, Math.max(0, initial.pitch ?? 58)),
+        center: initial.center, zoom: initial.zoom,
+        pitch: safeCameraPitch(initial.zoom, initial.pitch ?? 58),
         bearing: initial.bearing || 0, roll: initial.roll || 0,
-        maxZoom: 22, minZoom: 0, maxPitch: MAX_FREE_PITCH,
-        // Above 90 degrees, terrain-following the camera can place it under the ground.
-        centerClampedToGround: false,
+        maxZoom: 20, minZoom: 0, maxPitch: MAX_FREE_PITCH,
+        // At street scale the camera pivots on terrain rather than sea level.
+        centerClampedToGround: true,
+        transformCameraUpdate: next => {
+          const pitch = safeCameraPitch(next.zoom, next.pitch);
+          return pitch === next.pitch ? {} : { pitch };
+        },
         // Bearing, pitch AND roll are mouse-driven. Globe drags orbit the sphere.
         rollEnabled: true, aroundCenter: true, rotateSpeed: 0.56, pitchSpeed: 0.36,
         antialias: false, fadeDuration: 0, renderWorldCopies: false,
@@ -368,53 +386,95 @@ export default function Scene3D({
       map.dragRotate.enable(); // Right-drag: yaw and pitch; native roll supported.
       map.touchZoomRotate.enableRotation();
       map.touchPitch?.enable(); // Two-finger tilt on phones and tablets.
-      // Distant globe: pointer-drag behaves as a trackball and can cross poles.
-      // Only intercept ordinary left-drags; rotation, touch, popups and all
-      // close-up map interactions remain MapLibre native. Batch moves per frame.
+      // Distant globe: one-finger touch and left-mouse drag spin the sphere,
+      // including pole crossings. Native two-finger pinch/rotate remains active.
+      // Close-up interactions are left to MapLibre. Batch moves per frame.
       const canvas = map.getCanvas();
       let spin = null;
       let spinFrame = 0;
+      let pendingSpin = null;
       let lastSpinDragAt = -Infinity;
+      const touches = new Set();
       const interactiveGlobe = () => globeRef.current && map.getZoom() <= GLOBE_SPIN_MAX_ZOOM;
+      const cancelSpinFrame = () => {
+        if (spinFrame) cancelAnimationFrame(spinFrame);
+        spinFrame = 0;
+        pendingSpin = null;
+      };
+      const updateGroundClamp = () => {
+        map.setCenterClampedToGround(true);
+        const pitch = safeCameraPitch(map.getZoom(), map.getPitch());
+        if (pitch !== map.getPitch()) map.setPitch(pitch);
+      };
       const updateSpinMode = () => {
         if (interactiveGlobe()) map.dragPan.disable();
         else if (!map.dragPan.isEnabled()) map.dragPan.enable();
+        if (!interactiveGlobe()) {
+          spin = null; map.__kmSpinning = false; cancelSpinFrame(); touches.clear();
+        }
+        updateGroundClamp();
+      };
+      const commitSpin = () => {
+        if (!pendingSpin || mapRef.current !== map) return;
+        const next = pendingSpin;
+        pendingSpin = null;
+        map.jumpTo(next);
       };
       const onSpinDown = event => {
-        if (event.pointerType !== "mouse" || event.button !== 0 || !interactiveGlobe() || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (event.pointerType === "touch") touches.add(event.pointerId);
+        // If a second finger lands, stop single-finger tracking so native
+        // pinch zoom / two-finger pitch can operate without competition.
+        if (touches.size > 1) {
+          spin = null; map.__kmSpinning = false; cancelSpinFrame(); return;
+        }
+        if (!interactiveGlobe() || event.button !== 0 || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (!["mouse", "touch", "pen"].includes(event.pointerType)) return;
+        const center = map.getCenter();
         spin = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-          center: map.getCenter(), bearing: map.getBearing(), moved: false };
-        canvas.setPointerCapture?.(event.pointerId);
+          lng: center.lng, lat: center.lat, bearing: map.getBearing(), moved: false };
+        // Avoid sending a full React application update on every drag frame.
+        map.__kmSpinning = true;
+        try { canvas.setPointerCapture?.(event.pointerId); } catch { /* capture unsupported */ }
       };
       const onSpinMove = event => {
-        if (!spin || spin.pointerId !== event.pointerId || !interactiveGlobe()) return;
+        if (!spin || spin.pointerId !== event.pointerId || !interactiveGlobe() || touches.size > 1) return;
         const dx = event.clientX - spin.x, dy = event.clientY - spin.y;
-        if (Math.hypot(dx, dy) < 1) return;
+        if (Math.hypot(dx, dy) < 2) return;
         spin.moved = true;
-        // Lower sensitivity up close; latitude crosses a pole by reflection.
-        const degrees = 0.32 * Math.pow(2, Math.max(0, 2 - map.getZoom()) * 0.2);
-        const [lng, lat, flips] = reflectGlobeCoordinates(spin.center.lng - dx * degrees,
-          spin.center.lat + dy * degrees);
-        if (spinFrame) cancelAnimationFrame(spinFrame);
-        spinFrame = requestAnimationFrame(() => {
-          if (mapRef.current !== map) return;
-          map.jumpTo({ center: [lng, lat], bearing: spin.bearing + (flips % 2 ? 180 : 0) });
+        const degrees = 0.27 * Math.pow(2, Math.max(0, 2 - map.getZoom()) * 0.2);
+        const [lng, lat, flips] = reflectGlobeCoordinates(spin.lng - dx * degrees,
+          spin.lat + dy * degrees);
+        pendingSpin = { center: [lng, lat], bearing: spin.bearing + (flips % 2 ? 180 : 0) };
+        if (!spinFrame) spinFrame = requestAnimationFrame(() => {
           spinFrame = 0;
+          commitSpin();
         });
+        if (event.pointerType === "touch" && event.cancelable) event.preventDefault();
       };
       const onSpinUp = event => {
+        if (event.pointerType === "touch") touches.delete(event.pointerId);
         if (spin && spin.pointerId === event.pointerId) {
-          if (spin.moved) lastSpinDragAt = performance.now();
+          if (spin.moved) {
+            lastSpinDragAt = performance.now();
+            // Commit the final sample even if the finger lifted before RAF.
+            if (spinFrame) cancelAnimationFrame(spinFrame);
+            spinFrame = 0;
+            commitSpin();
+          } else cancelSpinFrame();
+          const moved = spin.moved;
           spin = null;
-          if (spinFrame) cancelAnimationFrame(spinFrame);
-          spinFrame = 0;
-          if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+          map.__kmSpinning = false;
+          if (moved) map.__kmNotifyCamera?.();
+          try {
+            if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+          } catch { /* capture was already released */ }
         }
       };
       canvas.addEventListener("pointerdown", onSpinDown);
       canvas.addEventListener("pointermove", onSpinMove);
       canvas.addEventListener("pointerup", onSpinUp);
       canvas.addEventListener("pointercancel", onSpinUp);
+      canvas.addEventListener("lostpointercapture", onSpinUp);
       map.on("zoomend", updateSpinMode);
       map.on("style.load", updateSpinMode);
       // Make handlers removable when changing renderer: no orphaned listeners.
@@ -424,10 +484,13 @@ export default function Scene3D({
         canvas.removeEventListener("pointermove", onSpinMove);
         canvas.removeEventListener("pointerup", onSpinUp);
         canvas.removeEventListener("pointercancel", onSpinUp);
+        canvas.removeEventListener("lostpointercapture", onSpinUp);
         map.off("zoomend", updateSpinMode);
         map.off("style.load", updateSpinMode);
-        if (spinFrame) cancelAnimationFrame(spinFrame);
+        cancelSpinFrame();
+        map.__kmSpinning = false;
         delete map.__kmSyncGlobeGestures;
+        delete map.__kmNotifyCamera;
       };
       updateSpinMode();
       // In-browser instrumentation: sample actual rendered frames while moving.
@@ -452,7 +515,9 @@ export default function Scene3D({
           tier: profile.tier, frameMs: Math.round(mean * 10) / 10,
           movingFps: Math.round(1000 / mean), pixelRatio: map.getPixelRatio(),
           samples, projection: globeRef.current ? "globe" : "flat",
-          terrain: Boolean(map.getTerrain()), buildingLayer: Boolean(map.getLayer("km-buildings-3d")),
+          terrain: Boolean(map.getTerrain()),
+          buildingLayer: Boolean(map.getLayer("km-buildings-3d") &&
+            map.getLayoutProperty("km-buildings-3d", "visibility") !== "none"),
         };
         // Downgrade on sustained measured slowness, not a single tile load.
         slowWindows = mean > 28 ? slowWindows + 1 : 0;
@@ -463,7 +528,7 @@ export default function Scene3D({
         }
         samples = 0; totalFrameMs = 0;
       });
-      // Avoid expensive DEM setup during continuous zooming; sync after zoom.
+      // Terrain and camera constraints update after gesture zoom/pitch settle.
       map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
       map.on("zoomend", () => {
         setZoom(map.getZoom());
@@ -477,9 +542,14 @@ export default function Scene3D({
           map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
         }
       });
-      map.on("moveend", () => callbackRef.current.onCameraChange?.({
-        center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(), roll: map.getRoll(),
-      }));
+      map.__kmNotifyCamera = () => {
+        if (map.__kmSpinning) return;
+        callbackRef.current.onCameraChange?.({
+          center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(),
+          bearing: map.getBearing(), pitch: map.getPitch(), roll: map.getRoll(),
+        });
+      };
+      map.on("moveend", map.__kmNotifyCamera);
       map.on("contextmenu", event => {
         event.preventDefault();
         const root = document.createElement("div");
@@ -580,7 +650,7 @@ export default function Scene3D({
       if (typeof window !== "undefined") delete window.__kmaps3DStats;
       if (mapRef.current === map) mapRef.current = null;
     };
-  }, []);
+  }, [profile]);
 
   // Keep the camera. Calling setStyle() doesn't reset it.
   useEffect(() => {
@@ -652,7 +722,7 @@ export default function Scene3D({
       if (styleInstall) map.off("style.load", styleInstall);
     };
     // Line data changes shouldn't rebuild the whole basemap.
-  }, [ready, mapStyle, darkMode]);
+  }, [ready, mapStyle, darkMode, profile]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -880,9 +950,9 @@ export default function Scene3D({
           Terrain {terrainEnabled ? (zoom >= TERRAIN_MIN_ZOOM ? "On" : "Zoom in") : "Off"}
         </button>
         <button type="button" className="km-3d-toggle" aria-pressed={buildingsEnabled}
-          title="Buildings are rendered only when zoomed in closely, to protect performance"
+          title={`3D buildings appear from zoom ${profile.buildingZoom} (move closer to see them)`}
           onClick={() => setBuildingsEnabled(value => !value)}>
-          Buildings {buildingsEnabled ? "On" : "Off"}
+          Buildings {buildingsEnabled ? (zoom >= profile.buildingZoom ? "On" : "Zoom in") : "Off"}
         </button>
       </div>
     </div>

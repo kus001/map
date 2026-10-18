@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ensureRealLandmarks, LANDMARKS } from "./realLandmarks";
 
 const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
@@ -294,10 +293,27 @@ function syncNativeBuildings(map, buildingsEnabled) {
   return customReady;
 }
 
+function removeLegacyLandmarks(map) {
+  for (const id of ["km-real-landmarks", "km-landmark-models-3d"]) {
+    if (!map.getLayer(id)) continue;
+    try { map.removeLayer(id); }
+    catch (error) { console.warn("Could not clean up old landmark layer", error); }
+  }
+  const filters = map.__kmStoredBuildingFilters;
+  if (filters) {
+    for (const [id, filter] of Object.entries(filters)) {
+      if (!map.getLayer(id)) continue;
+      try { map.setFilter(id, filter); }
+      catch (error) { console.warn("Could not restore building filter", error); }
+    }
+    delete map.__kmStoredBuildingFilters;
+  }
+}
+
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
+  removeLegacyLandmarks(map);
   if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
   syncNativeBuildings(map, buildingsEnabled);
-  ensureRealLandmarks(map, buildingsEnabled);
   if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     try { map.addLayer({
@@ -651,16 +667,6 @@ export default function Scene3D({
           lastSource: map.__kmBuildingInfo?.sourceId ?? null,
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
-          landmarkLayer: Boolean(map.getLayer("km-real-landmarks")),
-          landmarkFilters: map.__kmLandmarkFilters || {},
-          landmarkModels: LANDMARKS.map(item => item.id),
-          activeModels: map.__kmActiveModels || [],
-          failedModels: map.__kmLandmarkErrors || [],
-          landmarkLibraryError: map.__kmLandmarkLibraryError || null,
-          landmarkLoadErrors: map.__kmLandmarkLoadErrors || {},
-          landmarkProjectionError: map.__kmLandmarkProjectionError || null,
-          renderedModels: map.__kmLandmarkRendered || {},
-          meshCounts: map.__kmLandmarkMeshCounts || {},
         };
       };
       let lastRotateAt = -Infinity;
@@ -812,9 +818,8 @@ export default function Scene3D({
             if (controller.signal.aborted || stylesRef.current !== version ||
                 !buildingsRef.current || map.getLayer("km-buildings-3d") ||
                 (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
-            if (ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile)) {
-              ensureRealLandmarks(map, true);
-            }
+            ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+            syncNativeBuildings(map, buildingsRef.current);
           }, delay));
         }
       };
@@ -824,9 +829,7 @@ export default function Scene3D({
         if (controller.signal.aborted || stylesRef.current !== version) return;
         if (buildingsRef.current && !map.getLayer("km-buildings-3d") &&
             buildingStyleRef.current && (map.__kmBuildingInfo?.attempts || 0) < 4) {
-          if (ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile)) {
-            ensureRealLandmarks(map, true);
-          }
+          ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
         }
         syncNativeBuildings(map, buildingsRef.current);
       };
@@ -921,7 +924,6 @@ export default function Scene3D({
       for (const layer of map.getStyle().layers) {
         if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
       }
-      ensureRealLandmarks(map, false);
       return;
     }
     if (buildingStyleRef.current) {
@@ -929,7 +931,6 @@ export default function Scene3D({
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
     }
     syncNativeBuildings(map, true);
-    ensureRealLandmarks(map, true);
   }, [ready, buildingsEnabled, profile]);
 
   useEffect(() => {

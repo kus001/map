@@ -211,7 +211,7 @@ function buildingMaterialColor(darkMode) {
   const neutral = darkMode ? "#aeb5bb" : "#d1c8ba";
   const material = ["downcase", ["to-string", ["coalesce",
     ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
-  return ["match", material,
+  const byMaterial = ["match", material,
     "brick", darkMode ? "#9d786e" : "#bb8e7e",
     "glass", darkMode ? "#759baa" : "#9bbec9",
     "concrete", darkMode ? "#9b9ea1" : "#c2bfba",
@@ -220,6 +220,10 @@ function buildingMaterialColor(darkMode) {
     "wood", darkMode ? "#997c67" : "#c6a88d",
     "plaster", darkMode ? "#b8b2a7" : "#e1d7c8",
     neutral];
+  return ["to-color",
+    ["get", "render_colour"], ["get", "building:colour"],
+    ["get", "building:color"], ["get", "colour"], ["get", "color"],
+    byMaterial];
 }
 
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
@@ -648,6 +652,7 @@ export default function Scene3D({
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
           landmarkLayer: Boolean(map.getLayer("km-real-landmarks")),
+          landmarkFilters: map.__kmLandmarkFilters || {},
           landmarkModels: LANDMARKS.map(item => item.id),
           activeModels: map.__kmActiveModels || [],
           failedModels: map.__kmLandmarkErrors || [],

@@ -99,9 +99,9 @@ def get_walking_route(
     )
 
     # only use OSRM for regular walking since hiking needs ORS
-    if route_type == "regular":
+    if route_type == "regular" or route_type == "scenic":
         try:
-            fast = osrm_route("walking", *key[1:])
+            fast = osrm_route("walking", *key[1:], alternatives=(route_type == "scenic"))
             mark("provider")
             converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
             mark("formatting")

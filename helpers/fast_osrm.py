@@ -18,17 +18,20 @@ _session.headers.update({"User-Agent": "map-router/8.2 (routing demo)"})
 
 
 @lru_cache(maxsize=256)
-def osrm_route(mode, lat1, lon1, lat2, lon2):
+def osrm_route(mode, lat1, lon1, lat2, lon2, alternatives=False):
     url = WALK_URL if mode == "walking" else BIKE_URL
     response = _session.get(
         f"{url}/{lon1},{lat1};{lon2},{lat2}",
-        params={"overview": "full", "geometries": "geojson", "steps": "true", "alternatives": "false"},
+        params={"overview": "full", "geometries": "geojson", "steps": "true", "alternatives": str(alternatives).lower()},
         timeout=(1.6, 2.9),
     )
     response.raise_for_status()
     data = response.json()
     if data.get("code") != "Ok" or not data.get("routes"):
         raise ValueError("No route from public OSRM server")
+    
+    if alternatives:
+        print("scenic routes returned: ", len(data["routes"]))
     return data["routes"][0]
 
 

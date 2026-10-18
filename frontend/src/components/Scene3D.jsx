@@ -8,7 +8,6 @@ const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 // unnecessarily decode and cache the same elevation tiles twice.
 const TERRAIN_MIN_ZOOM = 7;
 const MAX_FREE_PITCH = 85; // Keep orbital camera above terrain; bearing/roll remain unrestricted.
-const GLOBE_SPIN_MAX_ZOOM = 5.5;
 // A surface-anchored map camera with pitch beyond 90 degrees can orbit
 // underneath terrain. Clamp pitch *before* native gestures/animations move;
 // bearing, roll, and drag-to-spin globe remain free in every direction.
@@ -60,20 +59,6 @@ function applyAtmosphere(map, darkMode, globe) {
   if (map.__kmSkyKey === id) return;
   map.setSky(nextSky);
   map.__kmSkyKey = id;
-}
-
-// At globe scale, dragging the sphere should cross the poles instead of
-// clamping to a flat map's latitude bounds. Reflect at the pole and turn
-// longitude 180 degrees to keep globe orientation continuous.
-function reflectGlobeCoordinates(lng, lat) {
-  let flips = 0;
-  while (lat > 90 || lat < -90) {
-    if (lat > 90) { lat = 180 - lat; lng += 180; }
-    else { lat = -180 - lat; lng += 180; }
-    flips++;
-  }
-  return [((lng + 540) % 360 + 360) % 360 - 180,
-    Math.min(89.999, Math.max(-89.999, lat)), flips];
 }
 
 const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
@@ -369,9 +354,19 @@ export default function Scene3D({
           const pitch = safeCameraPitch(next.zoom, next.pitch);
           return pitch === next.pitch ? {} : { pitch };
         },
-        // Bearing, pitch AND roll are mouse-driven. Globe drags orbit the sphere.
-        rollEnabled: true, aroundCenter: true, rotateSpeed: 0.56, pitchSpeed: 0.36,
-        antialias: false, fadeDuration: 0, renderWorldCopies: false,
+        // Native MapLibre interactions are essential here. v10.5 disabled
+        // dragPan at globe zooms and tried to replace it with canvas pointer
+        // events; that left the sphere completely frozen on some devices.
+        // Never disable native panning. Globe dragPan rotates the globe with
+        // mouse/touch; flat dragPan wraps around the antimeridian.
+        dragPan: true, dragRotate: true, touchZoomRotate: true, touchPitch: true,
+        rollEnabled: true, aroundCenter: false, bearingSnap: 0,
+        cooperativeGestures: false,
+        rotateSpeed: 0.56, pitchSpeed: -0.4,
+        antialias: false, fadeDuration: 0,
+        // Continuous horizontal navigation in flat/mercator projection.
+        // The globe has only one physical Earth; it needs no world copies.
+        renderWorldCopies: !globeRef.current,
         maxTileCacheSize: profile.tileCache, maxTileCacheZoomLevels: 2,
         pixelRatio: profile.pixelRatio, crossSourceCollisions: false,
         anisotropicFilterPitch: profile.tier === "low" ? 180 : 75,
@@ -382,117 +377,37 @@ export default function Scene3D({
         attributionControl: true,
       });
       mapRef.current = map;
-      map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
+      map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
       map.dragRotate.enable(); // Right-drag: yaw and pitch; native roll supported.
       map.touchZoomRotate.enableRotation();
       map.touchPitch?.enable(); // Two-finger tilt on phones and tablets.
-      // Distant globe: one-finger touch and left-mouse drag spin the sphere,
-      // including pole crossings. Native two-finger pinch/rotate remains active.
-      // Close-up interactions are left to MapLibre. Batch moves per frame.
-      const canvas = map.getCanvas();
-      let spin = null;
-      let spinFrame = 0;
-      let pendingSpin = null;
-      let lastSpinDragAt = -Infinity;
-      const touches = new Set();
-      const interactiveGlobe = () => globeRef.current && map.getZoom() <= GLOBE_SPIN_MAX_ZOOM;
-      const cancelSpinFrame = () => {
-        if (spinFrame) cancelAnimationFrame(spinFrame);
-        spinFrame = 0;
-        pendingSpin = null;
-      };
-      const updateGroundClamp = () => {
+      // If the CDN stylesheet has not loaded yet, do not let the browser's
+      // scroll gesture steal touches from the map canvas.
+      map.getCanvasContainer().style.touchAction = "none";
+      // Use MapLibre's built-in gesture engine in BOTH projections. It receives
+      // real mouse, touch and trackpad events and owns gesture arbitration:
+      // one finger / left-drag pans (spins the globe), two fingers pinch and
+      // rotate, right-drag changes bearing/pitch, Ctrl+right-drag rolls.
+      // A custom pointer tracker used to disable native pan at globe zooms;
+      // when its pointerdown was missed, rotation had no fallback at all.
+      // Keep native gesture handlers enabled through style/projection changes.
+      const syncGestures = () => {
+        map.dragPan.enable();
+        map.dragRotate.enable();
+        map.touchZoomRotate.enable();
+        map.touchZoomRotate.enableRotation();
+        map.touchPitch?.enable();
+        map.setRenderWorldCopies(!globeRef.current);
         map.setCenterClampedToGround(true);
         const pitch = safeCameraPitch(map.getZoom(), map.getPitch());
         if (pitch !== map.getPitch()) map.setPitch(pitch);
       };
-      const updateSpinMode = () => {
-        if (interactiveGlobe()) map.dragPan.disable();
-        else if (!map.dragPan.isEnabled()) map.dragPan.enable();
-        if (!interactiveGlobe()) {
-          spin = null; map.__kmSpinning = false; cancelSpinFrame(); touches.clear();
-        }
-        updateGroundClamp();
-      };
-      const commitSpin = () => {
-        if (!pendingSpin || mapRef.current !== map) return;
-        const next = pendingSpin;
-        pendingSpin = null;
-        map.jumpTo(next);
-      };
-      const onSpinDown = event => {
-        if (event.pointerType === "touch") touches.add(event.pointerId);
-        // If a second finger lands, stop single-finger tracking so native
-        // pinch zoom / two-finger pitch can operate without competition.
-        if (touches.size > 1) {
-          spin = null; map.__kmSpinning = false; cancelSpinFrame(); return;
-        }
-        if (!interactiveGlobe() || event.button !== 0 || event.ctrlKey || event.shiftKey || event.altKey) return;
-        if (!["mouse", "touch", "pen"].includes(event.pointerType)) return;
-        const center = map.getCenter();
-        spin = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-          lng: center.lng, lat: center.lat, bearing: map.getBearing(), moved: false };
-        // Avoid sending a full React application update on every drag frame.
-        map.__kmSpinning = true;
-        try { canvas.setPointerCapture?.(event.pointerId); } catch { /* capture unsupported */ }
-      };
-      const onSpinMove = event => {
-        if (!spin || spin.pointerId !== event.pointerId || !interactiveGlobe() || touches.size > 1) return;
-        const dx = event.clientX - spin.x, dy = event.clientY - spin.y;
-        if (Math.hypot(dx, dy) < 2) return;
-        spin.moved = true;
-        const degrees = 0.27 * Math.pow(2, Math.max(0, 2 - map.getZoom()) * 0.2);
-        const [lng, lat, flips] = reflectGlobeCoordinates(spin.lng - dx * degrees,
-          spin.lat + dy * degrees);
-        pendingSpin = { center: [lng, lat], bearing: spin.bearing + (flips % 2 ? 180 : 0) };
-        if (!spinFrame) spinFrame = requestAnimationFrame(() => {
-          spinFrame = 0;
-          commitSpin();
-        });
-        if (event.pointerType === "touch" && event.cancelable) event.preventDefault();
-      };
-      const onSpinUp = event => {
-        if (event.pointerType === "touch") touches.delete(event.pointerId);
-        if (spin && spin.pointerId === event.pointerId) {
-          if (spin.moved) {
-            lastSpinDragAt = performance.now();
-            // Commit the final sample even if the finger lifted before RAF.
-            if (spinFrame) cancelAnimationFrame(spinFrame);
-            spinFrame = 0;
-            commitSpin();
-          } else cancelSpinFrame();
-          const moved = spin.moved;
-          spin = null;
-          map.__kmSpinning = false;
-          if (moved) map.__kmNotifyCamera?.();
-          try {
-            if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-          } catch { /* capture was already released */ }
-        }
-      };
-      canvas.addEventListener("pointerdown", onSpinDown);
-      canvas.addEventListener("pointermove", onSpinMove);
-      canvas.addEventListener("pointerup", onSpinUp);
-      canvas.addEventListener("pointercancel", onSpinUp);
-      canvas.addEventListener("lostpointercapture", onSpinUp);
-      map.on("zoomend", updateSpinMode);
-      map.on("style.load", updateSpinMode);
-      // Make handlers removable when changing renderer: no orphaned listeners.
-      map.__kmSyncGlobeGestures = updateSpinMode;
+      map.__kmSyncGlobeGestures = syncGestures;
       map.__kmSpinCleanup = () => {
-        canvas.removeEventListener("pointerdown", onSpinDown);
-        canvas.removeEventListener("pointermove", onSpinMove);
-        canvas.removeEventListener("pointerup", onSpinUp);
-        canvas.removeEventListener("pointercancel", onSpinUp);
-        canvas.removeEventListener("lostpointercapture", onSpinUp);
-        map.off("zoomend", updateSpinMode);
-        map.off("style.load", updateSpinMode);
-        cancelSpinFrame();
-        map.__kmSpinning = false;
         delete map.__kmSyncGlobeGestures;
         delete map.__kmNotifyCamera;
       };
-      updateSpinMode();
+      syncGestures();
       // In-browser instrumentation: sample actual rendered frames while moving.
       // If an integrated GPU cannot keep up, lower the device-pixel workload
       // (pixel count scales with DPR squared). Never force a continuous repaint.
@@ -543,15 +458,19 @@ export default function Scene3D({
         }
       });
       map.__kmNotifyCamera = () => {
-        if (map.__kmSpinning) return;
         callbackRef.current.onCameraChange?.({
           center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(),
           bearing: map.getBearing(), pitch: map.getPitch(), roll: map.getRoll(),
         });
       };
       map.on("moveend", map.__kmNotifyCamera);
+      // A completed right-drag rotates the camera; it must not also open a
+      // "Set as start" context menu when the right mouse button is released.
+      let lastRotateAt = -Infinity;
+      map.on("rotate", () => { lastRotateAt = performance.now(); });
       map.on("contextmenu", event => {
         event.preventDefault();
+        if (performance.now() - lastRotateAt < 350) return;
         const root = document.createElement("div");
         root.className = "km-3d-picker";
         for (const [label, action] of [["Set as start", "onSetMapStart"], ["Set as destination", "onSetMapDestination"]]) {
@@ -562,7 +481,6 @@ export default function Scene3D({
         const popup = new gl.Popup({ closeOnClick: true }).setLngLat(event.lngLat).setDOMContent(root).addTo(map);
       });
       map.on("click", event => {
-        if (performance.now() - lastSpinDragAt < 300) return;
         const ids = ["km-route-lines", "km-stops-points",
           ...Object.keys(FEED_COLORS).flatMap(kind => [`km-511-${kind}-points`, `km-511-${kind}-lines`])]
           .filter(id => map.getLayer(id));

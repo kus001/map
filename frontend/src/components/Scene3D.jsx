@@ -7,9 +7,10 @@ const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 // Buildings are optional and are only drawn close to the ground. A large-city
 // full-detail extrusion at zoom 14 can overwhelm an integrated GPU.
 const BUILDING_MIN_ZOOM = 16.5;
-const TERRAIN_MIN_ZOOM = 8;
-const GLOBE_TERRAIN_MIN_ZOOM = 12;
-const SPACE = "#070b14";
+// DEM tiles are needed when regional contours start to be discernible. In the
+// distant planet view they're both wasteful and imperceptible. The same terrain
+// setting applies to Street, Satellite and Hybrid basemaps.
+const TERRAIN_MIN_ZOOM = 7;
 const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
 const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
 const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
@@ -115,14 +116,15 @@ async function getStyle(mapStyle, darkMode, signal) {
   };
 }
 
-// Keep expensive elevation data off the world view; MapLibre's globe terrain
-// is only reliable after its automatic transition towards Mercator at z~12.
-function syncTerrain(map, globe) {
+// Limit expensive elevation requests at world scale, but retain real DEM-driven
+// terrain in BOTH projections and all three basemap styles. This runs after
+// style.load, after zoomend, and when the user changes the terrain toggle.
+function syncTerrain(map, enabled) {
   if (!map.getSource("km-elevation")) return;
-  const show = map.getZoom() >= (globe ? GLOBE_TERRAIN_MIN_ZOOM : TERRAIN_MIN_ZOOM);
+  const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM;
   const current = map.getTerrain();
-  if (show && !current) map.setTerrain({ source: "km-elevation", exaggeration: 1.1 });
-  else if (!show && current) map.setTerrain(null);
+  if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: 1.2 });
+  else if (!shouldRender && current) map.setTerrain(null);
 }
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled) {
@@ -195,6 +197,10 @@ export default function Scene3D({
   const callbackRef = useRef({});
   const [problem, setProblem] = useState("");
   const [ready, setReady] = useState(false);
+  const [pitch, setPitch] = useState(() => initialCamera?.pitch ?? DEFAULT_CAMERA.pitch);
+  const [zoom, setZoom] = useState(() => initialCamera?.zoom ?? DEFAULT_CAMERA.zoom);
+  const [terrainEnabled, setTerrainEnabled] = useState(true);
+  const terrainRef = useRef(true);
   // Conservative defaults on low-memory devices; manually override via UI.
   const [buildingsEnabled, setBuildingsEnabled] = useState(() =>
     !(typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4));
@@ -203,11 +209,13 @@ export default function Scene3D({
   useEffect(() => {
     buildingsRef.current = buildingsEnabled;
     globeRef.current = globe;
-  }, [buildingsEnabled, globe]);
+    terrainRef.current = terrainEnabled;
+  }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const camera = useRef(initialCamera || DEFAULT_CAMERA);
   const flatCamera = useRef(null);
+  const previousGlobe = useRef(null);
   const newestLines = useRef([]);
   useEffect(() => {
     callbackRef.current = { onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute };
@@ -255,8 +263,12 @@ export default function Scene3D({
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
-      // Debounced updates avoid repeated expensive terrain changes during a pan.
-      map.on("zoomend", () => syncTerrain(map, globeRef.current));
+      // Avoid expensive DEM setup during continuous zooming; sync after zoom.
+      map.on("zoomend", () => {
+        setZoom(map.getZoom());
+        syncTerrain(map, terrainRef.current);
+      });
+      map.on("pitchend", () => setPitch(map.getPitch()));
       // Some third-party basemaps refer to icons missing from their sprite.
       // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
       map.on("styleimagemissing", event => {
@@ -382,14 +394,20 @@ export default function Scene3D({
         if (controller.signal.aborted || stylesRef.current !== version) return;
         try {
           map.setProjection({ type: globeRef.current ? "globe" : "mercator" });
-          map.setSky({
-            "sky-color": darkMode ? "#162336" : "#b5cee8",
-            "horizon-color": darkMode ? "#304252" : "#e4eef7",
-            "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
-          });
+          // A sky fog matrix can cause globe/terrain warnings on some GPUs.
+          // The globe has a real dark DOM backdrop instead of Mercator sky fog.
+          if (globeRef.current) {
+            map.setSky(undefined);
+          } else {
+            map.setSky({
+              "sky-color": darkMode ? "#162336" : "#b5cee8",
+              "horizon-color": darkMode ? "#304252" : "#e4eef7",
+              "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
+            });
+          }
           addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsRef.current);
           setData(map, "km-routes", newestLines.current);
-          syncTerrain(map, globeRef.current);
+          syncTerrain(map, terrainRef.current);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
       };
       styleInstall = install;
@@ -437,19 +455,35 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const projection = globe ? "globe" : "mercator";
-    map.setProjection({ type: projection });
+    const projectionChanged = previousGlobe.current !== globe;
+    previousGlobe.current = globe;
+    map.setProjection({ type: globe ? "globe" : "mercator" });
+    // Switching the projection without changing basemap must also update sky.
+    if (globe) map.setSky(undefined);
+    else map.setSky({ "sky-color": darkMode ? "#162336" : "#b5cee8",
+      "horizon-color": darkMode ? "#304252" : "#e4eef7" });
+    if (!projectionChanged) return;
     if (globe) {
-      flatCamera.current = { center: [map.getCenter().lng, map.getCenter().lat],
-        zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() };
-      map.easeTo({ zoom: Math.min(map.getZoom(), 3), pitch: 0, duration: 650 });
+      // Save the local camera before zooming out. Don't flatten pitch to zero:
+      // right-drag, the compass and the Tilt slider must keep working.
+      flatCamera.current = {
+        center: [map.getCenter().lng, map.getCenter().lat],
+        zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing(),
+      };
+      map.easeTo({ zoom: Math.min(map.getZoom(), 3), pitch: Math.min(map.getPitch(), 50), duration: 650 });
     } else if (flatCamera.current) {
-      map.easeTo({ ...flatCamera.current, duration: 650 });
+      // Return to the local view without discarding the planet's new center.
+      const view = flatCamera.current;
+      map.easeTo({ zoom: view.zoom, pitch: view.pitch, bearing: map.getBearing(), duration: 650 });
       flatCamera.current = null;
     }
-    // A style change may still be pending; sync on its next style.load too.
-    syncTerrain(map, globe);
-  }, [ready, globe]);
+    syncTerrain(map, terrainRef.current);
+  }, [ready, globe, darkMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map) syncTerrain(map, terrainEnabled);
+  }, [ready, terrainEnabled]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -622,15 +656,28 @@ export default function Scene3D({
     <div className="km-3d-scene absolute inset-0">
       <div ref={holder} className="km-3d-map h-full w-full" aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
-      <button type="button" className="km-3d-tilt" onClick={() => {
-        const map = mapRef.current;
-        if (map) map.easeTo({ pitch: map.getPitch() < 15 ? 62 : 0, duration: 550 });
-      }}>Tilt</button>
-      <button type="button" className="km-3d-buildings" aria-pressed={buildingsEnabled}
-        title="Extruded buildings appear at close zoom; disable if your device slows down"
-        onClick={() => setBuildingsEnabled(v => !v)}>
-        Buildings {buildingsEnabled ? "On" : "Off"}
-      </button>
+      <div className="km-3d-tools" role="group" aria-label="3D map controls">
+        <label className="km-3d-pitch-control">
+          <span>Tilt <output>{Math.round(pitch)}°</output></span>
+          <input type="range" min="0" max="80" step="5" value={Math.round(pitch / 5) * 5}
+            aria-label="Tilt the 3D map"
+            onChange={event => {
+              const next = Number(event.target.value);
+              setPitch(next);
+              mapRef.current?.easeTo({ pitch: next, duration: 0 });
+            }} />
+        </label>
+        <button type="button" className="km-3d-toggle" aria-pressed={terrainEnabled}
+          title={`True 3D terrain elevation loads at map zoom ${TERRAIN_MIN_ZOOM}+`}
+          onClick={() => setTerrainEnabled(value => !value)}>
+          Terrain {terrainEnabled ? (zoom >= TERRAIN_MIN_ZOOM ? "On" : "Zoom in") : "Off"}
+        </button>
+        <button type="button" className="km-3d-toggle" aria-pressed={buildingsEnabled}
+          title="Buildings are rendered only when zoomed in closely, to protect performance"
+          onClick={() => setBuildingsEnabled(value => !value)}>
+          Buildings {buildingsEnabled ? "On" : "Off"}
+        </button>
+      </div>
       <div className="km-3d-hint">Drag to move · Right-drag to rotate</div>
     </div>
   );

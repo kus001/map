@@ -16,7 +16,7 @@ REQUEST_TIMEOUT = (1.8, 3.5)
 
 WALKING_PROFILES = {
     "regular": "foot-walking",
-    "hiking": "foot-hiking",
+    "hiking": "foot-walking",
 }
 
 _session = requests.Session()
@@ -37,15 +37,24 @@ def _resolve_coordinates(address, provided=None):
 
 @lru_cache(maxsize=192)
 def _ors_walking(profile, start_lat, start_lon, end_lat, end_lon):
-    WALKING_URL = f"https://api.heigit.org/openrouteservice/v2/directions/{profile}"
-    response = _session.get(
+    WALKING_URL = f"https://api.heigit.org/openrouteservice/v2/directions/{profile}/geojson"
+    response = _session.post(
         WALKING_URL,
         headers={"Authorization": API_KEY},
-        params={
-            "start": f"{start_lon},{start_lat}",
-            "end": f"{end_lon},{end_lat}",
+        json={
+            "coordinates": [
+                [start_lon, start_lat],
+                [end_lon, end_lat],
+            ],
+            "options": {
+                "profile_params":{
+                    "weightings" : {
+                        "green": {"factor": 0.8}
+                    }
+                }
+            },
         },
-        timeout=REQUEST_TIMEOUT,
+        timeout=(3,15),
     )
     response.raise_for_status()
     return response.json()
@@ -64,6 +73,9 @@ def get_walking_route(
             timing[stage] = us() - timing["start"]
 
     profile = WALKING_PROFILES.get(route_type, "foot-walking")
+    print("walking type: ", route_type)
+    print("ors profile: ", profile)
+
     start = _resolve_coordinates(start_address, start_coordinates)
     end = _resolve_coordinates(end_address, end_coordinates)
     mark("geocoding")

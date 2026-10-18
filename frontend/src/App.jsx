@@ -789,7 +789,6 @@ export default function App() {
           requestedCyclingType.slice(1);
         setStatus(`${typeName} cycling route found${scheduledSuffix}`);
       } else if (requestedMode === "transit") {
-        const count = result.routes?.length || 1;
         const nextTripTime = result.next_service && result.departure_datetime
           ? new Date(result.departure_datetime).toLocaleString([], {
               weekday: "short", month: "short", day: "numeric",
@@ -1890,40 +1889,6 @@ export default function App() {
             />
           </div>
         )}
-
-        <MapView
-          data={data}
-          selectedRoute={selectedRoute}
-          selectedRouteNumber={selectedRouteNumber}
-          hoveredRouteNumber={hoveredRouteNumber}
-          displayedMode={displayedMode}
-          onSelectRoute={selectRoute}
-          onHoverRoute={setHoveredRouteNumber}
-          currentLocation={currentLocation}
-          navigationActive={navigationActive}
-          navigationAccuracy={navigationAccuracy}
-          navigationHeading={navigationHeading}
-          startCoordinate={
-            startUsesCurrentLocation ? currentLocation : startMapCoordinate
-          }
-          destinationCoordinate={destinationMapCoordinate}
-          startLabel={start}
-          destinationLabel={destination}
-          startDraggable={!startUsesCurrentLocation}
-          onSetMapStart={coordinate => setStartFromMap(coordinate)}
-          onSetMapDestination={coordinate => setDestinationFromMap(coordinate)}
-          onMoveStart={coordinate => setStartFromMap(coordinate)}
-          onMoveDestination={coordinate => setDestinationFromMap(coordinate)}
-          locationFocusKey={locationFocusKey}
-          routeFocusKey={routeFocusKey}
-          stepFocusCoordinate={stepFocusCoordinate}
-          stepFocusKey={stepFocusKey}
-          darkMode={darkMode}
-          mapStyle={mapStyle}
-          viewInsets={viewInsets}
-          enabledLayers={enabledLayers}
-          onLayerStatus={layerStatusChanged}
-        />
 
         {threeD
           ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />

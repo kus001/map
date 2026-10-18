@@ -85,7 +85,17 @@ export default function FreeMapLayer({ darkMode }) {
         });
         layer.addTo(map);
         const gl = layer.getMaplibreMap();
-        gl.on("error", () => {
+        gl.on("styleimagemissing", event => {
+          if ((event.id === " " || event.id === "transportation:road_") && !gl.hasImage(event.id)) {
+            gl.addImage(event.id, { width: 1, height: 1, data: new Uint8Array(4) });
+          }
+        });
+        gl.on("error", event => {
+          if (!active) return;
+          const message = String(event?.error?.message || event?.message || "");
+          // Switching from 2D to 3D cancels pending map sprite/tile fetches.
+          // Such cancellations do not mean the provider has failed.
+          if (/AbortError|signal is aborted|aborted without reason|missing image|sprite/i.test(message)) return;
           failures += 1;
           if (failures >= 4) showBackup();
         });

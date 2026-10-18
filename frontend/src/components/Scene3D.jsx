@@ -166,7 +166,7 @@ async function getStyle(mapStyle, darkMode, signal) {
 }
 
 function syncTerrain(map, enabled, profile) {
-  if (!map.getSource("km-elevation")) return;
+  if (!map.isStyleLoaded() || !map.getSource("km-elevation")) return;
   const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM && map.getPitch() <= 89;
   const current = map.getTerrain();
   if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: profile.tier === "low" ? 1.25 : 1.45 });
@@ -211,7 +211,7 @@ function buildingMaterialColor(darkMode) {
   const neutral = darkMode ? "#aeb5bb" : "#d1c8ba";
   const material = ["downcase", ["to-string", ["coalesce",
     ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
-  const byMaterial = ["match", material,
+  return ["match", material,
     "brick", darkMode ? "#9d786e" : "#bb8e7e",
     "glass", darkMode ? "#759baa" : "#9bbec9",
     "concrete", darkMode ? "#9b9ea1" : "#c2bfba",
@@ -220,9 +220,6 @@ function buildingMaterialColor(darkMode) {
     "wood", darkMode ? "#997c67" : "#c6a88d",
     "plaster", darkMode ? "#b8b2a7" : "#e1d7c8",
     neutral];
-  return ["to-color", ["coalesce", ["get", "render_colour"],
-    ["get", "building:colour"], ["get", "building:color"],
-    ["get", "colour"], ["get", "color"], byMaterial]];
 }
 
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
@@ -810,7 +807,9 @@ export default function Scene3D({
             if (controller.signal.aborted || stylesRef.current !== version ||
                 !buildingsRef.current || map.getLayer("km-buildings-3d") ||
                 (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
-            ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+            if (ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile)) {
+              ensureRealLandmarks(map, true);
+            }
           }, delay));
         }
       };
@@ -820,7 +819,9 @@ export default function Scene3D({
         if (controller.signal.aborted || stylesRef.current !== version) return;
         if (buildingsRef.current && !map.getLayer("km-buildings-3d") &&
             buildingStyleRef.current && (map.__kmBuildingInfo?.attempts || 0) < 4) {
-          ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+          if (ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile)) {
+            ensureRealLandmarks(map, true);
+          }
         }
         syncNativeBuildings(map, buildingsRef.current);
       };
@@ -878,17 +879,29 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    if (previousGlobe.current !== globe) {
-      previousGlobe.current = globe;
-      const view = { center: map.getCenter(), zoom: map.getZoom(),
-        pitch: map.getPitch(), bearing: map.getBearing(), roll: map.getRoll() };
-      map.setProjection({ type: globe ? "globe" : "mercator" });
-      map.__kmSyncGlobeGestures?.();
-      map.__kmSkyKey = null;
-      if (Math.abs(map.getZoom() - view.zoom) > 0.001) map.jumpTo(view);
-    }
-    applyAtmosphere(map, darkMode, globe);
-    syncTerrain(map, terrainRef.current, profile);
+    let cancelled = false;
+    const apply = () => {
+      if (cancelled || !map.isStyleLoaded()) return;
+      try {
+        if (previousGlobe.current !== globe) {
+          previousGlobe.current = globe;
+          const view = { center: map.getCenter(), zoom: map.getZoom(),
+            pitch: map.getPitch(), bearing: map.getBearing(), roll: map.getRoll() };
+          map.setProjection({ type: globe ? "globe" : "mercator" });
+          map.__kmSyncGlobeGestures?.();
+          map.__kmSkyKey = null;
+          if (Math.abs(map.getZoom() - view.zoom) > 0.001) map.jumpTo(view);
+        }
+        applyAtmosphere(map, darkMode, globe);
+        syncTerrain(map, terrainRef.current, profile);
+      } catch (error) {
+        console.warn("3D camera change deferred", error);
+      }
+    };
+    map.on("style.load", apply);
+    map.on("idle", apply);
+    apply();
+    return () => { cancelled = true; map.off("style.load", apply); map.off("idle", apply); };
   }, [ready, globe, darkMode, profile]);
 
   useEffect(() => {
@@ -898,7 +911,7 @@ export default function Scene3D({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    if (!ready || !map || !map.isStyleLoaded()) return;
     if (!buildingsEnabled) {
       for (const layer of map.getStyle().layers) {
         if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");

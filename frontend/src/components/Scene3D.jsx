@@ -4,51 +4,71 @@ const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-// Buildings are optional and are only drawn close to the ground. A large-city
-// full-detail extrusion at zoom 14 can overwhelm an integrated GPU.
-// DEM tiles are needed when regional contours start to be discernible. In the
-// distant planet view they're both wasteful and imperceptible. The same terrain
-// setting applies to Street, Satellite and Hybrid basemaps.
+// The same DEM is shared by terrain and hillshade: two raster DEM sources
+// unnecessarily decode and cache the same elevation tiles twice.
 const TERRAIN_MIN_ZOOM = 7;
-// The map is a GPU-intensive surface. Render fewer device pixels and fewer
-// cached tiles on phones and integrated GPUs; don't wait for a crash to adapt.
+const MAX_FREE_PITCH = 130; // >90 is experimental in MapLibre; avoid a 180° singularity.
+const GLOBE_SPIN_MAX_ZOOM = 5.5;
+
 function deviceProfile() {
-  if (typeof navigator === "undefined") return { tier: "medium", pixelRatio: 1.25, tileCache: 20, buildingZoom: 17.5, demZoom: 11, shadeZoom: 7 };
-  const memory = Number(navigator.deviceMemory) || 0;
-  const cores = Number(navigator.hardwareConcurrency) || 0;
-  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || navigator.userAgentData?.mobile === true;
+  const memory = typeof navigator === "undefined" ? 0 : Number(navigator.deviceMemory) || 0;
+  const cores = typeof navigator === "undefined" ? 0 : Number(navigator.hardwareConcurrency) || 0;
+  const mobile = typeof navigator !== "undefined" &&
+    (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || navigator.userAgentData?.mobile === true);
+  // Unknown RAM is not proof that a device has a strong GPU.
   const tier = mobile || (memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)
-    ? "low" : (memory > 0 && memory <= 8) || (cores > 0 && cores <= 8) ? "medium" : "high";
-  const ratio = Math.max(1, typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
+    ? "low" : (memory > 0 && memory <= 8) || (cores > 0 && cores <= 8)
+      ? "medium" : "high";
+  const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   return {
     tier,
-    pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.35 : 1.7),
-    tileCache: tier === "low" ? 12 : tier === "medium" ? 20 : 30,
-    buildingZoom: tier === "low" ? 18 : tier === "medium" ? 17.5 : 16.5,
-    demZoom: tier === "low" ? 10 : tier === "medium" ? 11 : 12,
+    pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.2 : 1.4),
+    tileCache: tier === "low" ? 8 : tier === "medium" ? 14 : 22,
+    buildingZoom: tier === "low" ? 18.5 : tier === "medium" ? 18 : 17.4,
+    demZoom: tier === "low" ? 9 : tier === "medium" ? 10 : 11,
     shadeZoom: tier === "low" ? 8 : 6,
   };
 }
 
-// MapLibre's sky API is different from Mapbox's fog API. Fade the planet halo
-// before terrain is enabled, avoiding globe fog/terrain shader warnings.
+// MapLibre's sky differs from Mapbox's fog. Never remove the sky at zoom 7:
+// this was the direct cause of the previous black horizon. A transparent GL
+// canvas and CSS atmosphere provide a fallback when looking above the horizon.
 function applyAtmosphere(map, darkMode, globe) {
-  if (globe && map.getZoom() >= TERRAIN_MIN_ZOOM) {
-    map.setSky(undefined);
-    return;
-  }
-  map.setSky({
-    "sky-color": darkMode ? "#243c5a" : "#8bc1ed",
-    "horizon-color": darkMode ? "#6587a6" : "#e3f3ff",
-    "fog-color": darkMode ? "#708da4" : "#d5e9f9",
-    "sky-horizon-blend": 0.58,
+  const nextSky = globe ? {
+    "sky-color": darkMode ? "#214565" : "#8dc5ed",
+    "horizon-color": darkMode ? "#496f92" : "#e1f3ff",
+    "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 9, 0.95, 15, 0.65, 22, 0.38],
+  } : {
+    "sky-color": darkMode ? "#17304b" : "#79b8e6",
+    "horizon-color": darkMode ? "#779ab7" : "#edf8ff",
+    "fog-color": darkMode ? "#54738c" : "#c3e1f5",
+    "sky-horizon-blend": 0.7,
     "horizon-fog-blend": 0.72,
-    "fog-ground-blend": 0.22,
-    "atmosphere-blend": globe
-      ? ["interpolate", ["linear"], ["zoom"], 0, 1, 3, 1, 5, 0.9, TERRAIN_MIN_ZOOM, 0]
-      : 0,
-  });
+    "fog-ground-blend": 0.12,
+    "atmosphere-blend": 0,
+  };
+  // Don't repeatedly recompile sky shaders during animation; update only on
+  // projection and theme changes. The expression handles changes in zoom.
+  const id = `${globe ? "globe" : "flat"}:${darkMode ? "dark" : "light"}`;
+  if (map.__kmSkyKey === id) return;
+  map.setSky(nextSky);
+  map.__kmSkyKey = id;
 }
+
+// At globe scale, dragging the sphere should cross the poles instead of
+// clamping to a flat map's latitude bounds. Reflect at the pole and turn
+// longitude 180 degrees to keep globe orientation continuous.
+function reflectGlobeCoordinates(lng, lat) {
+  let flips = 0;
+  while (lat > 90 || lat < -90) {
+    if (lat > 90) { lat = 180 - lat; lng += 180; }
+    else { lat = -180 - lat; lng += 180; }
+    flips++;
+  }
+  return [((lng + 540) % 360 + 360) % 360 - 180,
+    Math.min(89.999, Math.max(-89.999, lat)), flips];
+}
+
 const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
 const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
 const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
@@ -162,7 +182,9 @@ async function getStyle(mapStyle, darkMode, signal) {
 // style.load, after zoomend, and when the user changes the terrain toggle.
 function syncTerrain(map, enabled, profile) {
   if (!map.getSource("km-elevation")) return;
-  const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM;
+  // MapLibre's >90° camera is experimental. Avoid expensive terrain meshes
+  // when the user is looking skyward or down at the globe's underside.
+  const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM && map.getPitch() <= 89;
   const current = map.getTerrain();
   if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: profile.tier === "low" ? 1.25 : 1.45 });
   else if (!shouldRender && current) map.setTerrain(null);
@@ -203,10 +225,10 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   // Hillshade is separate from terrain geometry. Place it after ground raster/
   // polygons but before roads and labels, so shading remains visible without
   // obscuring geographic labels. Low-end devices skip distant hillshade tiles.
-  if (map.getSource("km-hillshade") && !map.getLayer("km-terrain-shading")) {
+  if (map.getSource("km-elevation") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     map.addLayer({
-      id: "km-terrain-shading", type: "hillshade", source: "km-hillshade",
+      id: "km-terrain-shading", type: "hillshade", source: "km-elevation",
       minzoom: profile.shadeZoom, maxzoom: 16,
       layout: { visibility: terrainEnabled ? "visible" : "none" },
       paint: {
@@ -277,11 +299,9 @@ export default function Scene3D({
   const [buildingsEnabled, setBuildingsEnabled] = useState(() => deviceProfile().tier === "high");
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
-  const darkModeRef = useRef(darkMode);
   useEffect(() => {
     buildingsRef.current = buildingsEnabled;
     globeRef.current = globe;
-    darkModeRef.current = darkMode;
     terrainRef.current = terrainEnabled;
   }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
@@ -326,19 +346,90 @@ export default function Scene3D({
       map = new gl.Map({
         container: holder.current,
         style: { version: 8, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#d9e3de" } }] },
-        center: initial.center, zoom: initial.zoom, pitch: Math.max(35, initial.pitch || 58),
-        bearing: initial.bearing || 0, maxZoom: 22, minZoom: 0, maxPitch: 85,
+        center: initial.center, zoom: initial.zoom, pitch: Math.min(MAX_FREE_PITCH, Math.max(0, initial.pitch ?? 58)),
+        bearing: initial.bearing || 0, roll: initial.roll || 0,
+        maxZoom: 22, minZoom: 0, maxPitch: MAX_FREE_PITCH,
+        // Above 90 degrees, terrain-following the camera can place it under the ground.
+        centerClampedToGround: false,
+        // Bearing, pitch AND roll are mouse-driven. Globe drags orbit the sphere.
+        rollEnabled: true, aroundCenter: true, rotateSpeed: 0.56, pitchSpeed: 0.36,
         antialias: false, fadeDuration: 0, renderWorldCopies: false,
-        maxTileCacheSize: profile.tileCache, pixelRatio: profile.pixelRatio,
-        maxCanvasSize: [2560, 2560], reduceMotion: profile.tier === "low",
+        maxTileCacheSize: profile.tileCache, maxTileCacheZoomLevels: 2,
+        pixelRatio: profile.pixelRatio, crossSourceCollisions: false,
+        anisotropicFilterPitch: profile.tier === "low" ? 180 : 75,
+        maxCanvasSize: [2048, 2048], reduceMotion: profile.tier === "low",
+        // Canvas alpha is essential for displaying CSS atmosphere behind the globe.
+        canvasContextAttributes: { alpha: true, antialias: false, powerPreference: "low-power" },
         cancelPendingTileRequestsWhileZooming: true,
         attributionControl: true,
       });
       mapRef.current = map;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
-      map.dragRotate.enable(); // Right-drag: rotate horizontally, pitch vertically.
+      map.dragRotate.enable(); // Right-drag: yaw and pitch; native roll supported.
       map.touchZoomRotate.enableRotation();
       map.touchPitch?.enable(); // Two-finger tilt on phones and tablets.
+      // Distant globe: pointer-drag behaves as a trackball and can cross poles.
+      // Only intercept ordinary left-drags; rotation, touch, popups and all
+      // close-up map interactions remain MapLibre native. Batch moves per frame.
+      const canvas = map.getCanvas();
+      let spin = null;
+      let spinFrame = 0;
+      let lastSpinDragAt = -Infinity;
+      const interactiveGlobe = () => globeRef.current && map.getZoom() <= GLOBE_SPIN_MAX_ZOOM;
+      const updateSpinMode = () => {
+        if (interactiveGlobe()) map.dragPan.disable();
+        else if (!map.dragPan.isEnabled()) map.dragPan.enable();
+      };
+      const onSpinDown = event => {
+        if (event.pointerType !== "mouse" || event.button !== 0 || !interactiveGlobe() || event.ctrlKey || event.shiftKey || event.altKey) return;
+        spin = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+          center: map.getCenter(), bearing: map.getBearing(), moved: false };
+        canvas.setPointerCapture?.(event.pointerId);
+      };
+      const onSpinMove = event => {
+        if (!spin || spin.pointerId !== event.pointerId || !interactiveGlobe()) return;
+        const dx = event.clientX - spin.x, dy = event.clientY - spin.y;
+        if (Math.hypot(dx, dy) < 1) return;
+        spin.moved = true;
+        // Lower sensitivity up close; latitude crosses a pole by reflection.
+        const degrees = 0.32 * Math.pow(2, Math.max(0, 2 - map.getZoom()) * 0.2);
+        const [lng, lat, flips] = reflectGlobeCoordinates(spin.center.lng - dx * degrees,
+          spin.center.lat + dy * degrees);
+        if (spinFrame) cancelAnimationFrame(spinFrame);
+        spinFrame = requestAnimationFrame(() => {
+          if (mapRef.current !== map) return;
+          map.jumpTo({ center: [lng, lat], bearing: spin.bearing + (flips % 2 ? 180 : 0) });
+          spinFrame = 0;
+        });
+      };
+      const onSpinUp = event => {
+        if (spin && spin.pointerId === event.pointerId) {
+          if (spin.moved) lastSpinDragAt = performance.now();
+          spin = null;
+          if (spinFrame) cancelAnimationFrame(spinFrame);
+          spinFrame = 0;
+          if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        }
+      };
+      canvas.addEventListener("pointerdown", onSpinDown);
+      canvas.addEventListener("pointermove", onSpinMove);
+      canvas.addEventListener("pointerup", onSpinUp);
+      canvas.addEventListener("pointercancel", onSpinUp);
+      map.on("zoomend", updateSpinMode);
+      map.on("style.load", updateSpinMode);
+      // Make handlers removable when changing renderer: no orphaned listeners.
+      map.__kmSyncGlobeGestures = updateSpinMode;
+      map.__kmSpinCleanup = () => {
+        canvas.removeEventListener("pointerdown", onSpinDown);
+        canvas.removeEventListener("pointermove", onSpinMove);
+        canvas.removeEventListener("pointerup", onSpinUp);
+        canvas.removeEventListener("pointercancel", onSpinUp);
+        map.off("zoomend", updateSpinMode);
+        map.off("style.load", updateSpinMode);
+        if (spinFrame) cancelAnimationFrame(spinFrame);
+        delete map.__kmSyncGlobeGestures;
+      };
+      updateSpinMode();
       // In-browser instrumentation: sample actual rendered frames while moving.
       // If an integrated GPU cannot keep up, lower the device-pixel workload
       // (pixel count scales with DPR squared). Never force a continuous repaint.
@@ -346,34 +437,37 @@ export default function Scene3D({
       let samples = 0;
       let totalFrameMs = 0;
       let lastAdjustment = 0;
+      let slowWindows = 0;
       map.on("render", () => {
         const now = performance.now();
-        const moving = map.isMoving();
-        if (!moving) { lastFrame = 0; return; }
+        if (!map.isMoving()) { lastFrame = 0; return; }
         if (lastFrame) {
-          const frameMs = now - lastFrame;
-          if (frameMs < 150) { samples++; totalFrameMs += frameMs; }
+          const delta = now - lastFrame;
+          if (delta > 2 && delta < 200) { samples++; totalFrameMs += delta; }
         }
         lastFrame = now;
-        if (samples < 45) return;
+        if (samples < 30) return;
         const mean = totalFrameMs / samples;
-        if (typeof window !== "undefined") {
-          window.__kmaps3DStats = { tier: profile.tier, frameMs: Math.round(mean * 10) / 10,
-            movingFps: Math.round(1000 / mean), pixelRatio: map.getPixelRatio(), samples };
-        }
-        // Require a genuinely slow run and space adjustments apart; reduce
-        // the expensive canvas first, rather than disabling terrain/buildings.
-        if (mean > 30 && now - lastAdjustment > 6000 && map.getPixelRatio() > 1.01) {
-          map.setPixelRatio(Math.max(1, Math.round((map.getPixelRatio() - 0.25) * 100) / 100));
+        if (typeof window !== "undefined") window.__kmaps3DStats = {
+          tier: profile.tier, frameMs: Math.round(mean * 10) / 10,
+          movingFps: Math.round(1000 / mean), pixelRatio: map.getPixelRatio(),
+          samples, projection: globeRef.current ? "globe" : "flat",
+          terrain: Boolean(map.getTerrain()), buildingLayer: Boolean(map.getLayer("km-buildings-3d")),
+        };
+        // Downgrade on sustained measured slowness, not a single tile load.
+        slowWindows = mean > 28 ? slowWindows + 1 : 0;
+        if (slowWindows >= 2 && now - lastAdjustment > 3000 && map.getPixelRatio() > 0.76) {
+          map.setPixelRatio(Math.max(0.75, Math.round((map.getPixelRatio() - 0.2) * 100) / 100));
           lastAdjustment = now;
+          slowWindows = 0;
         }
         samples = 0; totalFrameMs = 0;
       });
       // Avoid expensive DEM setup during continuous zooming; sync after zoom.
+      map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
       map.on("zoomend", () => {
         setZoom(map.getZoom());
         syncTerrain(map, terrainRef.current, profile);
-        applyAtmosphere(map, darkModeRef.current, globeRef.current);
       });
       // Some third-party basemaps refer to icons missing from their sprite.
       // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
@@ -384,7 +478,7 @@ export default function Scene3D({
         }
       });
       map.on("moveend", () => callbackRef.current.onCameraChange?.({
-        center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
+        center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(), roll: map.getRoll(),
       }));
       map.on("contextmenu", event => {
         event.preventDefault();
@@ -398,6 +492,7 @@ export default function Scene3D({
         const popup = new gl.Popup({ closeOnClick: true }).setLngLat(event.lngLat).setDOMContent(root).addTo(map);
       });
       map.on("click", event => {
+        if (performance.now() - lastSpinDragAt < 300) return;
         const ids = ["km-route-lines", "km-stops-points",
           ...Object.keys(FEED_COLORS).flatMap(kind => [`km-511-${kind}-points`, `km-511-${kind}-lines`])]
           .filter(id => map.getLayer(id));
@@ -480,6 +575,7 @@ export default function Scene3D({
     return () => {
       active = false; styles.current++;
       markers.current.forEach(marker => marker.remove()); markers.current = [];
+      map?.__kmSpinCleanup?.();
       map?.remove();
       if (typeof window !== "undefined") delete window.__kmaps3DStats;
       if (mapRef.current === map) mapRef.current = null;
@@ -501,6 +597,8 @@ export default function Scene3D({
         if (controller.signal.aborted || stylesRef.current !== version) return;
         try {
           map.setProjection({ type: globeRef.current ? "globe" : "mercator" });
+          map.__kmSyncGlobeGestures?.();
+          map.__kmSkyKey = null;
           applyAtmosphere(map, darkMode, globeRef.current);
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
           addSceneLayers(map, buildingSource, darkMode, mapStyle,
@@ -539,8 +637,6 @@ export default function Scene3D({
         sources: { ...base.sources,
           "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
             maxzoom: profile.demZoom, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
-          "km-hillshade": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
-            maxzoom: profile.tier === "low" ? 9 : 11, encoding: "terrarium" },
         },
       });
       try { map.setStyle(prepare(style), { diff: false }); }
@@ -566,8 +662,10 @@ export default function Scene3D({
       // A globe is a projection, not a different zoom preset. Preserve the
       // camera without easeTo/flyTo or a trip out to zoom level 3.
       const view = { center: map.getCenter(), zoom: map.getZoom(),
-        pitch: map.getPitch(), bearing: map.getBearing() };
+        pitch: map.getPitch(), bearing: map.getBearing(), roll: map.getRoll() };
       map.setProjection({ type: globe ? "globe" : "mercator" });
+      map.__kmSyncGlobeGestures?.();
+      map.__kmSkyKey = null;
       if (Math.abs(map.getZoom() - view.zoom) > 0.001) map.jumpTo(view);
     }
     applyAtmosphere(map, darkMode, globe);
@@ -773,7 +871,7 @@ export default function Scene3D({
 
   return (
     <div className="km-3d-scene absolute inset-0">
-      <div ref={holder} className="km-3d-map h-full w-full" aria-label="Interactive 3D map" />
+      <div ref={holder} className={`km-3d-map h-full w-full ${globe ? "km-3d-globe" : "km-3d-flat"}`} aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
       <div className="km-3d-tools" role="group" aria-label="3D map controls">
         <button type="button" className="km-3d-toggle" aria-pressed={terrainEnabled}
@@ -787,7 +885,6 @@ export default function Scene3D({
           Buildings {buildingsEnabled ? "On" : "Off"}
         </button>
       </div>
-      <div className="km-3d-hint">Drag to move · Right-drag to rotate and tilt · Two-finger tilt on touch</div>
     </div>
   );
 }

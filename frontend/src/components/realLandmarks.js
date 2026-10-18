@@ -146,6 +146,8 @@ function createModelLayer() {
   let loaders;
   let loadingLibraries = false;
   let context;
+  let libraryError = null;
+  let projectionError = null;
 
   function refresh() {
     if (!map || removed) return;
@@ -162,6 +164,8 @@ function createModelLayer() {
         three = libs.three;
         camera = new three.Camera();
         scene = new three.Scene();
+        libraryError = null;
+        map.__kmLandmarkLibraryError = null;
         scene.add(new three.AmbientLight(0xffffff, 1.4));
         const sun = new three.DirectionalLight(0xfff4dc, 2);
         sun.position.set(1, 2, 3);
@@ -169,13 +173,18 @@ function createModelLayer() {
         renderer = new three.WebGLRenderer({ canvas: map.getCanvas(), context, antialias: false });
         renderer.autoClear = false;
         refresh();
-      }).catch(error => console.warn("Architectural 3D models unavailable", error));
+      }).catch(error => {
+        loadingLibraries = false;
+        libraryError = String(error?.message || error);
+        map.__kmLandmarkLibraryError = libraryError;
+        console.warn("Architectural 3D models unavailable", error);
+      });
     }
     for (const item of LANDMARKS) {
       const visible = zoom >= item.minZoom && kilometers(location, item.center) < 6;
       const object = loaded.get(item.id);
       if (object) object.visible = visible;
-      if (object && visible) active.push(item.id);
+      if (object && visible && map.__kmLandmarkRendered?.[item.id]) active.push(item.id);
       if (!visible || object || loading.has(item.id) || rejected.has(item.id) || !loaders) continue;
       loading.add(item.id);
       const loader = item.type === "fbx" ? new loaders.FBXLoader() : new loaders.STLLoader();
@@ -188,17 +197,23 @@ function createModelLayer() {
             ? new three.Mesh(value, new three.MeshStandardMaterial({ color: item.color, roughness: 0.9, metalness: 0.05 }))
             : value;
           const group = normalizeModel(three, root, item);
+          let meshes = 0;
+          group.traverse(child => { if (child.isMesh) meshes++; });
+          if (!meshes) throw new Error("Model contains no drawable meshes");
           loaded.set(item.id, group);
+          map.__kmLandmarkMeshCounts = { ...map.__kmLandmarkMeshCounts, [item.id]: meshes };
           scene.add(group);
           refresh();
           map.triggerRepaint();
         } catch (error) {
           rejected.add(item.id);
+          map.__kmLandmarkLoadErrors = { ...map.__kmLandmarkLoadErrors, [item.id]: String(error?.message || error) };
           console.warn(`Could not position ${item.id}`, error);
         }
       }, undefined, error => {
         loading.delete(item.id);
         rejected.add(item.id);
+        map.__kmLandmarkLoadErrors = { ...map.__kmLandmarkLoadErrors, [item.id]: String(error?.message || error) };
         console.warn(`Could not load ${item.id}`, error);
       });
     }
@@ -224,29 +239,46 @@ function createModelLayer() {
       refresh();
     },
     render(gl, args) {
-      if (!renderer || !three || !args?.getMatrixForModel) return;
+      if (!renderer || !three || !loaded.size) return;
+      const projectionData = args?.defaultProjectionData?.mainMatrix;
+      const getModelMatrix = map.transform?.getMatrixForModel?.bind(map.transform);
+      if (!projectionData || !getModelMatrix) {
+        if (!projectionError) {
+          projectionError = "MapLibre model projection unavailable";
+          map.__kmLandmarkProjectionError = projectionError;
+          console.warn(projectionError);
+        }
+        return;
+      }
       let drew = false;
       for (const item of LANDMARKS) {
         const group = loaded.get(item.id);
         if (!group?.visible) continue;
         try {
           const altitude = map.queryTerrainElevation?.(item.center, { exaggerated: true }) || 0;
-          const projection = new three.Matrix4().fromArray(args.getMatrixForModel(item.center, altitude));
-          camera.projectionMatrix.copy(projection)
+          const projection = new three.Matrix4().fromArray(projectionData);
+          const model = new three.Matrix4().fromArray(getModelMatrix(item.center, altitude));
+          camera.projectionMatrix.copy(projection).multiply(model)
             .multiply(new three.Matrix4().makeRotationX(Math.PI / 2))
             .multiply(new three.Matrix4().makeScale(1, 1, -1));
           for (const [id, object] of loaded) object.visible = id === item.id;
           renderer.resetState();
           renderer.render(scene, camera);
           drew = true;
+          map.__kmLandmarkRendered = { ...map.__kmLandmarkRendered, [item.id]: true };
         } catch (error) {
           if (!map.__kmLandmarkProjectionWarned) {
             console.warn("3D landmark projection error", error);
             map.__kmLandmarkProjectionWarned = true;
           }
+          projectionError = String(error?.message || error);
+          map.__kmLandmarkProjectionError = projectionError;
         }
       }
-      if (drew) refreshVisibility();
+      if (drew) {
+        refreshVisibility();
+        refresh();
+      }
     },
     onRemove() {
       removed = true;

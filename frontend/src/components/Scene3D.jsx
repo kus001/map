@@ -187,6 +187,117 @@ function syncTerrain(map, enabled, profile) {
   }
 }
 
+// Buildings in OpenMapTiles carry per-feature `colour` values (including
+// common OSM facade materials). Preserve those real mapped colours instead of
+// painting every building as one translucent grey block. Heights are still
+// approximate where a surveyed height was never recorded.
+const REAL_BUILDING_COLOR = ["to-color", ["get", "colour"],
+  ["interpolate", ["linear"],
+    ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8],
+    0, "#d4c9b9", 16, "#c7bfae", 65, "#a8b4b8", 180, "#899ca9"]];
+
+// Procedural facade atlas: 7 tiny, repeating 64x64 RGBA sprites instead of
+// downloading model/photogrammetry assets for every building. The wall/window
+// detail is *illustrative*, not photographic building data. Textures are only
+// activated at pedestrian zoom on non-low-end devices, and never in Street.
+const FACADE_PALETTES = {
+  glass: [93, 131, 153], brick: [184, 124, 91], concrete: [197, 187, 173],
+  stone: [177, 169, 153], stucco: [221, 212, 190],
+  metal: [163, 177, 183], wood: [163, 115, 78],
+};
+const facadeCache = new Map();
+function makeFacadeImage(kind) {
+  if (facadeCache.has(kind)) return facadeCache.get(kind);
+  const [r, g, b] = FACADE_PALETTES[kind];
+  const width = 64; const height = 64;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const noise = ((x * 71 + y * 113 + x * y * 17) % 17) - 8;
+      let rr = r + noise * 0.7, gg = g + noise * 0.7, bb = b + noise * 0.7;
+      const bx = x % 32, by = y % 32;
+      const wx = bx >= 7 && bx <= 25, wy = by >= 7 && by <= 24;
+      if (kind === "glass") {
+        const seam = x % 16 <= 1 || y % 24 <= 1;
+        const reflect = ((x + y * 2) % 39 < 8) ? 18 : -8;
+        rr = seam ? 64 : r + reflect; gg = seam ? 79 : g + reflect;
+        bb = seam ? 87 : b + reflect;
+      } else if (kind === "metal") {
+        const seam = x % 16 < 2 || y % 32 < 2;
+        const ridge = x % 16 < 5 ? 14 : -3;
+        rr = seam ? 95 : r + ridge; gg = seam ? 105 : g + ridge;
+        bb = seam ? 111 : b + ridge;
+      } else {
+        const mortar = kind === "brick" && (y % 10 === 0 || (x + Math.floor(y / 10) % 2 * 20) % 40 <= 1);
+        const stoneJoint = kind === "stone" && (y % 20 === 0 || (x + Math.floor(y / 20) % 2 * 23) % 45 === 0);
+        const board = kind === "wood" && x % 12 === 0;
+        if (mortar || stoneJoint || board) {
+          rr *= 0.81; gg *= 0.81; bb *= 0.81;
+        }
+        // Regularly spaced dark glazing, lintels and slim white frames.
+        // Windows are drawn directly in the tiny atlas, not as DOM objects or
+        // separate GL meshes, keeping large streets fast to render.
+        if (wx && wy) {
+          const edge = bx < 9 || bx > 23 || by < 9 || by > 22;
+          const windowLight = (x * 13 + y * 7) % 23 < 4;
+          rr = edge ? r * 0.83 : windowLight ? 94 : 62;
+          gg = edge ? g * 0.83 : windowLight ? 117 : 83;
+          bb = edge ? b * 0.83 : windowLight ? 127 : 100;
+          if (bx === 16 || by === 17) { rr *= 0.75; gg *= 0.75; bb *= 0.75; }
+        } else if (by === 25 && bx > 5 && bx < 27) {
+          rr *= 0.72; gg *= 0.72; bb *= 0.72;
+        }
+      }
+      data[i] = Math.max(0, Math.min(255, Math.round(rr)));
+      data[i + 1] = Math.max(0, Math.min(255, Math.round(gg)));
+      data[i + 2] = Math.max(0, Math.min(255, Math.round(bb)));
+      data[i + 3] = 255;
+    }
+  }
+  const image = { width, height, data };
+  facadeCache.set(kind, image);
+  return image;
+}
+
+const FACADE_PATTERN = ["image", ["match", ["downcase", ["to-string", ["coalesce", ["get", "colour"], ""]]],
+  "#5a81a0", "km-facade-glass",
+  "#bd8161", "km-facade-brick",
+  "#d48741", "km-facade-wood",
+  "#b4a995", "km-facade-stone",
+  "#b7b1a6", "km-facade-metal",
+  "#d3c2b0", "km-facade-concrete",
+  "#dadbdb", "km-facade-stucco",
+  "km-facade-stucco"]];
+
+function syncBuildingAppearance(map, profile, mapStyle, enabled) {
+  if (!map.getLayer("km-buildings-3d")) return;
+  const detailZoom = profile.tier === "high" ? 17.1 : 17.7;
+  const detailed = enabled && mapStyle !== "street" && profile.tier !== "low" &&
+    map.getZoom() >= detailZoom && !map.__kmFacadeUnavailable;
+  const wanted = detailed ? "facade" : "colour";
+  if (map.__kmFacadeApplied === wanted) return;
+  try {
+    if (detailed) {
+      for (const kind of Object.keys(FACADE_PALETTES)) {
+        const name = `km-facade-${kind}`;
+        if (!map.hasImage(name)) map.addImage(name, makeFacadeImage(kind));
+      }
+      map.setPaintProperty("km-buildings-3d", "fill-extrusion-pattern", FACADE_PATTERN);
+    } else {
+      // Restore real building colours and the cheaper one-pass extrusion shader
+      // at distant zoom levels or on low-memory/mobile devices.
+      map.setPaintProperty("km-buildings-3d", "fill-extrusion-pattern", null);
+    }
+    map.__kmFacadeApplied = wanted;
+  } catch (err) {
+    console.warn("Building facade detail unavailable; using coloured 3D buildings", err);
+    map.__kmFacadeUnavailable = true;
+    try { map.setPaintProperty("km-buildings-3d", "fill-extrusion-pattern", null); } catch { /* nothing else to fall back to */ }
+    map.__kmFacadeApplied = "colour";
+  }
+}
+
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
@@ -213,8 +324,9 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
       "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
         profile.buildingZoom, 0, profile.buildingZoom + 0.45,
         ["coalesce", ["to-number", ["get", "render_height"]], ["to-number", ["get", "height"]], 8]],
-      "fill-extrusion-color": darkMode ? (mapStyle === "hybrid" ? "#8976a8" : "#72808c") : (mapStyle === "satellite" ? "#c3bbb0" : "#b6b9b3"),
-      "fill-extrusion-opacity": 0.79,
+      "fill-extrusion-color": mapStyle === "street" ? (darkMode ? "#82919b" : "#b6b9b3") : REAL_BUILDING_COLOR,
+      "fill-extrusion-opacity": 1,
+      "fill-extrusion-vertical-gradient": true,
     },
   }, before);
 }
@@ -448,6 +560,8 @@ export default function Scene3D({
       map.on("zoomend", () => {
         setZoom(map.getZoom());
         syncTerrain(map, terrainRef.current, profile);
+        if (buildingStyleRef.current) syncBuildingAppearance(map, profile,
+          buildingStyleRef.current.mapStyle, buildingsRef.current);
       });
       // Some third-party basemaps refer to icons missing from their sprite.
       // Provide a transparent placeholder instead of repeatedly warning/rendering errors.
@@ -589,8 +703,18 @@ export default function Scene3D({
           map.__kmSkyKey = null;
           applyAtmosphere(map, darkMode, globeRef.current);
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
+          map.__kmFacadeApplied = null;
+          map.__kmFacadeUnavailable = false;
+          // Directional, warm daylight makes walls readable without lights or
+          // hundreds of costly individual building meshes.
+          if (mapStyle !== "street" && typeof map.setLight === "function") {
+            try { map.setLight({ anchor: "map", color: "#fff7e8",
+              intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
+            catch { /* Leave provider lighting intact on older GL versions. */ }
+          }
           addSceneLayers(map, buildingSource, darkMode, mapStyle,
             buildingsRef.current, terrainRef.current, profile);
+          syncBuildingAppearance(map, profile, mapStyle, buildingsRef.current);
           setData(map, "km-routes", newestLines.current);
           syncTerrain(map, terrainRef.current, profile);
         } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
@@ -676,6 +800,7 @@ export default function Scene3D({
     if (buildingStyleRef.current && map.getSource("km-elevation")) {
       const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
+      syncBuildingAppearance(map, profile, styleName, true);
     }
   }, [ready, buildingsEnabled, profile]);
 

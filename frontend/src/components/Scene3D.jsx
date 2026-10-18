@@ -117,6 +117,9 @@ async function getStyle(mapStyle, darkMode, signal) {
   freeStyle = structuredClone(freeStyle);
   if (freeStyle.version !== 8 || !freeStyle.sources) throw new Error("Unexpected map style data");
   const freeBuildingSource = buildingSourceFromStyle(freeStyle);
+  const dedicatedBuildingSource = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap"
+    ? { type: "vector", url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${encodeURIComponent(MAPTILER_KEY)}` }
+    : freeBuildingSource;
 
   const keyAllowed = MAPTILER_KEY && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
   const satelliteFallback = mapStyle === "hybrid" ? {
@@ -153,6 +156,7 @@ async function getStyle(mapStyle, darkMode, signal) {
       glyphs: freeStyle.glyphs,
       sprite: freeStyle.sprite,
       sources: { ...(mapStyle === "hybrid" ? freeStyle.sources : {}),
+        ...(dedicatedBuildingSource ? { "km-building-vectors": dedicatedBuildingSource } : {}),
         "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
       layers: [imagery, ...roadLabels],
     },
@@ -178,7 +182,7 @@ function pickBuildingSource(map, buildingSource) {
   const usedByBuildings = (style.layers || [])
     .filter(layer => layer["source-layer"] === "building" && sources[layer.source]?.type === "vector")
     .map(layer => layer.source);
-  const candidates = [...new Set([...usedByBuildings, "openmaptiles", "openfreemap", "maptiler_planet"])]
+  const candidates = [...new Set(["km-building-vectors", ...usedByBuildings, "openmaptiles", "openfreemap", "maptiler_planet"])]
     .filter(id => sources[id]?.type === "vector" && map.getSource(id));
   if (candidates.length) {
     return candidates.find(id => map.isSourceLoaded(id)) || candidates[0];
@@ -274,13 +278,28 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   return Boolean(map.getLayer("km-buildings-3d"));
 }
 
-function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
-  const customBuildingsReady = buildingsEnabled && ensureBuildingLayer(
-    map, buildingSource, darkMode, mapStyle, profile);
-  for (const layer of map.getStyle().layers) {
-    if (layer.type !== "fill-extrusion" || layer.id === "km-buildings-3d") continue;
-    map.setLayoutProperty(layer.id, "visibility", customBuildingsReady ? "none" : (buildingsEnabled ? "visible" : "none"));
+function syncNativeBuildings(map, buildingsEnabled) {
+  const layer = map.getLayer("km-buildings-3d");
+  let customReady = false;
+  if (buildingsEnabled && layer?.source) {
+    try {
+      customReady = map.isSourceLoaded(layer.source) &&
+        map.querySourceFeatures(layer.source, { sourceLayer: "building" }).length > 0;
+    } catch { customReady = false; }
   }
+  for (const nativeLayer of map.getStyle()?.layers || []) {
+    if (nativeLayer.type !== "fill-extrusion" || nativeLayer.id === "km-buildings-3d") continue;
+    const visibility = !buildingsEnabled || customReady ? "none" : "visible";
+    if (map.getLayoutProperty(nativeLayer.id, "visibility") !== visibility) {
+      map.setLayoutProperty(nativeLayer.id, "visibility", visibility);
+    }
+  }
+  return customReady;
+}
+
+function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
+  if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+  syncNativeBuildings(map, buildingsEnabled);
   ensureRealLandmarks(map, buildingsEnabled);
   if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
@@ -639,6 +658,11 @@ export default function Scene3D({
           landmarkModels: LANDMARKS.map(item => item.id),
           activeModels: map.__kmActiveModels || [],
           failedModels: map.__kmLandmarkErrors || [],
+          landmarkLibraryError: map.__kmLandmarkLibraryError || null,
+          landmarkLoadErrors: map.__kmLandmarkLoadErrors || {},
+          landmarkProjectionError: map.__kmLandmarkProjectionError || null,
+          renderedModels: map.__kmLandmarkRendered || {},
+          meshCounts: map.__kmLandmarkMeshCounts || {},
         };
       };
       let lastRotateAt = -Infinity;
@@ -797,10 +821,12 @@ export default function Scene3D({
       styleInstall = install;
       map.on("style.load", install);
       const repairBuildings = () => {
-        if (controller.signal.aborted || stylesRef.current !== version ||
-            !buildingsRef.current || map.getLayer("km-buildings-3d") ||
-            !buildingStyleRef.current || (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
-        ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+        if (controller.signal.aborted || stylesRef.current !== version) return;
+        if (buildingsRef.current && !map.getLayer("km-buildings-3d") &&
+            buildingStyleRef.current && (map.__kmBuildingInfo?.attempts || 0) < 4) {
+          ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
+        }
+        syncNativeBuildings(map, buildingsRef.current);
       };
       map.on("idle", repairBuildings);
       const oldCleanup = map.__kmBuildingRepairCleanup;
@@ -887,6 +913,7 @@ export default function Scene3D({
       const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
     }
+    syncNativeBuildings(map, true);
     ensureRealLandmarks(map, true);
   }, [ready, buildingsEnabled, profile]);
 

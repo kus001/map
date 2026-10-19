@@ -22,6 +22,7 @@ function addScript(url) {
   });
 }
 
+// load the leaflet/maplibre bridge just once
 function ready() {
   if (L.maplibreGL) return Promise.resolve();
   if (!loading) {
@@ -56,6 +57,7 @@ export default function FreeMapLayer({ darkMode }) {
     let freeCredits = true;
     map.attributionControl?.addAttribution(CREDITS);
 
+    // if the vector style fails, use basic osm tiles instead
     const showBackup = () => {
       if (!active || layer instanceof L.TileLayer) return;
       if (layer) map.removeLayer(layer);

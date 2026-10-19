@@ -17,6 +17,7 @@ const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
 const placeCache = new Map();
 let mapTilerPauseUntil = 0;
 
+// only use maptiler as extra results, cache them for a bit
 async function extraPlaces(query, proximity, signal) {
   if (!MAPTILER_KEY || Date.now() < mapTilerPauseUntil) return [];
   const key = `${query.toLowerCase()}|${proximity.lat},${proximity.lon}`;
@@ -78,6 +79,7 @@ const WALK_TYPES = [
 
 const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 };                      
 
+// round nearby search locations so small map moves share cache entries
 function roundedBias(bias) {
   if (!Array.isArray(bias)) {
     return null;

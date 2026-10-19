@@ -240,6 +240,75 @@ function buildingMaterialColor(darkMode) {
     byMaterial];
 }
 
+
+const BUILDING_TEXTURES = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
+
+function buildingTexturePattern() {
+  const material = ["downcase", ["to-string", ["coalesce",
+    ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
+  const chosen = ["match", material,
+    "glass", "km-facade-glass",
+    "brick", "km-facade-brick",
+    "concrete", "km-facade-concrete",
+    "stone", "km-facade-stone",
+    "metal", "km-facade-metal",
+    "wood", "km-facade-wood",
+    "plaster", "km-facade-plaster",
+    "km-facade-default"];
+  return ["image", chosen];
+}
+
+function applyBuildingAppearance(map, appearance) {
+  if (!map?.isStyleLoaded?.()) return;
+  map.__kmBuildingAppearance = appearance;
+  const layers = (map.getStyle()?.layers || []).filter(layer => layer.type === "fill-extrusion");
+  if (appearance !== "textured") {
+    for (const layer of layers) {
+      if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
+        try { map.setPaintProperty(layer.id, "fill-extrusion-pattern", null); }
+        catch (error) { console.warn("Could not restore building colours", error); }
+      }
+    }
+    map.__kmTextureApplied = new Set();
+    return;
+  }
+  const missing = BUILDING_TEXTURES.filter(name => !map.hasImage(`km-facade-${name}`));
+  if (!missing.length) {
+    const applied = map.__kmTextureApplied || (map.__kmTextureApplied = new Set());
+    const pattern = buildingTexturePattern();
+    for (const layer of layers) {
+      if (applied.has(layer.id)) continue;
+      try {
+        map.setPaintProperty(layer.id, "fill-extrusion-pattern", pattern);
+        applied.add(layer.id);
+      } catch (error) { console.warn("Building texture unavailable", error); }
+    }
+    return;
+  }
+  if (map.__kmTextureLoading) return;
+  const styleVersion = map.__kmTextureStyleVersion;
+  const pending = Promise.all(BUILDING_TEXTURES.map(async name => {
+    const response = await map.loadImage(`/textures/buildings/${name}.png`);
+    return [name, response.data];
+  }));
+  map.__kmTextureLoading = pending;
+  pending.then(images => {
+    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== styleVersion || !map.isStyleLoaded()) return;
+    for (const [name, image] of images) {
+      const id = `km-facade-${name}`;
+      if (!map.hasImage(id)) map.addImage(id, image);
+    }
+    if (map.__kmBuildingAppearance === "textured") applyBuildingAppearance(map, "textured");
+  }).catch(error => {
+    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== styleVersion) return;
+    console.warn("Could not load building textures; using colours", error);
+    map.__kmTextureLoadingFailed = true;
+    map.__kmBuildingAppearance = "coloured";
+  }).finally(() => {
+    if (map.__kmTextureStyleVersion === styleVersion) map.__kmTextureLoading = null;
+  });
+}
+
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
@@ -401,6 +470,10 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmBuildingCheck = null;
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
+  map.__kmTextureStyleVersion = (map.__kmTextureStyleVersion || 0) + 1;
+  map.__kmTextureLoading = null;
+  map.__kmTextureApplied = new Set();
+  map.__kmTextureLoadingFailed = false;
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;
@@ -580,13 +653,16 @@ export default function Scene3D({
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
   const [buildingsEnabled, setBuildingsEnabled] = useState(true);
+  const [buildingAppearance, setBuildingAppearance] = useState("coloured");
+  const appearanceRef = useRef(buildingAppearance);
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
   useEffect(() => {
     buildingsRef.current = buildingsEnabled;
+    appearanceRef.current = buildingAppearance;
     globeRef.current = globe;
     terrainRef.current = terrainEnabled;
-  }, [buildingsEnabled, globe, terrainEnabled]);
+  }, [buildingsEnabled, buildingAppearance, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -887,6 +963,7 @@ export default function Scene3D({
     const styles = stylesRef;
     return () => {
       active = false; styles.current++;
+      if (map) map.__kmTextureDisposed = true;
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmBuildingRangeCleanup?.();
       map?.__kmSpinCleanup?.();
@@ -924,6 +1001,7 @@ export default function Scene3D({
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
           addSceneLayers(map, buildingSource, darkMode, mapStyle,
             buildingsRef.current, terrainRef.current, profile);
+          applyBuildingAppearance(map, appearanceRef.current);
           if (typeof map.setLight === "function") {
             try { map.setLight({ anchor: "map", color: "#fff7e8",
               intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
@@ -940,6 +1018,7 @@ export default function Scene3D({
             ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
             syncNativeBuildings(map, buildingsRef.current);
             limitFarBuildings(map);
+            applyBuildingAppearance(map, appearanceRef.current);
           }, delay));
         }
       };
@@ -953,6 +1032,9 @@ export default function Scene3D({
         }
         syncNativeBuildings(map, buildingsRef.current);
         limitFarBuildings(map);
+        if (appearanceRef.current === "textured" && !map.__kmTextureLoadingFailed) {
+          applyBuildingAppearance(map, appearanceRef.current);
+        }
       };
       map.on("idle", repairBuildings);
       const oldCleanup = map.__kmBuildingRepairCleanup;
@@ -1053,7 +1135,14 @@ export default function Scene3D({
     }
     syncNativeBuildings(map, true);
     limitFarBuildings(map);
+    applyBuildingAppearance(map, appearanceRef.current);
   }, [ready, buildingsEnabled, profile]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    appearanceRef.current = buildingAppearance;
+    if (ready && map?.isStyleLoaded()) applyBuildingAppearance(map, buildingAppearance);
+  }, [ready, buildingAppearance]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1249,6 +1338,11 @@ export default function Scene3D({
           title={`3D buildings appear from zoom ${profile.buildingZoom} (move closer to see them)`}
           onClick={() => setBuildingsEnabled(value => !value)}>
           Buildings {buildingsEnabled ? (zoom >= profile.buildingZoom ? "On" : "Zoom in") : "Off"}
+        </button>
+        <button type="button" className="km-3d-toggle" aria-pressed={buildingAppearance === "textured"}
+          title="Switch between normal building colours and facade textures"
+          onClick={() => setBuildingAppearance(value => value === "textured" ? "coloured" : "textured")}>
+          {buildingAppearance === "textured" ? "Textured" : "Coloured"}
         </button>
       </div>
     </div>

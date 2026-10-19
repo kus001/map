@@ -24,7 +24,7 @@ def report() -> dict:
 
 def status() -> dict:
     stages = report()
-    # The endpoint is public. Keep full exceptions in the server log, not JSON.
+
     for item in stages.values():
         if item.get("error"):
             item["error"] = item["error"].split(":", 1)[0]
@@ -47,7 +47,7 @@ def _run(name, fn):
     started = time.perf_counter()
     try:
         detail = fn()
-    except Exception as error:  # keep the server bootable; lazy paths still exist
+    except Exception as error:
         elapsed = time.perf_counter() - started
         _report[name] = {"ok": False, "seconds": round(elapsed, 2), "error": f"{type(error).__name__}: {error}"}
         print(f"[warmup] {name}: FAILED after {elapsed:.2f}s ({type(error).__name__}: {error})", flush=True)
@@ -86,7 +86,7 @@ def _ttc() -> str:
 def _stop_grid():
     import transit
     from helpers.coords import nearest_stops
-    # Builds the spatial grid for the final stop set (after TTC has been merged).
+
     nearest_stops(transit.stops, 43.4723, -80.5449, 1)
     return f"{len(transit.stops):,} stops indexed"
 
@@ -141,10 +141,10 @@ def warm_up() -> dict:
     print("[warmup] loading all routing data before accepting requests...", flush=True)
 
     _run("address_index", _address_index)
-    _run("named_places", _named_places)  # after the index: addresses resolve offline
+    _run("named_places", _named_places)
     graph_ok = _run("transit_graph", _transit_graph)
     if graph_ok:
-        # Order matters: TTC extends the graph/stops, so build derived indexes after it.
+
         _run("ttc", _ttc)
         _run("stop_grid", _stop_grid)
         _run("gtfs_indexes", _gtfs_indexes)

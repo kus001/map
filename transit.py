@@ -57,32 +57,32 @@ TRANSIT_PREFERENCES = {
     "balanced": {
         "label": "Balanced",
         "soft_walk_m": 300,
-        "walk_penalty": 1.0,   # each minute walked past soft_walk_m counts double
+        "walk_penalty": 1.0,
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "less_walking": {
         "label": "Less walking",
         "soft_walk_m": 0,
-        "walk_penalty": 2.0,   # Walking time counts triple ...
+        "walk_penalty": 2.0,
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {
         "label": "Fastest",
         "soft_walk_m": 0,
-        "walk_penalty": 0.0,   # no limiter: pure time
+        "walk_penalty": 0.0,
         "max_nearby_stops": FASTEST_NEARBY_STOPS,
     },
 }
 
 TRANSFER_BUFFER_MIN = 4
-HEURISTIC_SPEED_KMH = 100.0   # Decreased heuristic because we don't have fast trains here sob sob sob
+HEURISTIC_SPEED_KMH = 100.0
 ACCESS_WALK_SPEED_MPS = 1.1
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256
 TRANSIT_DETAILED_WALKS = os.getenv("TRANSIT_DETAILED_WALKS", "1") == "1"
-MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "6")), 10)) # Total routes returned. e.g. primary and up to 5 more.
-TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "9.0")) # Wall-clock budget for the whole alternatives search (seconds).
+MAX_TRANSIT_ALTERNATIVES = max(1, min(int(os.getenv("TRANSIT_ALTERNATIVES", "6")), 10))
+TRANSIT_ALT_BUDGET_SECONDS = float(os.getenv("TRANSIT_ALT_BUDGET_SECONDS", "9.0"))
 ALT_MIN_HEADWAY_MIN = 5
 TRANSIT_GO_BOARD_ENRICHMENT = os.getenv("TRANSIT_GO_BOARD_ENRICHMENT", "0") == "1"
 LIVE_VEHICLE_MAX_AGE_SECONDS = max(30, int(os.getenv("LIVE_VEHICLE_MAX_AGE_SECONDS", "120")))
@@ -132,7 +132,7 @@ def load_ttc() -> bool:
             ttc = pickle.load(file)
         ensure_transit_loaded()
 
-        # Join TTC to GO at nearby platforms, without comparing every stop to every other.
+
         go_index = {}
         for sid, pos in stops.items():
             if not sid.startswith("go:") or not _in_toronto(pos):
@@ -416,8 +416,8 @@ def scheduled_vehicle_positions(steps, realtime=None, now=None):
                 active_arrival = float(arrival)
                 break
 
-            # During a scheduled dwell, keep the estimate at the stop instead of
-            # making the vehicle jump immediately onto the next segment.
+
+
             if now_seconds < departure and index > 0:
                 previous = hops[index - 1]
                 previous_arrival, _, previous_live = adjusted_arrival(
@@ -474,8 +474,8 @@ def scheduled_vehicle_positions(steps, realtime=None, now=None):
     return estimates
 
 
-# Keep map-wide schedule estimation independent of route calculation. Only
-# nearby graph edges are inspected, never an entire timetable for every request.
+
+
 _nearby_vehicle_cache = OrderedDict()
 _nearby_vehicle_lock = threading.Lock()
 
@@ -498,7 +498,7 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
         if key in _nearby_vehicle_cache:
             return list(_nearby_vehicle_cache[key])
 
-    # Access to nearest stops is O(stops log N), then only a few graph neighbors.
+
     nearby = nearest_stops(stops, latitude, longitude, amount_of_stops=105)
     vehicles = {}
     for distance, entry in nearby:
@@ -517,8 +517,8 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
                     continue
                 info = schedule_info(trips)
                 idx = bisect_left(info["times"], seconds)
-                # Schedules are in departure order. The active trip should have
-                # left very recently. Scan a bounded window, not the entire day.
+
+
                 for edge in trips[max(0, idx - 5):min(len(trips), idx + 2)]:
                     depart = edge.get("departure_time")
                     arrive = edge.get("arrival_time")
@@ -570,8 +570,8 @@ def time_label(value):
         return None
 
     try:
-        # GTFS permits times past 24:00 for trips that continue after midnight.
-        # Convert those back to a normal clock time for the UI.
+
+
         seconds = int(round(float(value))) % (24 * 3600)
         return seconds_to_time(seconds)[:5]
     except Exception:
@@ -616,7 +616,7 @@ def gtfs_service_clock(departure_datetime):
         + departure_datetime.second
     )
 
-    # Trips after midnight are commonly represented as 24:xx, 25:xx, etc.
+
     if departure_datetime.hour < SERVICE_DAY_ROLLOVER_HOUR:
         service_date -= timedelta(days=1)
         seconds += 24 * 3600
@@ -639,8 +639,8 @@ def route_details(edge) -> tuple[str|None, str|None]:
     else:
         route_name = str(route_info) if route_info else None
 
-    # GO route ids carry an 8-digit feed-version prefix ("09261126-25", "09261126-LW");
-    # riders know them as "25" / "LW".
+
+
     if route_name:
         route_name = re.sub(r"^\d{8}-(?=.)", "", str(route_name))
 
@@ -718,7 +718,7 @@ def run_async(coro):
     def runner():
         try:
             box["value"] = asyncio.run(coro)
-        except BaseException as exc:  # re-raised in the caller below
+        except BaseException as exc:
             box["error"] = exc
 
     worker = threading.Thread(target=runner)
@@ -744,8 +744,8 @@ def _ors_walk_directions(feature, coordinates):
     directions = []
     for segment in feature.get("properties", {}).get("segments", []):
         for step in segment.get("steps", []):
-            # ORS type 10 is "arrive at your destination". Inside a transit
-            # route a walk ends at a stop, so that line would be misleading.
+
+
             if step.get("type") == 10:
                 continue
 
@@ -850,8 +850,8 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
             result = None
 
     if result is None:
-        # Use the walking router without spawning background threads. Timeouts
-        # can now actually cancel the request when a public service hangs.
+
+
         try:
             from helpers.fast_osrm import WALK_URL
             response = await client.get(
@@ -890,7 +890,7 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
         except Exception:
             result = None
 
-    # Failures are not cached, so a temporary routing error doesn't stick.
+
     _WALK_CACHE[key] = result
     while len(_WALK_CACHE) > MAX_WALK_CACHE_ENTRIES:
         try:
@@ -956,7 +956,7 @@ MAX_SCHEDULE_CACHE_ENTRIES = 256
 
 def schedule_info(trips):
     """Return binary-search helpers without allowing the cache to grow forever."""
-    # Compact graphs carry their own constant-time schedule view (no per-visit rebuild).
+
     compact_schedule = getattr(trips, "schedule", None)
     if compact_schedule is not None:
         return compact_schedule
@@ -967,8 +967,8 @@ def schedule_info(trips):
         _SCHEDULE_CACHE.move_to_end(key)
         return cached
 
-    # make_graph stores scheduled trips in departure order, so avoid making another
-    # full copy of every edge's trip list.
+
+
     ordered = trips
     info = {
         "trips": ordered,
@@ -1002,7 +1002,7 @@ def _active_services(date):
     if entry is None:
         if len(_ACTIVE_SERVICE_CACHE) >= 8:
             _ACTIVE_SERVICE_CACHE.clear()
-        entry = (_data.active_service_ids(date),)   # tuple so None can be cached
+        entry = (_data.active_service_ids(date),)
         _ACTIVE_SERVICE_CACHE[date] = entry
     return entry[0]
 
@@ -1055,7 +1055,7 @@ def transit_preference_profile(value) -> tuple[str, dict]:
             {
                 "label": f"P{value}",
                 "soft_walk_m": 100,
-                "walk_penalty": float(value),   # each minute walked past soft_walk_m counts value times
+                "walk_penalty": float(value),
                 "max_nearby_stops": MAX_NEARBY_STOPS,
             }
         )
@@ -1080,7 +1080,7 @@ def _candidate_trip_realtime_compact(
     from_raw, to_raw = raw_stop_id(from_stop), raw_stop_id(to_stop)
     best = None
     best_departure = float("inf")
-    active_services = _active_services(date)          # hoisted out of the hot loop
+    active_services = _active_services(date)
     service_of = _data.trip_to_service.get
 
     for i in range(bisect_left(deps, earliest - 2 * 3600), len(deps)):
@@ -1136,8 +1136,8 @@ def _candidate_trip(
             return _candidate_trip_realtime_compact(
                 schedule["trips"], agency, from_stop, to_stop, earliest, date, realtime
             )
-        # Search a little before the scheduled time because a late vehicle may have had
-        # an earlier static departure while still being catchable now.
+
+
         index = bisect_left(times, earliest - 2 * 3600)
         best = None
         best_departure = float("inf")
@@ -1178,8 +1178,8 @@ def _candidate_trip(
 
     trips = schedule["trips"]
     if hasattr(trips, "tids"):
-        # Most TTC journeys use scheduled departures. Read the packed arrays
-        # directly; turning every candidate into a dict gets expensive.
+
+
         active = _active_services(date)
         ids = trips.pools.trip_ids
         service_of = _data.trip_to_service.get if active is not None else None
@@ -1253,9 +1253,9 @@ def search_transit(
 
     heuristic_cache = _heuristic_values if _heuristic_values is not None else {}
 
-    # Per-goal constants, computed once instead of on every heuristic() call.
-    # The distance maths below mirrors dist_m() operation for operation, so results
-    # are bit-identical to calling dist_m(here, target).
+
+
+
     goal_terms = []
     rad = math.radians
     for goal_id, option in ends.items():
@@ -1280,9 +1280,9 @@ def search_transit(
         return best
 
     queue = []
-    costs = {}        # state -> (true minutes g, boardings)
-    scores = {}       # state -> (g + penalty, boardings)  used for pruning
-    penalty_of = {}   # state -> accumulated soft penalty (minutes)
+    costs = {}
+    scores = {}
+    penalty_of = {}
     parent = {}
     seed_costs = {}
     tie = count()
@@ -1306,8 +1306,8 @@ def search_transit(
             ),
         )
 
-    best_total = float("inf")   # ranking score (includes penalties)
-    best_real = float("inf")    # true minutes of the best-ranked route
+    best_total = float("inf")
+    best_real = float("inf")
     best_state = None
     best_end = None
 
@@ -1420,7 +1420,7 @@ def search_transit(
                     new_g = current_g + extra
                     new_pen = current_pen
                     if boarding_penalty and new_boardings > boardings:
-                        new_pen += boarding_penalty   # ranks fewer-transfer journeys higher
+                        new_pen += boarding_penalty
                     next_state = (neighbor_id, trip_id)
                     new_score = (round(new_g + new_pen, 6), new_boardings)
 
@@ -1499,18 +1499,18 @@ def route_signature(route):
 
 
 def combine_realtime(grt, go):
-    # Do not let a healthy feed from one agency make stale TripUpdates from the
-    # other agency look valid. Each source must be fresh before its delays and
-    # cancellations are allowed to affect A* routing.
+
+
+
     trip_updates = (
         dict(grt.get("trip_updates", {})) if grt.get("available") else {}
     )
     if go.get("available"):
         trip_updates.update(go.get("trip_updates", {}))
 
-    # Position feeds are independent of TripUpdates and are replaced on every
-    # refresh, so valid positions can still be displayed during a delay-feed
-    # outage.
+
+
+
     vehicles = dict(grt.get("vehicles", {}))
     vehicles.update(go.get("vehicles", {}))
     timestamps = [v for v in (grt.get("feed_timestamp"), go.get("feed_timestamp")) if v]
@@ -1633,8 +1633,8 @@ async def _fetch_walks_async(jobs):
         if waiting:
             await asyncio.gather(*waiting, return_exceptions=True)
 
-    # A slow public router must not hold up the transit result. Cached/fast
-    # sidewalk paths still show the full geometry and walking directions.
+
+
     for key, (start, end, fallback) in jobs.items():
         if key not in results:
             length = dist_m(start, end)
@@ -1654,8 +1654,8 @@ def fetch_walks(jobs):
         return {key: walking_geometry(start, end, fallback)
                 for key, (start, end, fallback) in jobs.items()}
 
-    # DNS and network teardown can exceed an async timeout. Keep that work
-    # outside the Flask request thread with a strictly limited worker pool.
+
+
     waiting = {key: job for key, job in jobs.items()
                if _WALK_CACHE.get(_walk_key(job[0], job[1])) is None}
     future = None
@@ -1725,7 +1725,7 @@ def _path_walk_jobs(path, start, end, best_start, best_end):
 
 
 def _path_signature(path):
-    # Distinguishes different services without drawing/formatting their geometry.
+
     return tuple((str(group['agency']), str(group['route']),
                   str(group['from_name']), str(group['to_name']))
                  for group in group_path(path) if group['type'] == 'transit')
@@ -1764,14 +1764,14 @@ def stop_departure_board(stop_id, limit=8, now=None):
     now = normalize_departure_datetime(now)
     service_date, service_seconds = gtfs_service_clock(now)
     realtime = combine_realtime(realtime_snapshot(), go_gtfs_snapshot())
-    # Use the source's own freshness flag; stale updates must not appear LIVE.
+
     schedule = upcoming_departures(
         stop_id, graph, service_date=service_date, service_seconds=service_seconds,
         active_trip=trip_active, realtime=realtime, route_details=route_details,
         raw_stop_id=raw_stop_id, adjusted_departure=adjusted_departure,
         limit=max(1,min(12,int(limit))),
     )
-    # Arrival-only terminal points can share a boarding platform close by.
+
     if not schedule:
         centre = coord(stops[stop_id])
         for metres, (other_id, other_info) in nearest_stops(stops, *centre, amount_of_stops=16):
@@ -1911,12 +1911,12 @@ def generate_alternative_paths(
         arrive_min = float(minutes) + job["shift"]
         if requested_arrival and depart_at + timedelta(minutes=float(minutes)) > requested_arrival:
             continue
-        if arrive_min > base_minutes * 1.9 + 15:     # not a sensible alternative
+        if arrive_min > base_minutes * 1.9 + 15:
             continue
 
         groups = _transit_groups(path)
-        # "Transfer" from a route onto the same route is a search artifact
-        # (it just waits for the next bus), never a useful alternative.
+
+
         if any(
             (a["agency"], str(a["route"])) == (b["agency"], str(b["route"]))
             for a, b in zip(groups, groups[1:])
@@ -1943,7 +1943,7 @@ def generate_alternative_paths(
         accepted.append({"found": found, "pref": job["pref"], "variant": job["variant"],
                          "departure": depart_at, "arrive_min": arrive_min})
 
-        # Widen the net: next, avoid everything shown so far.
+
         banned_trips |= set(trips)
         banned_routes |= set(route_keys_for_path(path))
         if len(accepted) < want:
@@ -2001,8 +2001,8 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
-    # TTC has to be in the graph before choosing the nearby stops.
-    # Loading it during walking geometry is too late for Toronto routes.
+
+
     maybe_load_ttc(start, end)
     mark("ttc_load")
 
@@ -2035,9 +2035,9 @@ def get_transit_route(
     else:
         arrive_search_path = None
         if requested_arrival is not None:
-            # Search only the timetable graph, not external pedestrian geometry.
-            # The Fastest profile establishes feasibility; then the chosen profile
-            # is applied at the latest feasible departure.
+
+
+
             fastest_profile = TRANSIT_PREFERENCES["fastest"]
             probe_heuristics = {}
 
@@ -2070,16 +2070,16 @@ def get_transit_route(
             excluded_route_keys=excluded_route_keys,
         )
 
-        # A preferred route may walk less but arrive past the requested deadline.
-        # In that case use the feasible fastest journey found in the bounded search.
+
+
         if requested_arrival is not None:
             if (path is None or requested_departure + timedelta(minutes=float(search_time))
                     > requested_arrival - timedelta(minutes=2)):
                 path, search_time, best_start, best_end = arrive_search_path
 
     next_service = False
-    # "Leave now" can be after the last GO connection of the night.
-    # Try the next morning once; be explicit that this isn't an immediate departure.
+
+
     if path is None and departure_datetime is None and requested_arrival is None:
         morning = requested_departure.replace(hour=6, minute=0, second=0, microsecond=0)
         if morning <= requested_departure:
@@ -2147,7 +2147,7 @@ def get_transit_route(
     service_date, _ = gtfs_service_clock(requested_departure)
     service_midnight = datetime(service_date.year, service_date.month, service_date.day,
                                 tzinfo=TRANSIT_TIMEZONE)
-    timeline = []          # ordered ("walk", minutes) / ("ride", dep_s, arr_s, trip_id)
+    timeline = []
 
     segments = []
     steps = []
@@ -2275,9 +2275,9 @@ def get_transit_route(
         step_delay_min = float(group["delay_seconds"] / 60)
         go_live = None
 
-        # GRT exposes public GTFS-RT feeds, while GO's useful live departure board
-        # is provided through the key-protected OpenMetrolinx NextService API.
-        # Query only the final chosen GO leg so route searches do not hammer the API.
+
+
+
         if (
             agency == "go"
             and realtime_allowed
@@ -2359,7 +2359,7 @@ def get_transit_route(
             "realtime": step_realtime,
             "delay_min": step_delay_min,
             "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
-            # Where you get off: lets navigation measure distance to your stop.
+
             "to_coordinates": list(group["to_coords"]),
         }
 
@@ -2387,7 +2387,7 @@ def get_transit_route(
         timeline.append(("ride", group["departure_time"], group["arrival_time"], trip_id))
         steps.append(step)
 
-        # total_distance += distance
+
         used_trip_ids.add(str(trip_id))
         route_ids.add(str(route_name))
         if meta and meta.get("route_id"):
@@ -2452,7 +2452,7 @@ def get_transit_route(
             if not route_coordinates or route_coordinates[-1] != point:
                 route_coordinates.append(point)
 
-    # Legacy estimate (search minutes + every walk delta) kept only as a fallback.
+
     legacy_total = max(0.0, float(search_time) + walk_adjustment)
     replay = _replay_timeline(timeline, requested_departure, service_midnight)
     if replay is not None:
@@ -2462,7 +2462,7 @@ def get_transit_route(
         total_time = legacy_total
         arrival_dt = requested_departure + timedelta(minutes=total_time)
 
-    # "Fastest" means fastest: if walking the whole way beats transit, return the walk.
+
     if preference_key == "fastest" and excluded_route_keys is None:
         if access_walk_minutes(dist_m(start, end)) <= total_time:
             direct_walk = walking_geometry(start, end)
@@ -2534,7 +2534,7 @@ def get_transit_route(
             distance_km / (total_time / 60) if total_time > 0 else 0.0
         ),
         "steps": steps,
-        # Keep this alias for compatibility with older frontend code that used route.stops.
+
         "stops": steps,
         "segments": segments,
         "transit_stops": transit_stops,
@@ -2561,13 +2561,13 @@ def get_transit_route(
         "access_walk_limit_expanded": False,
     }
 
-    # True while any walk time is still the straight-line guess (street-network
-    # result not back yet); only the final walk can still move the arrival.
+
+
     route["walks_estimated"] = bool(route["pending_walks"])
 
     if requested_arrival is not None:
-        # The road-following geometry can slightly increase walking time. Do
-        # not present a journey as on-time if it now misses the deadline.
+
+
         if arrival_dt > requested_arrival:
             return {"success": False, "error": "No route meets your arrival deadline after accounting for walking time."}
 
@@ -2623,8 +2623,8 @@ def _local_test_color_helpers():
         from helpers.print_color import bold, blue, green, magenta, red, yellow
         return bold, blue, green, magenta, red, yellow
     except Exception:
-        # The web server never needs the color helper. If its optional console
-        # dependency is unavailable, keep the local tester usable without color.
+
+
         identity = lambda value, *args, **kwargs: str(value)
         return identity, identity, identity, identity, identity, identity
 
@@ -2703,8 +2703,8 @@ def _print_local_route_result(result, timing, graph_load_seconds):
 
 
 if __name__ == "__main__":
-    # Restore the old standalone local transit tester while keeping production
-    # imports quiet and memory-efficient.
+
+
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
 
     print(bold("=" * 64))

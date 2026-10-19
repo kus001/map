@@ -242,6 +242,13 @@ function buildingMaterialColor(darkMode) {
 
 
 const BUILDING_TEXTURES = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
+const TEXTURE_VERSION = "10.16.3";
+
+function textureState(map, state, message = null) {
+  map.__kmTextureState = state;
+  map.__kmTextureError = message;
+  map.__kmTextureNotify?.(state);
+}
 
 function buildingTexturePattern() {
   const material = ["downcase", ["to-string", ["coalesce",
@@ -270,42 +277,70 @@ function applyBuildingAppearance(map, appearance) {
       }
     }
     map.__kmTextureApplied = new Set();
+    textureState(map, "idle");
     return;
   }
+
   const missing = BUILDING_TEXTURES.filter(name => !map.hasImage(`km-facade-${name}`));
   if (!missing.length) {
     const applied = map.__kmTextureApplied || (map.__kmTextureApplied = new Set());
     const pattern = buildingTexturePattern();
+    let rendered = 0;
+    let errorMessage = null;
     for (const layer of layers) {
-      if (applied.has(layer.id)) continue;
       try {
-        map.setPaintProperty(layer.id, "fill-extrusion-pattern", pattern);
-        applied.add(layer.id);
-      } catch (error) { console.warn("Building texture unavailable", error); }
+        if (!applied.has(layer.id) || map.getPaintProperty(layer.id, "fill-extrusion-pattern") == null) {
+          map.setPaintProperty(layer.id, "fill-extrusion-pattern", pattern);
+          applied.add(layer.id);
+        }
+        if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) rendered++;
+      } catch (error) {
+        errorMessage = String(error?.message || error);
+        console.warn("Building texture unavailable", error);
+      }
     }
+    if (rendered) textureState(map, "ready");
+    else textureState(map, errorMessage ? "error" : "loading", errorMessage);
     return;
   }
   if (map.__kmTextureLoading) return;
-  const styleVersion = map.__kmTextureStyleVersion;
-  const pending = Promise.all(BUILDING_TEXTURES.map(async name => {
-    const response = await map.loadImage(`/textures/buildings/${name}.png`);
-    return [name, response.data];
+  if (map.__kmTextureLoadingFailed) {
+    textureState(map, "error", map.__kmTextureError || "Texture files could not be loaded");
+    return;
+  }
+
+  textureState(map, "loading");
+  const version = map.__kmTextureStyleVersion;
+  const base = String(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
+  const pending = Promise.all(missing.map(async name => {
+    const url = `${base}textures/buildings/${name}.png?v=${TEXTURE_VERSION}`;
+    const response = await map.loadImage(url);
+    const image = response?.data;
+    if (!image) throw new Error(`No image returned for ${name}.png`);
+    const { width, height } = image;
+    if (width !== 512 || height !== 512) {
+      throw new Error(`${name}.png is ${width}x${height}. Building patterns require 512x512 images`);
+    }
+    return [name, image];
   }));
   map.__kmTextureLoading = pending;
   pending.then(images => {
-    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== styleVersion || !map.isStyleLoaded()) return;
+    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== version) return;
     for (const [name, image] of images) {
       const id = `km-facade-${name}`;
-      if (!map.hasImage(id)) map.addImage(id, image);
+      if (!map.hasImage(id)) map.addImage(id, image, { pixelRatio: 1 });
     }
-    if (map.__kmBuildingAppearance === "textured") applyBuildingAppearance(map, "textured");
+    if (map.__kmBuildingAppearance === "textured" && map.isStyleLoaded()) {
+      applyBuildingAppearance(map, "textured");
+    }
   }).catch(error => {
-    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== styleVersion) return;
-    console.warn("Could not load building textures; using colours", error);
+    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== version) return;
     map.__kmTextureLoadingFailed = true;
-    map.__kmBuildingAppearance = "coloured";
+    const message = String(error?.message || error);
+    textureState(map, "error", message);
+    console.warn("Building textures couldn't load", message);
   }).finally(() => {
-    if (map.__kmTextureStyleVersion === styleVersion) map.__kmTextureLoading = null;
+    if (map.__kmTextureStyleVersion === version) map.__kmTextureLoading = null;
   });
 }
 
@@ -474,6 +509,7 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmTextureLoading = null;
   map.__kmTextureApplied = new Set();
   map.__kmTextureLoadingFailed = false;
+  textureState(map, map.__kmBuildingAppearance === "textured" ? "loading" : "idle");
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;
@@ -654,6 +690,7 @@ export default function Scene3D({
   const terrainRef = useRef(true);
   const [buildingsEnabled, setBuildingsEnabled] = useState(true);
   const [buildingAppearance, setBuildingAppearance] = useState("coloured");
+  const [textureStatus, setTextureStatus] = useState("idle");
   const appearanceRef = useRef(buildingAppearance);
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
@@ -733,6 +770,7 @@ export default function Scene3D({
         attributionControl: true,
       });
       mapRef.current = map;
+      map.__kmTextureNotify = state => { if (active) setTextureStatus(state); };
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
@@ -860,6 +898,13 @@ export default function Scene3D({
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
           buildingRangeMeters: map.__kmBuildingRangeMeters ?? null,
+          textureMode: map.__kmBuildingAppearance || "coloured",
+          textureState: map.__kmTextureState || "idle",
+          textureError: map.__kmTextureError || null,
+          textureImages: BUILDING_TEXTURES.filter(name => map.hasImage(`km-facade-${name}`)),
+          textureLayers: (style?.layers || []).filter(item => item.type === "fill-extrusion")
+            .map(item => ({ id: item.id, visible: map.getLayoutProperty(item.id, "visibility") !== "none",
+              pattern: map.getPaintProperty(item.id, "fill-extrusion-pattern") ?? null })),
         };
       };
       let lastRotateAt = -Infinity;
@@ -963,7 +1008,7 @@ export default function Scene3D({
     const styles = stylesRef;
     return () => {
       active = false; styles.current++;
-      if (map) map.__kmTextureDisposed = true;
+      if (map) { map.__kmTextureDisposed = true; delete map.__kmTextureNotify; }
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmBuildingRangeCleanup?.();
       map?.__kmSpinCleanup?.();
@@ -1141,7 +1186,10 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     appearanceRef.current = buildingAppearance;
-    if (ready && map?.isStyleLoaded()) applyBuildingAppearance(map, buildingAppearance);
+    if (ready && map?.isStyleLoaded()) {
+      if (buildingAppearance === "textured") map.__kmTextureLoadingFailed = false;
+      applyBuildingAppearance(map, buildingAppearance);
+    }
   }, [ready, buildingAppearance]);
 
   useEffect(() => {
@@ -1340,9 +1388,11 @@ export default function Scene3D({
           Buildings {buildingsEnabled ? (zoom >= profile.buildingZoom ? "On" : "Zoom in") : "Off"}
         </button>
         <button type="button" className="km-3d-toggle" aria-pressed={buildingAppearance === "textured"}
-          title="Switch between normal building colours and facade textures"
+          title={textureStatus === "error"
+            ? "Texture loading failed. Check the texture paths or diagnostics, then toggle off and on to retry"
+            : "Switch between normal building colours and facade textures"}
           onClick={() => setBuildingAppearance(value => value === "textured" ? "coloured" : "textured")}>
-          {buildingAppearance === "textured" ? "Textured" : "Coloured"}
+          {buildingAppearance !== "textured" ? "Coloured" : textureStatus === "error" ? "Textures failed" : textureStatus === "loading" ? "Loading textures" : "Textured"}
         </button>
       </div>
     </div>

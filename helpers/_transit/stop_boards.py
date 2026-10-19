@@ -23,11 +23,11 @@ def upcoming_departures(stop_id, graph, *, service_date, service_seconds, active
         for route_key, edges in routes.items():
             if route_key == '__walk__':
                 continue
-            # Only imminent events matter. Times on an individual route list are
-            # sorted by the GTFS builder, but this is safe if a feed isn't sorted.
+
+
             compact_times = getattr(edges, 'deps', None)
             if compact_times is not None:
-                # Compact graph: departures are already a sorted int array.
+
                 times, sorted_times = compact_times, True
             else:
                 times = [float(edge.get('departure_time') or -1) for edge in edges]
@@ -51,7 +51,7 @@ def upcoming_departures(stop_id, graph, *, service_date, service_seconds, active
                 if departure is None or not (service_seconds-90 <= departure <= service_seconds+horizon_seconds):
                     continue
                 route, direction = route_details(trip)
-                # Avoid repeated times for the same trip across neighboring edges.
+
                 key = (agency, trip_id, int(departure))
                 if key in departures:
                     continue

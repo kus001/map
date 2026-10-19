@@ -1,8 +1,8 @@
-#code from https://github.com/CyrilSLi/transit-trackers/blob/main/ontario/grt-electric.py
+
 
 from google.transit import gtfs_realtime_pb2
 
-# From https://stackoverflow.com/a/76217135
+
 from urllib3.util import create_urllib3_context
 from urllib3 import PoolManager
 from requests.adapters import HTTPAdapter
@@ -24,7 +24,7 @@ feed.ParseFromString(s.get(
     "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions"
 ).content)
 
-years = { # Update from and/or contribute to the CPTDB Wiki
+years = {
     (22301, 22311, "2023")
 }
 years = {k: v for start, end, v in years for k in range(start, end + 1)}
@@ -37,7 +37,7 @@ for entity in feed.entity:
     except ValueError:
         continue
     vehicle_ids.add(vehicle_id)
-    if 22301 <= vehicle_id <= 22311: # LFSe+
+    if 22301 <= vehicle_id <= 22311:
         statuses.append((entity.vehicle.trip.route_id or "N/A", vehicle_id, entity.vehicle.position.latitude, entity.vehicle.position.longitude, years.get(vehicle_id, "N/A")))
 
 statuses.sort()

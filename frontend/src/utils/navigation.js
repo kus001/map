@@ -37,6 +37,7 @@ function projectAround(origin, point) {
   return [x, y];
 }
 
+// closest point on the road segment, not just the nearest stop
 function distanceToSegmentMeters(point, a, b) {
   const [ax, ay] = projectAround(point, a);
   const [bx, by] = projectAround(point, b);
@@ -54,6 +55,7 @@ function distanceToSegmentMeters(point, a, b) {
   return { distance: Math.hypot(closestX, closestY), t };
 }
 
+// find where we are along a route for turn-by-turn progress
 export function routePosition(location, coordinates) {
   const route = (coordinates || []).filter(validCoordinate);
   if (!validCoordinate(location) || route.length < 2) {

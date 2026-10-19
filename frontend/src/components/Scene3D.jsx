@@ -288,14 +288,33 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
 
 function syncNativeBuildings(map, buildingsEnabled) {
   const layer = map.getLayer("km-buildings-3d");
+  const source = buildingsEnabled ? layer?.source : null;
   let customReady = false;
-  if (buildingsEnabled && layer?.source) {
-    try {
-      customReady = map.isSourceLoaded(layer.source) &&
-        map.querySourceFeatures(layer.source, { sourceLayer: "building" }).length > 0;
-    } catch { customReady = false; }
+  if (source) {
+    const sourceLoaded = (() => {
+      try { return map.isSourceLoaded(source); }
+      catch { return false; }
+    })();
+    const cachedCheck = map.__kmBuildingCheck;
+    const checkedAt = performance.now();
+    const center = map.getCenter();
+    const viewKey = `${source}:${map.getZoom().toFixed(1)}:${center.lng.toFixed(3)}:${center.lat.toFixed(3)}`;
+    if (sourceLoaded && (!cachedCheck || cachedCheck.view !== viewKey || checkedAt - cachedCheck.checkedAt > 1500 || !cachedCheck.loaded)) {
+      const hasBuildings = (() => {
+        try { return map.querySourceFeatures(source, { sourceLayer: "building" }).length > 0; }
+        catch { return false; }
+      })();
+      map.__kmBuildingCheck = { view: viewKey, checkedAt, loaded: true, hasBuildings };
+    }
+    if (!sourceLoaded) map.__kmBuildingCheck = null;
+    customReady = sourceLoaded && Boolean(map.__kmBuildingCheck?.hasBuildings);
   }
   const styled = map.__kmStyledNativeBuildings || (map.__kmStyledNativeBuildings = new Set());
+  const lastSync = map.__kmNativeBuildingSync;
+  const now = performance.now();
+  if (lastSync && lastSync.ready === customReady && lastSync.enabled === buildingsEnabled &&
+      now - lastSync.checkedAt < 1000) return customReady;
+  map.__kmNativeBuildingSync = { ready: customReady, enabled: buildingsEnabled, checkedAt: now };
   for (const nativeLayer of map.getStyle()?.layers || []) {
     if (nativeLayer.type !== "fill-extrusion" || nativeLayer.id === "km-buildings-3d") continue;
     if (buildingsEnabled && !customReady && !styled.has(nativeLayer.id)) {
@@ -335,6 +354,8 @@ function removeLegacyLandmarks(map) {
 
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
   map.__kmBuildingDarkMode = darkMode;
+  map.__kmBuildingCheck = null;
+  map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
   removeLegacyLandmarks(map);
   if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
@@ -582,7 +603,8 @@ export default function Scene3D({
         pixelRatio: profile.pixelRatio, crossSourceCollisions: false,
         anisotropicFilterPitch: profile.tier === "low" ? 180 : 75,
         maxCanvasSize: [2048, 2048], reduceMotion: profile.tier === "low",
-        canvasContextAttributes: { alpha: true, antialias: false, powerPreference: "low-power" },
+        canvasContextAttributes: { alpha: true, antialias: false,
+          powerPreference: profile.tier === "low" ? "low-power" : "high-performance" },
         cancelPendingTileRequestsWhileZooming: true,
         attributionControl: true,
       });

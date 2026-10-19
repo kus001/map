@@ -144,8 +144,8 @@ def download_gtfs(
             url,
             stream=True,
 
-            # 10 sec to connect,
-            # 120 sec to receive data.
+
+
             timeout=(
                 10,
                 120

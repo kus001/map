@@ -4,7 +4,7 @@ from math import floor
 
 from helpers.distance import find_dist
 
-# A grid is enough for stop lookups. Rebuild only if an agency gets loaded.
+
 _cell_size = .02
 _cached_id = None
 _cached_count = -1
@@ -34,10 +34,10 @@ def nearest_stops(all_stops, lat, lon, amount_of_stops=50):
                 if ring and max(abs(dx), abs(dy)) != ring:
                     continue
                 candidates.extend(grid.get((x + dx, y + dy), ()))
-        # A whole extra ring avoids bias near a grid boundary.
+
         if len(candidates) >= count and ring >= 2:
             break
-    # Rural/off-network searches still need the nearest stops.
+
     if len(candidates) < count:
         candidates = list(all_stops.items())
     return nsmallest(

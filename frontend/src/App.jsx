@@ -12,7 +12,7 @@ import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 
-// A slow walking API should not keep the whole journey loading.
+                                                                
 function walkId(start, end) {
   return [...start, ...end].map(value => Number(value).toFixed(6)).join(",");
 }
@@ -123,8 +123,8 @@ const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
 const VALID_TIMING_MODES = new Set(["now", "scheduled", "arrive_by"]);
 const VALID_TRANSIT_PREFERENCES = new Set(["balanced", "less_walking", "fastest"]);
 
-// Capture the page-load time outside React rendering. React's purity lint rule
-// correctly rejects Date.now() when it is called during a component render.
+                                                                               
+                                                                            
 const PAGE_LOAD_TIME = Date.now();
 
 function readSharedRoute() {
@@ -269,9 +269,9 @@ function impossibleTransitConnection(steps) {
         const arrival = clockMinutes(previousTransit.arrival_time);
         let departure = clockMinutes(step.departure_time);
         if (arrival != null && departure != null) {
-          // Only interpret a lower clock time as the following day when the
-          // connection genuinely crosses midnight. A normal 10:05 -> 10:00
-          // pair must remain an impossible connection, not a 23h55 wait.
+                                                                            
+                                                                           
+                                                                         
           if (arrival >= 18 * 60 && departure <= 6 * 60) {
             departure += 24 * 60;
           }
@@ -366,7 +366,7 @@ export default function App() {
   const [stepFocusCoordinate, setStepFocusCoordinate] = useState(null);
   const [startMapCoordinate, setStartMapCoordinate] = useState(null);
   const [destinationMapCoordinate, setDestinationMapCoordinate] = useState(null);
-  // Set when the server can't pick between several places for a typed address.
+                                                                               
   const [addressIssue, setAddressIssue] = useState(null);
   const [data, setData] = useState(null);
   const [darkMode, setDarkMode] = useState(
@@ -389,7 +389,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     try { localStorage.setItem("map-511-layers", JSON.stringify(enabledLayers)); }
-    catch { /* Storage is optional. */ }
+    catch { return; }
   }, [enabledLayers]);
 
   const mapStyles = () => {
@@ -527,7 +527,7 @@ export default function App() {
     [navigationActive, currentLocation, selectedRoute, navigationClockMs]
   );
 
-  // Transit navigation shows "departs in N min", so keep a coarse clock ticking.
+                                                                                 
   useEffect(() => {
     if (!navigationActive || displayedMode !== "transit") {
       return undefined;
@@ -655,8 +655,8 @@ export default function App() {
         body: JSON.stringify(routeRequest),
       });
 
-      // A reverse proxy or temporarily unavailable backend may respond with HTML.
-      // Keep that from turning into an unhelpful JSON parse error.
+                                                                                  
+                                                                   
       const rawResponse = await response.text();
       let result;
       try {
@@ -708,12 +708,12 @@ export default function App() {
       if (requestedMode === "transit") {
         const altController = new AbortController();
         alternativesAbortController.current = altController;
-        // Let the first route paint before requesting the slower options.
+                                                                          
         window.setTimeout(async () => {
           if (requestId !== searchRequestId.current || altController.signal.aborted) return;
           const existing = [result.routes[0]];
           try {
-            // One request: the server computes every alternative together.
+                                                                           
             const response = await fetch("/api/transit/alternatives", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -767,7 +767,7 @@ export default function App() {
       }
       setStartMapCoordinate(result.start?.coordinates || null);
       setDestinationMapCoordinate(result.end?.coordinates || null);
-      // Transit route #1 is ranked for the chosen preference, not necessarily fastest.
+                                                                                       
       setSelectedRouteNumber(requestedMode === "transit" ? 1 : (result.fastest_route_number || 1));
       setRouteFocusKey(key => key + 1);
 
@@ -797,7 +797,7 @@ export default function App() {
           : null;
         setStatus(nextTripTime
           ? `No route at this time. Showing a scheduled route from ${nextTripTime}.`
-          : "Route(s) found" //`${count} transit route${count === 1 ? "" : "s"} found`
+          : "Route(s) found"                                                          
         );
       } else {
         setStatus(`Route found${scheduledSuffix}`);
@@ -1034,8 +1034,8 @@ export default function App() {
               String(firstRelevantStep.from_stop_id || "") &&
             String(stop.agency || "") === String(firstRelevantStep.agency || "")
         );
-        // Fall back to the step's own boarding coordinate if the stop lookup
-        // misses (agency/id formats differ); otherwise a missed bus never fires.
+                                                                             
+                                                                                 
         const boardingCoordinates =
           boardingStop?.coordinates || firstRelevantStep.coordinates;
         const distanceToBoarding = boardingCoordinates
@@ -1046,11 +1046,11 @@ export default function App() {
         const probablyNotOnVehicle =
           gps.speed == null || Number(gps.speed) < 2.5 || !nearBoarding ;
 
-        // While actively navigating, also catch "can't make it": the bus has
-        // gone and you're not at the stop, or walking there (~1.4 m/s) takes
-        // longer than the time left. Without navigation we only trust the
-        // "standing at the stop" case, since the route may be planned from
-        // somewhere other than where you are.
+                                                                             
+                                                                             
+                                                                          
+                                                                           
+                                              
         const secondsLeft = departureMs != null ? (departureMs - nowMs) / 1000 : null;
         const cannotMakeIt =
           navigationActive &&
@@ -1113,9 +1113,9 @@ export default function App() {
       return undefined;
     }
 
-    // Transit: only reroute from a walking leg of a live ("now") trip. While
-    // riding, the vehicle sets the path (detours are not "off route"), and
-    // missed/cancelled trips are already handled by the live-update effect.
+                                                                             
+                                                                           
+                                                                            
     if (
       displayedMode === "transit" &&
       (timingMode !== "now" || navigationInfo.current_step?.type === "transit")
@@ -1186,7 +1186,7 @@ export default function App() {
     setAddressIssue(null);
   }
 
-  // The user chose one of the server's candidates: pin that exact point and retry.
+                                                                                   
   function pickAddressOption(issue, option) {
     const coordinate = [Number(option.lat), Number(option.lon)];
     if (!coordinate.every(Number.isFinite)) {
@@ -1281,7 +1281,7 @@ export default function App() {
   function changeWalkingType(nextType) {
     setWalkingType(nextType);
 
-    if (mode === "walking" && start.trim() && destination.trim()) { // recalc route 
+    if (mode === "walking" && start.trim() && destination.trim()) {                 
       searchRoutes({
         requestedMode: "walking",
         requestedWalkingType: nextType,
@@ -1483,7 +1483,7 @@ export default function App() {
   }
 
   function clearRoute() {
-    // Any replies from the old trip should be ignored after clearing.
+                                                                      
     searchRequestId.current += 1;
     transitLiveRequestId.current += 1;
     routeAbortController.current?.abort();
@@ -1581,12 +1581,12 @@ export default function App() {
     };
   }, []);
 
-  // The turn-by-turn card only appears while navigating with the side panel hidden.
+                                                                                    
   const overlayVisible = sidePanel === true && navigationActive;
   const viewInsets = overlayVisible ? measuredInsets : ZERO_INSETS;
 
-  // Measure how much of the map the instructions overlay covers, so the map can
-  // treat the remaining area as "the screen" when centring and fitting routes.
+                                                                                
+                                                                               
   useEffect(() => {
     if (!overlayVisible) {
       return undefined;
@@ -1604,10 +1604,10 @@ export default function App() {
       const next = { top: 0, right: 0, bottom: 0, left: 0 };
 
       if (o.width >= c.width * 0.8) {
-        // Full-width sheet along the bottom (phones).
+                                                      
         next.bottom = Math.max(0, Math.round(c.bottom - o.top));
       } else {
-        // Floating card in the top-left corner (desktop).
+                                                          
         next.left = Math.max(0, Math.round(o.right - c.left));
       }
 
@@ -1616,7 +1616,7 @@ export default function App() {
       );
     };
 
-    // ResizeObserver fires once on observe(), so this also does the first measurement.
+                                                                                       
     const observer = new ResizeObserver(measure);
     observer.observe(overlay);
     observer.observe(container);
@@ -1627,7 +1627,7 @@ export default function App() {
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
 
-  // Hover/press colours shared by the floating map buttons.
+                                                            
   const accentHover = darkMode
     ? mapStyle === "hybrid"
       ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
@@ -1636,7 +1636,7 @@ export default function App() {
         : "hover:bg-blue active:bg-blue-dark"
     : "hover:bg-green hover:text-white active:bg-green-dark";
 
-  // Small square buttons stacked down the left edge (menu, dark mode, location, fit route).
+                                                                                            
   const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
     darkMode
       ? mapStyle === "hybrid"
@@ -1647,7 +1647,7 @@ export default function App() {
       : "border-button-light bg-white text-green-dark"
   }`;
 
-  // The stack sits to the right of the route panel when that panel is open on desktop.
+                                                                                       
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
   const smallButtonY = overlayVisible ? "" : "top-4"
   const mapProps = {

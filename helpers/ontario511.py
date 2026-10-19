@@ -70,7 +70,7 @@ def _lines(value):
     if not isinstance(encoded, list):
         return []
     lines = [line for part in encoded if isinstance(part, str) and (line := decode_line(part))]
-    # Decode a provincial polyline only once per feed refresh, not once per pan.
+
     value["_511_lines"] = lines
     if lines:
         value["_511_bounds"] = (
@@ -87,8 +87,8 @@ def _inside(pt, box):
 
 
 def _selected_line(lines, box):
-    # The provider often supplies an entire highway as one polyline.
-    # Send only portions around the current viewport, without joining distant gaps.
+
+
     output = []
     for line in lines:
         if not any(_inside(pt, box) for pt in line):
@@ -126,7 +126,7 @@ def _normalize(kind, rows, box, limit):
             continue
 
         if kind == "incidents" and str(item.get("EventType", "")).lower() == "roadwork":
-            continue  # The construction feed has these separately.
+            continue
         road = _clean_text(item.get("RoadwayName") or item.get("Roadway"), 120)
         location = _clean_text(item.get("Location") or item.get("LocationDescription") or road, 280)
         title = road or location[:90] or kind.title()
@@ -136,8 +136,8 @@ def _normalize(kind, rows, box, limit):
                 details += f" · Visibility: {_clean_text(item['Visibility'], 45)}"
         else:
             details = _clean_text(item.get("Description") or item.get("Comment") or location, 3000)
-        # The provider description can be pages long. Use the first useful sentence
-        # on the map and keep the full report behind an expandable section.
+
+
         first = next((bit.strip() for bit in details.replace("\n", ". ").split(".") if bit.strip()), "")
         summary = first[:145].rstrip(" ,;:")
         if len(first) > 145:
@@ -192,8 +192,8 @@ def _download(kind, now=None):
 
     now = time.monotonic() if now is None else now
     path, ttl = FEEDS[kind]
-    # Locking this one small section also prevents bursts from several visitors
-    # hitting the provider at once. Each feed has its own expiry.
+
+
     with _lock:
         old = _cache.get(kind)
         if old and old["until"] > now:
@@ -211,7 +211,7 @@ def _download(kind, now=None):
             _cache[kind] = {"data": data, "until": now + ttl, "error": None}
             return data, None
         except (requests.RequestException, ValueError) as exc:
-            # Keep old reports rather than dropping the map's entire overlay.
+
             data = old["data"] if old else []
             message = "Ontario 511 is temporarily unavailable."
             _cache[kind] = {"data": data, "until": now + 60, "error": message}

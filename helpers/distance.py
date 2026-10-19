@@ -7,15 +7,15 @@ def find_dist(coord1: tuple[int, int], coord2: tuple[int, int]) -> float:
 
     rad_lat = math.radians(lat1)
 
-    deg_to_km = 111.32  # Approximate conversion factor from degrees to kilometers
+    deg_to_km = 111.32
     dlat = (lat2 - lat1) * deg_to_km
     dlon = (lon2 - lon1) * deg_to_km * math.cos(rad_lat)
 
-    distance = math.sqrt(dlat**2 + dlon**2) * 1000  # Convert to meters
+    distance = math.sqrt(dlat**2 + dlon**2) * 1000
 
     return distance
 
 def dist_time(coord1: tuple[int, int], coord2: tuple[int, int], speed=35) -> float:
     distance = find_dist(coord1, coord2)
-    time = distance / speed  # Time in seconds
+    time = distance / speed
     return time

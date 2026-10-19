@@ -264,13 +264,13 @@ function applyBuildingAppearance(map, appearance) {
   map.__kmBuildingAppearance = appearance;
   const originals = map.__kmOriginalBuildingColors || (map.__kmOriginalBuildingColors = new Map());
   const originalBases = map.__kmOriginalBuildingBases || (map.__kmOriginalBuildingBases = new Map());
-  const facade = map.__kmFacadeStats;
+  const facade = map.__kmFacadeSnapshot;
   const textured = appearance === "textured" && map.__kmBuildingsEnabled !== false;
   const radius = textured && map.__kmTextureState === "ready" && map.getProjection?.()?.type !== "globe"
     ? Math.max(0, facade?.coveredRadius || 0) : 0;
-  const center = map.getCenter();
+  // this needs to use the SAME center as the wall mesh, not the moving camera
   const nearby = radius > 0 ? ["<=", ["distance", {
-    type: "Point", coordinates: [center.lng, center.lat],
+    type: "Point", coordinates: facade.center,
   }], radius] : null;
 
   for (const layer of map.getStyle()?.layers || []) {
@@ -401,9 +401,15 @@ function syncNativeBuildings(map, buildingsEnabled) {
     if (!sourceLoaded) map.__kmBuildingCheck = null;
     customReady = sourceLoaded && Boolean(map.__kmBuildingCheck?.hasBuildings);
   }
+  const now = performance.now();
+  if (customReady) map.__kmBuildingSourceGoodAt = now;
+  // dont swap providers just cause some vector tiles are loading mid-pan
+  if (!customReady && source && map.__kmNativeBuildingSync?.ready &&
+      (map.isMoving?.() || now - (map.__kmBuildingSourceGoodAt || 0) < 4500)) {
+    customReady = true;
+  }
   const styled = map.__kmStyledNativeBuildings || (map.__kmStyledNativeBuildings = new Set());
   const lastSync = map.__kmNativeBuildingSync;
-  const now = performance.now();
   if (lastSync && lastSync.ready === customReady && lastSync.enabled === buildingsEnabled &&
       now - lastSync.checkedAt < 1000) return customReady;
   map.__kmNativeBuildingSync = { ready: customReady, enabled: buildingsEnabled, checkedAt: now };
@@ -494,6 +500,8 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
   map.__kmFacadeStats = null;
+  map.__kmFacadeSnapshot = null;
+  map.__kmBuildingSourceGoodAt = 0;
   map.__kmOriginalBuildingColors = new Map();
   map.__kmOriginalBuildingBases = new Map();
   removeLegacyLandmarks(map);
@@ -813,24 +821,10 @@ export default function Scene3D({
         }
         samples = 0; totalFrameMs = 0;
       });
-      let rangeTimer;
-      const updateBuildingRange = () => {
-        if (rangeTimer) return;
-        rangeTimer = setTimeout(() => {
-          rangeTimer = null;
-          limitFarBuildings(map);
-        }, 300);
-      };
-      const finishBuildingRange = () => {
-        clearTimeout(rangeTimer);
-        rangeTimer = null;
-        limitFarBuildings(map);
-      };
-      map.on("move", updateBuildingRange);
+      // changing vector filters mid-pan rebuilds tiles and makes walls flash
+      const finishBuildingRange = () => limitFarBuildings(map);
       map.on("moveend", finishBuildingRange);
       map.__kmBuildingRangeCleanup = () => {
-        clearTimeout(rangeTimer);
-        map.off("move", updateBuildingRange);
         map.off("moveend", finishBuildingRange);
       };
       map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));

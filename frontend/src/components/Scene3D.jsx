@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createFacadeLayer } from "./buildingFacades";
 
 const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
@@ -241,107 +242,44 @@ function buildingMaterialColor(darkMode) {
 }
 
 
-const BUILDING_TEXTURES = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
-const TEXTURE_VERSION = "10.16.3";
-
-function textureState(map, state, message = null) {
-  map.__kmTextureState = state;
-  map.__kmTextureError = message;
-  map.__kmTextureNotify?.(state);
-}
-
-function buildingTexturePattern() {
-  const material = ["downcase", ["to-string", ["coalesce",
-    ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
-  const chosen = ["match", material,
-    "glass", "km-facade-glass",
-    "brick", "km-facade-brick",
-    "concrete", "km-facade-concrete",
-    "stone", "km-facade-stone",
-    "metal", "km-facade-metal",
-    "wood", "km-facade-wood",
-    "plaster", "km-facade-plaster",
-    "km-facade-default"];
-  return ["image", chosen];
-}
-
+// walls get their own uv mapping. leave the regular extrusions underneath for roofs and fallback.
 function applyBuildingAppearance(map, appearance) {
   if (!map?.isStyleLoaded?.()) return;
   map.__kmBuildingAppearance = appearance;
-  const layers = (map.getStyle()?.layers || []).filter(layer => layer.type === "fill-extrusion");
-  if (appearance !== "textured") {
-    for (const layer of layers) {
-      if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
-        try { map.setPaintProperty(layer.id, "fill-extrusion-pattern", null); }
-        catch (error) { console.warn("Could not restore building colours", error); }
-      }
+  for (const layer of map.getStyle()?.layers || []) {
+    if (layer.type !== "fill-extrusion") continue;
+    if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
+      try { map.setPaintProperty(layer.id, "fill-extrusion-pattern", null); }
+      catch (error) { console.warn("Building colour restore failed", error); }
     }
-    map.__kmTextureApplied = new Set();
-    textureState(map, "idle");
+  }
+  const id = "km-textured-facades";
+  const enabled = appearance === "textured" && map.__kmBuildingsEnabled !== false;
+  if (!enabled) {
+    if (map.getLayer(id)) map.removeLayer(id);
+    map.__kmTextureState = "idle";
+    map.__kmTextureError = null;
+    map.__kmTextureNotify?.("idle");
     return;
   }
-
-  const missing = BUILDING_TEXTURES.filter(name => !map.hasImage(`km-facade-${name}`));
-  if (!missing.length) {
-    const applied = map.__kmTextureApplied || (map.__kmTextureApplied = new Set());
-    const pattern = buildingTexturePattern();
-    let rendered = 0;
-    let errorMessage = null;
-    for (const layer of layers) {
-      try {
-        if (!applied.has(layer.id) || map.getPaintProperty(layer.id, "fill-extrusion-pattern") == null) {
-          map.setPaintProperty(layer.id, "fill-extrusion-pattern", pattern);
-          applied.add(layer.id);
-        }
-        if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) rendered++;
-      } catch (error) {
-        errorMessage = String(error?.message || error);
-        console.warn("Building texture unavailable", error);
-      }
-    }
-    if (rendered) textureState(map, "ready");
-    else textureState(map, errorMessage ? "error" : "loading", errorMessage);
-    return;
-  }
-  if (map.__kmTextureLoading) return;
-  if (map.__kmTextureLoadingFailed) {
-    textureState(map, "error", map.__kmTextureError || "Texture files could not be loaded");
-    return;
-  }
-
-  textureState(map, "loading");
-  const version = map.__kmTextureStyleVersion;
-  const base = String(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
-  const pending = Promise.all(missing.map(async name => {
-    const url = `${base}textures/buildings/${name}.png?v=${TEXTURE_VERSION}`;
-    const response = await map.loadImage(url);
-    const image = response?.data;
-    if (!image) throw new Error(`No image returned for ${name}.png`);
-    const { width, height } = image;
-    if (width !== 512 || height !== 512) {
-      throw new Error(`${name}.png is ${width}x${height}. Building patterns require 512x512 images`);
-    }
-    return [name, image];
-  }));
-  map.__kmTextureLoading = pending;
-  pending.then(images => {
-    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== version) return;
-    for (const [name, image] of images) {
-      const id = `km-facade-${name}`;
-      if (!map.hasImage(id)) map.addImage(id, image, { pixelRatio: 1 });
-    }
-    if (map.__kmBuildingAppearance === "textured" && map.isStyleLoaded()) {
-      applyBuildingAppearance(map, "textured");
-    }
-  }).catch(error => {
-    if (map.__kmTextureDisposed || map.__kmTextureStyleVersion !== version) return;
-    map.__kmTextureLoadingFailed = true;
+  if (map.getLayer(id)) return;
+  const all = map.getStyle()?.layers || [];
+  const lastBuilding = all.reduce((index, layer, at) => layer.type === "fill-extrusion" ? at : index, -1);
+  const after = all.slice(lastBuilding + 1).find(layer => layer.type === "symbol")?.id;
+  const profile = map.__kmDeviceTier || "medium";
+  try {
+    map.addLayer(createFacadeLayer(profile, (state, error = null) => {
+      map.__kmTextureState = state;
+      map.__kmTextureError = error;
+      map.__kmTextureNotify?.(state);
+    }), after);
+  } catch (error) {
     const message = String(error?.message || error);
-    textureState(map, "error", message);
-    console.warn("Building textures couldn't load", message);
-  }).finally(() => {
-    if (map.__kmTextureStyleVersion === version) map.__kmTextureLoading = null;
-  });
+    map.__kmTextureState = "error";
+    map.__kmTextureError = message;
+    map.__kmTextureNotify?.("error");
+    console.warn("Facade renderer unavailable", error);
+  }
 }
 
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
@@ -505,11 +443,7 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmBuildingCheck = null;
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
-  map.__kmTextureStyleVersion = (map.__kmTextureStyleVersion || 0) + 1;
-  map.__kmTextureLoading = null;
-  map.__kmTextureApplied = new Set();
-  map.__kmTextureLoadingFailed = false;
-  textureState(map, map.__kmBuildingAppearance === "textured" ? "loading" : "idle");
+  map.__kmFacadeStats = null;
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;
@@ -771,6 +705,8 @@ export default function Scene3D({
       });
       mapRef.current = map;
       map.__kmTextureNotify = state => { if (active) setTextureStatus(state); };
+      map.__kmDeviceTier = profile.tier;
+      map.__kmBuildingsEnabled = buildingsRef.current;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
@@ -901,7 +837,8 @@ export default function Scene3D({
           textureMode: map.__kmBuildingAppearance || "coloured",
           textureState: map.__kmTextureState || "idle",
           textureError: map.__kmTextureError || null,
-          textureImages: BUILDING_TEXTURES.filter(name => map.hasImage(`km-facade-${name}`)),
+          facade: map.__kmFacadeStats || null,
+          facadeLayer: Boolean(map.getLayer("km-textured-facades")),
           textureLayers: (style?.layers || []).filter(item => item.type === "fill-extrusion")
             .map(item => ({ id: item.id, visible: map.getLayoutProperty(item.id, "visibility") !== "none",
               pattern: map.getPaintProperty(item.id, "fill-extrusion-pattern") ?? null })),
@@ -1077,7 +1014,7 @@ export default function Scene3D({
         }
         syncNativeBuildings(map, buildingsRef.current);
         limitFarBuildings(map);
-        if (appearanceRef.current === "textured" && !map.__kmTextureLoadingFailed) {
+        if (appearanceRef.current === "textured") {
           applyBuildingAppearance(map, appearanceRef.current);
         }
       };
@@ -1168,7 +1105,9 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !map.isStyleLoaded()) return;
+    map.__kmBuildingsEnabled = buildingsEnabled;
     if (!buildingsEnabled) {
+      applyBuildingAppearance(map, "coloured");
       for (const layer of map.getStyle().layers) {
         if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
       }
@@ -1187,7 +1126,6 @@ export default function Scene3D({
     const map = mapRef.current;
     appearanceRef.current = buildingAppearance;
     if (ready && map?.isStyleLoaded()) {
-      if (buildingAppearance === "textured") map.__kmTextureLoadingFailed = false;
       applyBuildingAppearance(map, buildingAppearance);
     }
   }, [ready, buildingAppearance]);
@@ -1389,8 +1327,8 @@ export default function Scene3D({
         </button>
         <button type="button" className="km-3d-toggle" aria-pressed={buildingAppearance === "textured"}
           title={textureStatus === "error"
-            ? "Texture loading failed. Check the texture paths or diagnostics, then toggle off and on to retry"
-            : "Switch between normal building colours and facade textures"}
+            ? "Facade images could not load; normal colours are still shown"
+            : "Switch between plain building colours and textured walls. Roofs stay plain; globe uses colours."}
           onClick={() => setBuildingAppearance(value => value === "textured" ? "coloured" : "textured")}>
           {buildingAppearance !== "textured" ? "Coloured" : textureStatus === "error" ? "Textures failed" : textureStatus === "loading" ? "Loading textures" : "Textured"}
         </button>

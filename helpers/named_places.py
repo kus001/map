@@ -29,9 +29,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NAMED_PLACES_PATH = PROJECT_ROOT / "transit_data" / "named_places.json"
 
-_STOP_WORDS = {"of", "the", "and", "at", "de", "du"} # french ftw ykyk
+_STOP_WORDS = {"of", "the", "and", "at", "de", "du"}
 
-# Trailing words of a name -> the letters people abbreviate them to. Longest first.
+
 _SUFFIX_CODES = (
     (("catholic", "secondary", "school"), "css"),
     (("catholic", "elementary", "school"), "ces"),
@@ -43,7 +43,7 @@ _SUFFIX_CODES = (
     (("elementary", "school"), "es"),
     (("middle", "school"), "ms"),
 )
-# "Laurel Heights" + one of these is how a secondary school is also written out.
+
 _SECONDARY_CODES = {"ss", "hs"}
 _SECONDARY_TAILS = ("secondary", "secondary school", "high school", "ss", "hs")
 _TRAILING_NOISE = {"on", "ontario", "canada"}
@@ -86,7 +86,7 @@ def generate_aliases(name):
 
     full = _initials(words)
     if len(full) >= _MIN_ACRONYM:
-        aliases.add(full)  # laurel heights secondary school -> lhss
+        aliases.add(full)
 
     for suffix, code in _SUFFIX_CODES:
         if len(words) > len(suffix) and tuple(words[-len(suffix):]) == suffix:
@@ -94,8 +94,8 @@ def generate_aliases(name):
             if code in _SECONDARY_CODES:
                 short = _initials(core) + "s"
                 if len(short) >= _MIN_ACRONYM:
-                    aliases.add(short)  # ... -> lhs (what the school board's own
-                    #                       web addresses and handbooks use)
+                    aliases.add(short)
+
                 for tail in _SECONDARY_TAILS:
                     aliases.add(" ".join(core + [tail]))
             break

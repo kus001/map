@@ -1,6 +1,6 @@
 const MATERIALS = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
 const EARTH_METERS = 40075016.68557849;
-const MIN_DETAIL_ZOOM = 14.5;
+const MIN_DETAIL_ZOOM = 14.8;
 const TILE_LIMIT = 450;
 
 export function facadeMaterial(properties = {}) {
@@ -55,9 +55,9 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
     const rings = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
     const properties = feature.properties || {};
     if (properties.hide_3d === true) continue;
-    const height = Math.max(0, number(properties.render_height ?? properties.height, number(properties["building:levels"], 4) * 3));
+    const height = Math.max(3, number(properties.render_height ?? properties.height, 12));
     const base = Math.max(0, number(properties.render_min_height ?? properties.min_height, 0));
-    if (height - base < 7 || height > 950) continue;
+    if (height - base < 3 || height > 950) continue;
     for (const poly of rings) {
       const ring = poly?.[0];
       if (!ring || ring.length < 4 || ring.length > 150) continue;
@@ -96,7 +96,7 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
       const edgeUnits = Math.hypot(dx, dy);
       const length = edgeUnits / scale;
       if (length < 0.5 || length > 380) continue;
-      const offset = scale * 0.55 / edgeUnits;
+      const offset = scale * 0.38 / edgeUnits;
       const nx = direction * dy * offset;
       const ny = direction * -dx * offset;
       const x1 = a[0] + nx;
@@ -137,29 +137,18 @@ function program(gl) {
   layout(location = 1) in vec2 a_uv;
   uniform mat4 u_matrix;
   out vec2 v_uv;
-  out vec2 v_merc;
   void main() {
     v_uv = a_uv;
-    v_merc = a_pos.xy;
     gl_Position = u_matrix * vec4(a_pos, 1.0);
   }`);
   const fragment = shader(gl, gl.FRAGMENT_SHADER, `#version 300 es
   precision highp float;
   in vec2 v_uv;
-  in vec2 v_merc;
   uniform sampler2D u_image;
-  uniform vec2 u_center;
-  uniform float u_world_meters;
-  uniform float u_range;
-  uniform float u_zoom_fade;
   out vec4 color;
   void main() {
-    float distance = length(v_merc - u_center) * u_world_meters;
-    float distanceFade = 1.0 - smoothstep(u_range * 0.7, u_range, distance);
-    float alpha = distanceFade * u_zoom_fade;
-    if (alpha < 0.005) discard;
     vec3 sampleColor = texture(u_image, v_uv).rgb;
-    color = vec4(min(vec3(1.0), sampleColor * 1.12), alpha);
+    color = vec4(sampleColor, 1.0);
   }`);
   const result = gl.createProgram();
   gl.attachShader(result, vertex);
@@ -266,27 +255,16 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       context.activeTexture(context.TEXTURE0);
       previous.texture0 = context.getParameter(context.TEXTURE_BINDING_2D);
       const currentZoom = map.getZoom();
-      const focus = map.getCenter();
-      const lat = focus.lat * Math.PI / 180;
-      const mercatorY = (1 - Math.log(Math.tan(Math.PI / 4 + lat / 2)) / Math.PI) / 2;
-      const range = facadeRange(currentZoom, tier);
-      const fade = Math.max(0, Math.min(1, (currentZoom - MIN_DETAIL_ZOOM) / 1.1));
-      const smoothFade = fade * fade * (3 - 2 * fade);
       try {
         context.useProgram(gpuProgram);
         context.bindVertexArray(vao);
         context.depthFunc(context.LEQUAL);
         context.uniformMatrix4fv(context.getUniformLocation(gpuProgram, "u_matrix"), false, matrix);
         context.uniform1i(context.getUniformLocation(gpuProgram, "u_image"), 0);
-        context.uniform2f(context.getUniformLocation(gpuProgram, "u_center"), (focus.lng + 180) / 360, mercatorY);
-        context.uniform1f(context.getUniformLocation(gpuProgram, "u_world_meters"), EARTH_METERS * Math.cos(lat));
-        context.uniform1f(context.getUniformLocation(gpuProgram, "u_range"), range);
-        context.uniform1f(context.getUniformLocation(gpuProgram, "u_zoom_fade"), smoothFade);
         context.enable(context.DEPTH_TEST);
         context.depthMask(false);
         context.disable(context.CULL_FACE);
-        context.enable(context.BLEND);
-        context.blendFunc(context.SRC_ALPHA, context.ONE_MINUS_SRC_ALPHA);
+        context.disable(context.BLEND);
         context.activeTexture(context.TEXTURE0);
         for (const name of MATERIALS) {
           const buffer = buffers.get(name);

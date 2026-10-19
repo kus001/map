@@ -183,6 +183,8 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
   const positions = new Map();
   let loadVersion = 0;
   let lastRefresh = 0;
+  let waitingForTiles = false;
+  let lastTileRetry = 0;
   let stats = { count: 0, vertices: 0, range: 0 };
   const layer = {
     id: "km-textured-facades",
@@ -229,7 +231,7 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       map.on("idle", idle);
     },
     render(context, args) {
-      if (!active || !ready || !hasWalls || !gpuProgram || !buffers.size || map.getZoom() < MIN_DETAIL_ZOOM) return;
+      if (!active || !ready || !hasWalls || !gpuProgram || !buffers.size) return;
       if (map.getProjection?.()?.type === "globe") return;
       const matrix = args?.defaultProjectionData?.mainMatrix;
       if (!matrix) {
@@ -320,23 +322,28 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       textures.clear();
       positions.clear();
       hasWalls = false;
-      if (map) map.__kmFacadeStats = null;
+      if (map) {
+        map.__kmFacadeStats = null;
+        map.__kmFacadeSnapshot = null;
+      }
       map = null;
     },
   };
   function changed() { refresh(false); }
   function idle() {
-    if (!lastView || performance.now() - lastRefresh > 10000) refresh(false);
+    if (map?.isMoving?.()) return;
+    const now = performance.now();
+    if (waitingForTiles ? now - lastTileRetry > 400 : !lastView || now - lastRefresh > 10000) refresh(false);
   }
   function refresh(force) {
-    if (!active || !ready || !map || !map.isStyleLoaded() || pending) return;
+    if (!active || !ready || !map || !map.isStyleLoaded() || pending || map.isMoving?.()) return;
     if (map.getProjection?.()?.type === "globe") return;
     const zoom = map.getZoom();
     const focus = map.getCenter();
     const center = [focus.lng, focus.lat];
     const now = performance.now();
     const movement = lastView ? meters(center, lastView.center) : Infinity;
-    if (!force && lastView && movement < 75 && Math.abs(lastView.zoom - zoom) < 0.2 && now - lastRefresh < 10000) return;
+    if (!force && !waitingForTiles && lastView && movement < 75 && Math.abs(lastView.zoom - zoom) < 0.2 && now - lastRefresh < 10000) return;
     const candidates = (map.getStyle()?.layers || []).filter(item => item.type === "fill-extrusion" &&
       map.getLayoutProperty(item.id, "visibility") !== "none");
     const targets = candidates.sort((a, b) => Number(b.id === "km-buildings-3d") - Number(a.id === "km-buildings-3d"));
@@ -349,11 +356,13 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       if (features?.length) break;
     }
     if (!features?.length) {
-      map.__kmFacadeStats = { count: 0, vertices: 0, range: facadeRange(zoom, tier), textureCount: textures.size, reason: "no building geometry from loaded tiles" };
-      hasWalls = false;
-      positions.clear();
-      map.__kmFacadeStats = { count: 0, vertices: 0, range: facadeRange(zoom, tier), coveredRadius: 0, textureCount: textures.size, reason: "no building geometry from loaded tiles" };
-      onStatus("waiting");
+      waitingForTiles = true;
+      lastTileRetry = now;
+      // new tiles are still loading. keep the old walls + matching roof mask
+      // until we have actual geometry to replace both together
+      map.__kmFacadeStats = { ...stats, textureCount: textures.size,
+        reason: hasWalls ? "keeping walls while tiles load" : "waiting for building tiles" };
+      if (!hasWalls) onStatus("waiting");
       return;
     }
     pending = true;
@@ -376,9 +385,15 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       hasWalls = mesh.vertices > 0;
       stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range, coveredRadius: mesh.coveredRadius, textureCount: textures.size };
       map.__kmFacadeStats = stats;
-      if (hasWalls !== hadWalls || force || mesh.coveredRadius !== lastView?.coveredRadius) onStatus(hasWalls ? "ready" : "waiting");
+      // only change the cap after its exact matching wall buffers are uploaded
+      map.__kmFacadeSnapshot = hasWalls ? { center, coveredRadius: mesh.coveredRadius } : null;
+      if (hasWalls !== hadWalls || force || mesh.coveredRadius !== lastView?.coveredRadius ||
+          meters(center, lastView?.center || center) > 10) {
+        onStatus(hasWalls ? "ready" : "waiting");
+      }
       lastView = { center, zoom, coveredRadius: mesh.coveredRadius };
       lastRefresh = now;
+      waitingForTiles = false;
       map.triggerRepaint();
     } catch (error) { lastError = String(error?.message || error); onStatus("error", lastError); }
     finally { pending = false; }

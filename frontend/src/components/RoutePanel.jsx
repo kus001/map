@@ -63,6 +63,7 @@ function StepIcon({ step }) {
   return <span className="text-xs">•</span>;
 }
 
+// only show the live bits that exist for this trip
 function TransitMeta({ step, darkMode }) {
   const pieces = [];
 

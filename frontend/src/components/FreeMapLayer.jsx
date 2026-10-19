@@ -33,7 +33,7 @@ function ready() {
         link.dataset.kmapsGl = "true";
         document.head.appendChild(link);
       }
-      // The Leaflet adapter expects Leaflet and MapLibre on window.
+                                                                    
       window.L = L;
       if (!window.maplibregl) await addScript(GL_SCRIPT);
       await addScript(LEAFLET_GL_SCRIPT);
@@ -63,7 +63,7 @@ export default function FreeMapLayer({ darkMode }) {
         map.attributionControl?.removeAttribution(CREDITS);
         freeCredits = false;
       }
-      // Emergency backup only; the public OSM tiles have a fair-use policy.
+                                                                            
       layer = L.tileLayer(import.meta.env.VITE_BACKUP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 22,
         maxNativeZoom: 19,
@@ -93,8 +93,8 @@ export default function FreeMapLayer({ darkMode }) {
         gl.on("error", event => {
           if (!active) return;
           const message = String(event?.error?.message || event?.message || "");
-          // Switching from 2D to 3D cancels pending map sprite/tile fetches.
-          // Such cancellations do not mean the provider has failed.
+                                                                             
+                                                                    
           if (/AbortError|signal is aborted|aborted without reason|missing image|sprite/i.test(message)) return;
           failures += 1;
           if (failures >= 4) showBackup();

@@ -58,9 +58,9 @@ def _request_json(path):
     url = f"{BASE_URL}/{path.lstrip('/')}"
     last_error = None
 
-    # Older examples of the OpenMetrolinx API use `key`; some newer examples use
-    # `apiKey`. Trying both keeps the integration resilient without exposing the key
-    # to the browser.
+
+
+
     for parameter_name in ("key", "apiKey"):
         try:
             response = requests.get(
@@ -115,9 +115,9 @@ def _unwrap_line_collection(value):
         return value
 
     if isinstance(value, dict):
-        # OpenMetrolinx responses have appeared both as Lines: [...] and
-        # Lines: {Line: [...]}. Support either shape without tying the app to a
-        # single serialization version.
+
+
+
         nested = _ci_get(value, "Line", "Service", "Services")
         if nested is not None and nested is not value:
             return _as_list(nested)
@@ -155,7 +155,7 @@ def _clean_time(value):
     if not text:
         return None
 
-    # ISO timestamp from some API variants.
+
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is not None:
@@ -164,7 +164,7 @@ def _clean_time(value):
     except ValueError:
         pass
 
-    # Common OpenMetrolinx values are HH:MM or HH:MM:SS.
+
     parts = text.split(":")
     if len(parts) >= 2 and parts[0].lstrip("+-").isdigit() and parts[1].isdigit():
         try:
@@ -333,9 +333,9 @@ def live_departures(stop_code, limit=8):
         if normalized and (normalized["scheduled_time"] or normalized["computed_time"]):
             departures.append(normalized)
 
-    # NextService is already ordered as an upcoming-departures board. Preserve
-    # that ordering instead of sorting HH:MM strings, which would be incorrect
-    # across midnight.
+
+
+
 
     return {
         "configured": True,
@@ -379,8 +379,8 @@ def match_departure(departures, trip_id=None, route_name=None, scheduled_time=No
         return None
 
     trip_id = str(trip_id or "")
-    # GO GTFS trip IDs are generally DATE-LINE-TRIPNUMBER, so the final token is
-    # useful for matching the OpenMetrolinx TripNumber field.
+
+
     trip_number_hint = trip_id.rsplit("-", 1)[-1] if "-" in trip_id else trip_id
     route_hint = str(route_name or "").strip().lower()
     headsign_words = _normalized_words(headsign)
@@ -432,17 +432,17 @@ def match_departure(departures, trip_id=None, route_name=None, scheduled_time=No
 
     return best if best is not None and best_score >= 12 else None
 
-# ---------------------------------------------------------------------------
-# GO GTFS-Realtime feeds
-# ---------------------------------------------------------------------------
-# OpenMetrolinx exposes GTFS-RT trip updates, vehicle positions and alerts at
-# Gtfs/Feed/*.  These feeds are more useful for route-wide live routing than the
-# station-specific JSON NextService endpoint above because they contain every
-# active trip in one compact protobuf response.
+
+
+
+
+
+
+
 
 try:
     from google.transit import gtfs_realtime_pb2
-except ImportError:  # pragma: no cover - dependency is optional at import time
+except ImportError:
     gtfs_realtime_pb2 = None
 
 GTFS_REFRESH_SECONDS = int(os.getenv("METROLINX_GTFS_REFRESH_SECONDS", "25"))
@@ -576,8 +576,8 @@ def _parse_gtfs_vehicles(feed):
 
         lat = float(vehicle.position.latitude)
         lon = float(vehicle.position.longitude)
-        # OpenMetrolinx occasionally uses sentinel/empty coordinates while a
-        # vehicle has no valid GPS fix. Do not put those on the map.
+
+
         if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == -1 and lon == -1):
             continue
 

@@ -257,31 +257,51 @@ function roofFallbackColor(darkMode) {
     darkMode ? "#959592" : "#bcb7ac"];
 }
 
-// walls get their own uv mapping. leave the regular extrusions underneath for roofs and fallback.
+// when the facade meshes are ready, the underlying extrusions only draw a roof.
+// dont put coloured walls right behind the textured ones.
 function applyBuildingAppearance(map, appearance) {
   if (!map?.isStyleLoaded?.()) return;
   map.__kmBuildingAppearance = appearance;
   const originals = map.__kmOriginalBuildingColors || (map.__kmOriginalBuildingColors = new Map());
+  const originalBases = map.__kmOriginalBuildingBases || (map.__kmOriginalBuildingBases = new Map());
+  const facade = map.__kmFacadeStats;
+  const textured = appearance === "textured" && map.__kmBuildingsEnabled !== false;
+  const radius = textured && map.__kmTextureState === "ready" && map.getProjection?.()?.type !== "globe"
+    ? Math.max(0, facade?.coveredRadius || 0) : 0;
+  const center = map.getCenter();
+  const nearby = radius > 0 ? ["<=", ["distance", {
+    type: "Point", coordinates: [center.lng, center.lat],
+  }], radius] : null;
+
   for (const layer of map.getStyle()?.layers || []) {
     if (layer.type !== "fill-extrusion") continue;
     try {
       if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
         map.setPaintProperty(layer.id, "fill-extrusion-pattern", null);
       }
-      if (!originals.has(layer.id)) {
-        originals.set(layer.id, map.getPaintProperty(layer.id, "fill-extrusion-color"));
+      if (!originals.has(layer.id)) originals.set(layer.id, map.getPaintProperty(layer.id, "fill-extrusion-color"));
+      if (!originalBases.has(layer.id)) originalBases.set(layer.id, map.getPaintProperty(layer.id, "fill-extrusion-base") ?? 0);
+      const originalColor = originals.get(layer.id) || buildingMaterialColor(map.__kmBuildingDarkMode || false);
+      const originalBase = originalBases.get(layer.id);
+      const height = map.getPaintProperty(layer.id, "fill-extrusion-height") || 12;
+      const color = nearby
+        ? ["case", nearby, roofFallbackColor(map.__kmBuildingDarkMode || false), originalColor]
+        : originalColor;
+      const roofCap = ["max", originalBase, ["-", height, 0.06]];
+      const base = nearby
+        ? ["step", ["zoom"], originalBase, 14.8, ["case", nearby, roofCap, originalBase]]
+        : originalBase;
+      if (JSON.stringify(map.getPaintProperty(layer.id, "fill-extrusion-color")) !== JSON.stringify(color)) {
+        map.setPaintProperty(layer.id, "fill-extrusion-color", color);
       }
-      const next = appearance === "textured"
-        ? roofFallbackColor(map.__kmBuildingDarkMode || false)
-        : originals.get(layer.id);
-      if (JSON.stringify(map.getPaintProperty(layer.id, "fill-extrusion-color")) !== JSON.stringify(next)) {
-        map.setPaintProperty(layer.id, "fill-extrusion-color", next);
+      if (JSON.stringify(map.getPaintProperty(layer.id, "fill-extrusion-base")) !== JSON.stringify(base)) {
+        map.setPaintProperty(layer.id, "fill-extrusion-base", base);
       }
     } catch (error) { console.warn("Building appearance unavailable", error); }
   }
+
   const id = "km-textured-facades";
-  const enabled = appearance === "textured" && map.__kmBuildingsEnabled !== false;
-  if (!enabled) {
+  if (!textured) {
     if (map.getLayer(id)) map.removeLayer(id);
     map.__kmTextureState = "idle";
     map.__kmTextureError = null;
@@ -298,6 +318,11 @@ function applyBuildingAppearance(map, appearance) {
       map.__kmTextureState = state;
       map.__kmTextureError = error;
       map.__kmTextureNotify?.(state);
+      if (map.__kmRoofUpdate) clearTimeout(map.__kmRoofUpdate);
+      map.__kmRoofUpdate = setTimeout(() => {
+        map.__kmRoofUpdate = null;
+        if (map.isStyleLoaded?.()) applyBuildingAppearance(map, map.__kmBuildingAppearance);
+      }, 0);
     }), after);
   } catch (error) {
     const message = String(error?.message || error);
@@ -307,7 +332,6 @@ function applyBuildingAppearance(map, appearance) {
     console.warn("Facade renderer unavailable", error);
   }
 }
-
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
@@ -471,6 +495,7 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmStyledNativeBuildings = new Set();
   map.__kmFacadeStats = null;
   map.__kmOriginalBuildingColors = new Map();
+  map.__kmOriginalBuildingBases = new Map();
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;
@@ -650,7 +675,7 @@ export default function Scene3D({
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
   const [buildingsEnabled, setBuildingsEnabled] = useState(true);
-  const [buildingAppearance, setBuildingAppearance] = useState("coloured");
+  const [buildingAppearance, setBuildingAppearance] = useState("textured");
   const [textureStatus, setTextureStatus] = useState("idle");
   const appearanceRef = useRef(buildingAppearance);
   const buildingsRef = useRef(buildingsEnabled);
@@ -972,7 +997,12 @@ export default function Scene3D({
     const styles = stylesRef;
     return () => {
       active = false; styles.current++;
-      if (map) { map.__kmTextureDisposed = true; delete map.__kmTextureNotify; }
+      if (map) {
+        map.__kmTextureDisposed = true;
+        if (map.__kmRoofUpdate) clearTimeout(map.__kmRoofUpdate);
+        delete map.__kmRoofUpdate;
+        delete map.__kmTextureNotify;
+      }
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmBuildingRangeCleanup?.();
       map?.__kmSpinCleanup?.();

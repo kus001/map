@@ -13,6 +13,7 @@ import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 
                                                                 
+// same walk might show up twice when transit options get rebuilt
 function walkId(start, end) {
   return [...start, ...end].map(value => Number(value).toFixed(6)).join(",");
 }
@@ -52,6 +53,7 @@ function transferCheck(steps) {
   return { status: worst.status, label: worst.label, transfers };
 }
 
+// redo arrival times when the departure clock changes
 function replayArrival(steps, departureISO) {
   let t = Date.parse(departureISO);
   if (!Number.isFinite(t)) return null;
@@ -259,6 +261,7 @@ function clockMinutes(value) {
   return hour * 60 + minute;
 }
 
+// dont show a transfer if the timings physically wont work
 function impossibleTransitConnection(steps) {
   let previousTransit = null;
   let transferMinutes = 0;

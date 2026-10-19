@@ -31,7 +31,7 @@ def osrm_route(mode, lat1, lon1, lat2, lon2, alternatives=False):
         raise ValueError("No route from public OSRM server")
     
     if alternatives:
-        print("scenic routes returned: ", len(data["routes"]))
+        return data["routes"]
     return data["routes"][0]
 
 

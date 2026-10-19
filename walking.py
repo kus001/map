@@ -98,11 +98,17 @@ def get_walking_route(
         round(end_lon, 6),
     )
 
-    # only use OSRM for regular walking since hiking needs ORS
+    # only use OSRM for regular walking, scenic requests multiple routes
     if route_type == "regular" or route_type == "scenic":
         try:
             fast = osrm_route("walking", *key[1:], alternatives=(route_type == "scenic"))
             mark("provider")
+
+            if route_type == "scenic": 
+                for i, route in enumerate(fast):
+                    print("route: ", i+1, "distance: ", round(route["distance"]/1000, 2), "km") # print distance of each possible route
+
+                fast=fast[0] # for now, use fastest route til scenic ranking is added
             converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
             mark("formatting")
             return converted

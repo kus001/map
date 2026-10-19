@@ -242,16 +242,42 @@ function buildingMaterialColor(darkMode) {
 }
 
 
+// when walls use photos, dont leave bright mapped colours underneath them
+function roofFallbackColor(darkMode) {
+  const material = ["downcase", ["to-string", ["coalesce",
+    ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
+  return ["match", material,
+    "brick", darkMode ? "#85756e" : "#ada198",
+    "glass", darkMode ? "#77838a" : "#b0bbc0",
+    "concrete", darkMode ? "#888b8b" : "#b9b8b4",
+    "stone", darkMode ? "#a29c91" : "#cbc4b7",
+    "metal", darkMode ? "#7f898c" : "#b4bbbd",
+    "wood", darkMode ? "#928679" : "#bdae9d",
+    "plaster", darkMode ? "#a9a49d" : "#cec8bd",
+    darkMode ? "#959592" : "#bcb7ac"];
+}
+
 // walls get their own uv mapping. leave the regular extrusions underneath for roofs and fallback.
 function applyBuildingAppearance(map, appearance) {
   if (!map?.isStyleLoaded?.()) return;
   map.__kmBuildingAppearance = appearance;
+  const originals = map.__kmOriginalBuildingColors || (map.__kmOriginalBuildingColors = new Map());
   for (const layer of map.getStyle()?.layers || []) {
     if (layer.type !== "fill-extrusion") continue;
-    if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
-      try { map.setPaintProperty(layer.id, "fill-extrusion-pattern", null); }
-      catch (error) { console.warn("Building colour restore failed", error); }
-    }
+    try {
+      if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
+        map.setPaintProperty(layer.id, "fill-extrusion-pattern", null);
+      }
+      if (!originals.has(layer.id)) {
+        originals.set(layer.id, map.getPaintProperty(layer.id, "fill-extrusion-color"));
+      }
+      const next = appearance === "textured"
+        ? roofFallbackColor(map.__kmBuildingDarkMode || false)
+        : originals.get(layer.id);
+      if (JSON.stringify(map.getPaintProperty(layer.id, "fill-extrusion-color")) !== JSON.stringify(next)) {
+        map.setPaintProperty(layer.id, "fill-extrusion-color", next);
+      }
+    } catch (error) { console.warn("Building appearance unavailable", error); }
   }
   const id = "km-textured-facades";
   const enabled = appearance === "textured" && map.__kmBuildingsEnabled !== false;
@@ -444,6 +470,7 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
   map.__kmFacadeStats = null;
+  map.__kmOriginalBuildingColors = new Map();
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;

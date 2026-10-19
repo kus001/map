@@ -138,9 +138,9 @@ function formatScheduledDeparture(value) {
   }).format(date);
 }
 
-// When you actually have to leave the origin: the first vehicle's boarding time
-// minus the walk to its stop. Uses the live-adjusted step times, so it moves with
-// delays. Walk-only routes fall back to the route's own start time.
+                                                                                
+                                                                                  
+                                                                    
 function requiredLeaveTime(route) {
   let walkMs = 0;
   for (const step of route?.steps || []) {
@@ -156,7 +156,7 @@ function requiredLeaveTime(route) {
   return route?.departure_datetime || null;
 }
 
-// Compact clock time for route cards; adds the date only when it isn't today.
+                                                                              
 function formatLeaveClock(value) {
   if (!value) {
     return null;
@@ -174,7 +174,7 @@ function formatLeaveClock(value) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-// Headline + detail lines for the navigation card while following a transit route.
+                                                                                   
 function transitNavigationSummary(info) {
   const step = info?.current_step;
   if (!step) {
@@ -232,8 +232,8 @@ function transitNavigationSummary(info) {
   return { headline, lines };
 }
 
-// Route numbers that share the best (lowest) value, within `tolerance`.
-// Empty when nothing beats anything: a tag that every route would get means nothing.
+                                                                        
+                                                                                     
 function bestTies(routes, valueOf, tolerance) {
   const values = routes.map(route => ({ route, value: Number(valueOf(route)) }))
     .filter(item => Number.isFinite(item.value));
@@ -324,7 +324,7 @@ export default function RoutePanel({
     70,
     Number(navigationAccuracy || 0) * 2
   );
-  // While riding a vehicle the path is the vehicle's, so don't flag "off route".
+                                                                                 
   const ridingTransit =
     mode === "transit" && navigationInfo?.current_step?.type === "transit";
   const navigationOffRoute =
@@ -338,14 +338,14 @@ export default function RoutePanel({
 
 
 
-  // Tags are computed live from the routes themselves (arrival times shift a little
-  // once walking routes finish loading), and tied routes all get the tag.
+                                                                                    
+                                                                          
   const isTransit = mode === "transit";
   const earliestArrival = isTransit
-    ? bestTies(data.routes, route => Date.parse(route.arrival_estimate_datetime), 30000) // 30 s
+    ? bestTies(data.routes, route => Date.parse(route.arrival_estimate_datetime), 30000)        
     : new Set();
-  const fastestRoutes = bestTies(data.routes, route => route.duration_min, 0.5);          // 30 s
-  const shortestRoutes = bestTies(data.routes, route => route.distance_km, 0.025);        // 25 m
+  const fastestRoutes = bestTies(data.routes, route => route.duration_min, 0.5);                 
+  const shortestRoutes = bestTies(data.routes, route => route.distance_km, 0.025);               
   const leastTransfers = isTransit ? bestTies(data.routes, transferCount, 0) : new Set();
 
   return (
@@ -414,9 +414,9 @@ export default function RoutePanel({
             {!transitNav && Number.isFinite(navigationInfo?.distance_to_next_m) && (
               <span>{formatDistance(navigationInfo.distance_to_next_m)} to turn</span>
             )}
-            {/*   {Number.isFinite(navigationInfo?.remaining_m) && (
-              <span>{transitNav ? "" : "• "}{formatDistance(navigationInfo.remaining_m)} remaining</span>
-            )}   */}
+            {                                                       
+                                                                                                         
+                   }
             {Number.isFinite(Number(navigationAccuracy)) && (
               <span>• GPS ±{Math.round(Number(navigationAccuracy))} m</span>
             )}
@@ -461,11 +461,11 @@ export default function RoutePanel({
         </div>
       )}
 
-      {/*mode === "transit" && activeRoute?.transfer_reliability?.transfers?.some(item => ["critical", "tight"].includes(item.status)) && (
-        <div className="mb-3 rounded-xl border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
-          <strong>Transfer warning:</strong> connection buffers are estimates; allow extra time for walking and delays.
-        </div>
-      )*/}
+      {                                                                                                                                    
+                                                                                                                     
+                                                                                                                       
+              
+         }
 
       {mode === "transit" && alerts.length > 0 && (
         <div className="mb-3 space-y-2">
@@ -510,9 +510,9 @@ export default function RoutePanel({
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
 
-          // Ties share a tag. "Arrives earliest" uses the real arrival clock time, so a
-          // "leave later" option with a shorter ride can't win it; FASTEST is hidden on
-          // a route that already says ARRIVES EARLIEST.
+                                                                                        
+                                                                                        
+                                                        
           const arrivesEarliest = earliestArrival.has(route.route_number);
           if (arrivesEarliest) labels.push("ARRIVES EARLIEST");
           if (fastestRoutes.has(route.route_number) && !arrivesEarliest) labels.push("FASTEST");
@@ -554,7 +554,7 @@ export default function RoutePanel({
                     }`}
                   >
                     {formatDuration(route.duration_min)}{" • "}
-                    {arrivalLabel(route) /*returns arrival time*/ }
+                    {arrivalLabel(route)                          }
                   </div>
 
                   <div
@@ -567,7 +567,7 @@ export default function RoutePanel({
                     <span>•</span>
                     <span>
                       {Number(route.distance_km || 0).toFixed(1)} km
-                      {mode === "transit" ? " walking" : "" /* changes it from km to km walking */}
+                      {mode === "transit" ? " walking" : ""                                       }
                     </span>
                   </div>
 

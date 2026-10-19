@@ -116,8 +116,8 @@ function routeDistanceFrom(routeCoordinates, segmentIndex, segmentProgress) {
   return total;
 }
 
-// Whole minutes from `nowMs` until the next occurrence of an "HH:MM" clock time
-// (treated as the nearest one within +/-12 h, so midnight rollovers work).
+                                                                                
+                                                                           
 export function minutesUntilClock(value, nowMs) {
   if (!value || !Number.isFinite(nowMs)) {
     return null;
@@ -168,11 +168,11 @@ export function navigationSnapshot(location, route, nowMs = null) {
     ? haversineMeters(location, next.step.coordinates)
     : null;
 
-  // The step the user is on right now (the one just before `next`), and how
-  // far they are from where it ends. Used by transit, where "the next
-  // maneuver" is less useful than "what am I doing and when does it end".
-  // (`next` falls back to the last step when we're past every step start, so
-  // look for the genuine upcoming step separately here.)
+                                                                            
+                                                                      
+                                                                          
+                                                                             
+                                                         
   const upcomingPosition = stepLocations.findIndex(
     item => item.routeIndex > currentRouteIndex + 1.25
   );
@@ -189,9 +189,9 @@ export function navigationSnapshot(location, route, nowMs = null) {
     ? haversineMeters(location, currentEnd)
     : null;
 
-  // Turn-by-turn inside a walking leg: find the next turn still ahead of us,
-  // looking only at the stretch of route that belongs to this step so a vehicle
-  // shape that runs along the same street can't be matched by mistake.
+                                                                             
+                                                                                
+                                                                       
   let nextTurn = null;
   let distanceToTurn = null;
   const directions = current?.step?.directions;

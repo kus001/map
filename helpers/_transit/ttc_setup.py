@@ -18,7 +18,7 @@ from helpers._transit.make_graph import Graph, GTFS_ROOT, TRANSIT_DATA
 from helpers.distance import find_dist
 from helpers.time_management import time_to_seconds
 
-# Toronto Open Data's merged TTC GTFS (subway, streetcars and buses).
+
 TTC_FEED = ("https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/"
             "7795b45e-e65a-4465-81fc-c36b9dfff169/resource/"
             "cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/"
@@ -56,7 +56,7 @@ def build_ttc(folder, target=CACHE):
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 close.extend(grid.get((x + dx, y + dy), ()))
-        # Connect nearby TTC platforms/stops without a full all-stops scan.
+
         for other in close[:80]:
             m = find_dist(pos, stops[other][:2])
             if 8 < m <= 110:
@@ -84,7 +84,7 @@ def build_ttc(folder, target=CACHE):
         for r in rows(folder / "calendar_dates.txt"):
             dates[("ttc:" + r["service_id"], r["date"])] = int(r["exception_type"])
 
-    # Disk-backed sort avoids creating a 100s-of-MB stop_times dictionary.
+
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ttc_build_") as temp:
         db = sqlite3.connect(str(Path(temp) / "gtfs.sqlite"))
@@ -154,7 +154,7 @@ def build_ttc(folder, target=CACHE):
             last = sid, dep
         db.close()
 
-    # Timetables need departure order for binary-search routing.
+
     for neighbors in graph.values():
         for options in neighbors.values():
             for name, packed in list(options.items()):
@@ -242,7 +242,7 @@ def install_ttc(source=None):
         timetable_folder = source
     else:
         wanted = {"stops.txt", "routes.txt", "trips.txt", "stop_times.txt"}
-        # Keep the normal timetable install compatible with feeds that omit shapes.
+
         with zipfile.ZipFile(source) as archive:
             available = {Path(name).name for name in archive.namelist()}
         if "shapes.txt" in available:

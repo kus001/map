@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, Response, jsonify, request
 from dotenv import load_dotenv
 
-# Load root .env before importing providers (their config is read at import time).
+
 load_dotenv()
 
 from cycling import get_cycling_route
@@ -29,8 +29,8 @@ VALID_TRANSIT_PREFERENCES = {"balanced", "less_walking", "fastest"}
 VALID_WALKING_TYPES = {"regular", "scenic"}
 APP_TIMEZONE = ZoneInfo("America/Toronto")
 
-# Local-development mode brings back the convenient testing behaviour from the
-# older project without forcing the 2 GB production server to run that way.
+
+
 DEV_MODE = "--dev" in sys.argv or os.getenv("MAP_DEV_MODE", "0") == "1"
 PRINT_ROUTE_TIMING = DEV_MODE or os.getenv("MAP_ROUTE_TIMING", "0") == "1"
 
@@ -50,7 +50,7 @@ def parse_departure_datetime(value):
     else:
         parsed = parsed.astimezone(APP_TIMEZONE)
 
-    # Small grace window so a route submitted exactly on the minute is not rejected.
+
     if parsed < datetime.now(APP_TIMEZONE) - timedelta(minutes=2):
         raise ValueError("Scheduled departure must be in the future.")
 
@@ -197,8 +197,8 @@ def search():
     if len(query) > 200:
         return jsonify({"success": False, "error": "Search is too long."}), 400
 
-    # Optional proximity bias (the user's location / other end of the trip). It only
-    # orders equally good matches; a bad value is ignored rather than rejected.
+
+
     bias = parse_coordinates([request.args.get("lat"), request.args.get("lon")])
 
     try:
@@ -338,10 +338,10 @@ def live_transit_state():
             })
             seen_vehicles.add(vehicle_key)
 
-    # If a selected GRT/GO vehicle has no current GPS fix (feed outage, missing
-    # entity, or a stale position), keep the map useful by estimating where the
-    # scheduled trip should be from static GTFS. TripUpdate delays are still
-    # applied when that realtime feed remains available.
+
+
+
+
     missing_vehicle_steps = [
         step
         for step in raw_steps
@@ -411,7 +411,7 @@ def nearby_transit_vehicles():
     from transit import live_vehicle_is_usable, nearby_scheduled_vehicles
     from math import radians, cos
 
-    # Read cached GTFS-RT feeds only; no network request in this handler.
+
     snapshots = (grt_snapshot(), go_gtfs_snapshot())
     live = {}
     for snapshot in snapshots:
@@ -427,8 +427,8 @@ def nearby_transit_vehicles():
                 continue
             live[str(key)] = {**vehicle, "estimated": False, "position_source": "live"}
 
-    # If GPS is missing, provide *nearby current* GTFS estimates, not just the
-    # selected route's vehicle (which could be hours from departure).
+
+
     estimates = nearby_scheduled_vehicles(lat, lon, radius_m=radius, limit=45)
     unique_live = {
         (str(v.get("agency")), str(v.get("trip_id"))) for v in live.values()
@@ -519,7 +519,7 @@ def transit_alternatives():
             )
             if not result.get("success") or not result.get("routes"):
                 return jsonify({"success": True, "routes": [], "route": None})
-            # routes[0] is the primary journey the client already shows.
+
             extra = []
             for route in result["routes"][1:]:
                 signature = trip_signature(route)
@@ -529,7 +529,7 @@ def transit_alternatives():
             return jsonify({"success": True, "routes": extra,
                             "route": extra[0] if extra else None})
 
-        # Legacy single-route path.
+
         for excluded in [set(), *possible_exclusions[:3]]:
             result = get_transit_route(
                 start, end, departure_datetime=departure,
@@ -631,8 +631,8 @@ def routes():
         if not isinstance(result, dict):
             raise TypeError("Routing provider did not return a response object")
     except Exception:
-        # Avoid exposing tracebacks or API tokens to the browser. Keep full details
-        # in the server log for debugging instead.
+
+
         app.logger.exception("Unexpected %s route error", mode)
         return jsonify({
             "success": False,
@@ -656,7 +656,7 @@ def routes():
         print(f"[SLOW ROUTE] {mode}: {total_us / 1_000_000:.2f}s; "
               f"stages={json.dumps(stages)}", flush=True)
 
-    # Upstream routing outages and genuinely missing routes are different failures.
+
     error = str(result.get("error") or "")
     unavailable = any(value in error.lower() for value in (
         "server error", "routing unavailable", "routing server returned invalid",
@@ -691,16 +691,16 @@ def _should_warm_up():
     return True
 
 
-# Set MAP_PRELOAD_TRANSIT=0 to go back to lazy loading.
+
 if _should_warm_up():
     from helpers.warmup import warm_up
     warm_up()
 
 
 if __name__ == "__main__":
-    # Normal `python main.py` is the low-memory server-safe mode.
-    # `python main.py --dev` restores the old local testing conveniences:
-    # debug mode, automatic reload, detailed route timings, and verbose output.
+
+
+
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8080"))
 
@@ -727,8 +727,8 @@ if __name__ == "__main__":
         print("Use `python main.py --dev` for local debug/reload/timing mode.")
         print("=" * 64)
 
-        # The Werkzeug reloader starts another Python process. Keep it disabled
-        # in server mode so a 2 GB machine does not duplicate memory usage.
+
+
         app.run(
             host=host,
             port=port,

@@ -11,7 +11,7 @@ from helpers.fast_osrm import osrm_route, convert_osrm
 load_dotenv()
 
 API_KEY = os.getenv("API")
-# WALKING_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
+
 REQUEST_TIMEOUT = (1.8, 3.5)
 
 WALKING_PROFILES = {
@@ -98,7 +98,7 @@ def get_walking_route(
         round(end_lon, 6),
     )
 
-    # only use OSRM for regular walking, scenic requests multiple routes
+
     if route_type == "regular" or route_type == "scenic":
         try:
             fast = osrm_route("walking", *key[1:], alternatives=(route_type == "scenic"))
@@ -106,9 +106,9 @@ def get_walking_route(
 
             if route_type == "scenic": 
                 for i, route in enumerate(fast):
-                    print("route: ", i+1, "distance: ", round(route["distance"]/1000, 2), "km") # print distance of each possible route
+                    print("route: ", i+1, "distance: ", round(route["distance"]/1000, 2), "km")
 
-                fast=fast[0] # for now, use fastest route til scenic ranking is added
+                fast=fast[0]
             converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
             mark("formatting")
             return converted
@@ -118,18 +118,18 @@ def get_walking_route(
     if not API_KEY:
         return {"success": False, "error": "Walking routing unavailable; set API for the ORS fallback."}
 
-    # try:
-    #     fast = ("walking", *key)
-    #     mark("provider")
-    #     converted = convert_osrm("walking", fast, start_address, end_address, start, end)
-    #     mark("formatting")
-    #     return converted
-    # except (requests.RequestException, ValueError, KeyError, TypeError):
-    #     # Do not make a successful route depend on any one free routing provider.
-    #     pass
 
-    # if not API_KEY:
-    #     return {"success": False, "error": "Walking routing unavailable; set API for the ORS fallback."}
+
+
+
+
+
+
+
+
+
+
+
 
     try:
         data = _ors_walking(*key)

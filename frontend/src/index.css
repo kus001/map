@@ -56,8 +56,8 @@ button {
   transition: filter 0.2s ease, opacity 0.2s ease;
 }
 
-/* MapTiler provides the street-map dark style directly.
-   Satellite imagery is dimmed locally so it also matches the dark UI. */
+
+ 
 .dark-satellite-map .leaflet-tile {
   filter: brightness(0.48) contrast(1.15) saturate(0.78);
 }
@@ -102,8 +102,8 @@ button {
   color: #334155 !important;
 }
 
-/* The map-style and Layers buttons sit in the top-right corner (top-4 + h-11 = 60px),
-   so keep the zoom control just below them, lined up with their right edge. This is the leaflet zoom control*/
+
+ 
 .leaflet-bottom.leaflet-right .leaflet-control-zoom {
   margin-right: 16px;
 }
@@ -191,7 +191,7 @@ button {
   margin: 12px 14px;
 }
 
-/* Timetable popups stay readable against the dark map. */
+ 
 .map-dark-ui .transit-board-popup .leaflet-popup-content-wrapper,
 .map-dark-ui .transit-board-popup .leaflet-popup-tip {
   background: #f8fafc;
@@ -218,10 +218,10 @@ button {
   .transit-dropdown, .map-sidebar { transition: none !important; }
 }
 
-/* 3D renderer */
+ 
 .km-3d-pin-anchor { width: 36px; height: 43px; user-select: none; touch-action: none; }
 .km-3d-pin-shell { position: relative; width: 36px; height: 43px; }
-/* The pin body may rotate, but the MapLibre marker root and its text may not. */
+ 
 .km-3d-pin-shape { position: absolute; top: 3px; left: 2px; width: 32px; height: 32px; box-sizing: border-box; border-radius: 50% 50% 50% 3px; transform: rotate(-45deg); background: #f7fbf9; border: 2px solid #39584a; box-shadow: 0 3px 14px #0006; }
 .km-3d-pin-glyph { position: absolute; top: 5px; left: 2px; width: 32px; height: 32px; display: grid; place-items: center; color: #253e33; font-size: 12px; font-weight: 700; line-height: 1; pointer-events: none; }
 .km-3d-picker { min-width: 155px; display: grid; gap: 5px; }
@@ -239,9 +239,9 @@ button {
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
 
-/* Atmospheric fallback is behind a transparent WebGL canvas even when
-   MapLibre's experimental globe fog/terrain effect is unavailable. A cheap
-   static gradient adds no extra WebGL draw calls and works on weak devices. */
+
+
+ 
 .km-3d-scene, .km-3d-map {
   background-color: #87badf;
   background-image: linear-gradient(to bottom, #335c90 0%, #608fc1 33%, #a5d0ed 72%, #e6f5ff 100%);
@@ -251,7 +251,7 @@ button {
 }
 .km-3d-map .maplibregl-canvas-container,
 .km-3d-map .maplibregl-canvas { background: transparent !important; }
-/* Bottom-left placement clears the map-style and layers controls. */
+ 
 .km-3d-tools { position: absolute; bottom: 22px; left: 16px; z-index: 410;
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
   max-width: calc(100% - 180px); pointer-events: auto; }
@@ -268,12 +268,12 @@ button {
   .km-3d-tools { left: 8px; bottom: 80px; max-width: calc(100% - 16px); }
 }
 
-/* Avoid overlapping the app's top-right map-style and layers controls. */
+ 
 .km-3d-map .maplibregl-ctrl-top-right { top: 66px; right: 6px; }
 
-/* v10.11: Make the MapLibre DOM popup match the compact Leaflet cards.
-   Never transform the popup container: MapLibre positions that on screen;
-   the content itself stays upright as the map pitches and rotates. */
+
+
+ 
 .km-3d-map .km-3d-popup { z-index: 650; max-width: min(330px, calc(100vw - 28px)); }
 .km-3d-map .km-3d-popup .maplibregl-popup-content {
   background: #fff;
@@ -316,8 +316,8 @@ button {
 .km-3d-map .km-3d-popup .km-3d-picker button { padding: 8px 10px; background: #f1f5f9; color: #334155; border: 0; border-radius: 7px; font-size: 12px; font-weight: 600; }
 .km-3d-map .km-3d-popup .km-3d-picker button:hover { background: #e5eee7; }
 .km-3d-map .km-3d-popup .km-3d-camera-controls button { background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 16px; color: #334155; }
-/* Match the existing 2D dark-map convention: dark information popups, but a
-   white departure board for readability (the same 2D transit exception). */
+
+ 
 .km-3d-dark .km-3d-popup:not(.km-3d-transit-popup) .maplibregl-popup-content {
   background: #2f3e46; color: #d0d8d1;
 }

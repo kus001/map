@@ -375,7 +375,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(
     () => savedPreferences.darkMode === true
   );
-  const [mapStyle, setMapStyle] = useState("street");
+  const [mapStyle, setMapStyle] = useState("satellite");
   const [threeD, setThreeD] = useState(false);
   const [globe, setGlobe] = useState(false);
   const mapCamera = useRef(null);

@@ -43,7 +43,7 @@ function number(value, fallback) {
 export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainHeight = () => 0) {
   const range = facadeRange(zoom, tier);
   const buckets = Object.fromEntries(MATERIALS.map(name => [name, []]));
-  if (!range) return { buckets, count: 0, range: 0, vertices: 0 };
+  if (!range) return { buckets, count: 0, range: 0, vertices: 0, coveredRadius: 0 };
   const seen = new Set();
   let count = 0;
   let vertices = 0;
@@ -75,7 +75,10 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
     }
   }
   candidates.sort((a, b) => a.distance - b.distance);
-  for (const item of candidates.slice(0, maxBuildings)) {
+  const selected = candidates.slice(0, maxBuildings);
+  const coveredRadius = selected.length ? Math.min(range, Math.max(85, selected[selected.length - 1].distance - 40)) : 0;
+  for (const item of selected) {
+    if (item.distance > coveredRadius) continue;
     const { ring, properties, height, base, middle } = item;
     const scale = 1 / (EARTH_METERS * Math.cos(middle[1] * Math.PI / 180));
     const ground = Number(terrainHeight(middle)) || 0;
@@ -115,7 +118,7 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
     }
     count++;
   }
-  return { buckets, count, range, vertices };
+  return { buckets, count, range, vertices, coveredRadius };
 }
 
 function shader(gl, kind, source) {
@@ -347,6 +350,9 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
     }
     if (!features?.length) {
       map.__kmFacadeStats = { count: 0, vertices: 0, range: facadeRange(zoom, tier), textureCount: textures.size, reason: "no building geometry from loaded tiles" };
+      hasWalls = false;
+      positions.clear();
+      map.__kmFacadeStats = { count: 0, vertices: 0, range: facadeRange(zoom, tier), coveredRadius: 0, textureCount: textures.size, reason: "no building geometry from loaded tiles" };
       onStatus("waiting");
       return;
     }
@@ -368,10 +374,10 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
       const hadWalls = hasWalls;
       hasWalls = mesh.vertices > 0;
-      stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range, textureCount: textures.size };
+      stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range, coveredRadius: mesh.coveredRadius, textureCount: textures.size };
       map.__kmFacadeStats = stats;
-      if (hasWalls !== hadWalls || force) onStatus(hasWalls ? "ready" : "waiting");
-      lastView = { center, zoom };
+      if (hasWalls !== hadWalls || force || mesh.coveredRadius !== lastView?.coveredRadius) onStatus(hasWalls ? "ready" : "waiting");
+      lastView = { center, zoom, coveredRadius: mesh.coveredRadius };
       lastRefresh = now;
       map.triggerRepaint();
     } catch (error) { lastError = String(error?.message || error); onStatus("error", lastError); }

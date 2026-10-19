@@ -18,10 +18,10 @@ class TripPools:
     """Interned data shared by every CompactTrips in one graph."""
 
     def __init__(self, trip_ids=None, routes=None, trip_route=None):
-        self.trip_ids = trip_ids if trip_ids is not None else []   # tid -> trip_id str
-        self.routes = routes if routes is not None else []         # rid -> route dict
-        self.trip_route = trip_route if trip_route is not None else array("H")  # tid -> rid
-        self._index = None                                         # trip_id str -> tid
+        self.trip_ids = trip_ids if trip_ids is not None else []
+        self.routes = routes if routes is not None else []
+        self.trip_route = trip_route if trip_route is not None else array("H")
+        self._index = None
 
     @property
     def index(self):
@@ -85,10 +85,10 @@ class CompactTrips:
     __slots__ = ("deps", "arrs", "tids", "dists", "pools", "schedule")
 
     def __init__(self, deps, arrs, tids, dists, pools):
-        self.deps = deps      # array('i') departure seconds, sorted ascending
-        self.arrs = arrs      # array('i') arrival seconds at the next stop
-        self.tids = tids      # array('i') index into pools.trip_ids
-        self.dists = dists    # array('f') original "distance" value (minutes)
+        self.deps = deps
+        self.arrs = arrs
+        self.tids = tids
+        self.dists = dists
         self.pools = pools
         self.schedule = _Schedule(self)
 
@@ -127,7 +127,7 @@ class CompactTrips:
             raise IndexError(key)
         return self._edge(key)
 
-    # `by_trip.get(trip_id)` replacement: a C-speed scan over an int array.
+
     def get(self, trip_id, default=None):
         tid = self.pools.index.get(trip_id)
         if tid is None:

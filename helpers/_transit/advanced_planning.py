@@ -30,8 +30,8 @@ def latest_departure_before(deadline, probe, *, window_minutes=360, iterations=7
     if best is None:
         return None
     low, high = 0, window_minutes
-    # Time-dependent public transport feasibility is monotone: a traveller
-    # can always wait if they reach the origin earlier.
+
+
     for _ in range(iterations):
         if high - low <= 3:
             break

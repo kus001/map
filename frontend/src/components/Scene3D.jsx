@@ -11,6 +11,7 @@ function safeCameraPitch(zoom, pitch) {
   return Math.max(0, Math.min(limit, Number.isFinite(pitch) ? pitch : 0));
 }
 
+// keep weaker devices from loading too much at once
 function deviceProfile() {
   const memory = typeof navigator === "undefined" ? 0 : Number(navigator.deviceMemory) || 0;
   const cores = typeof navigator === "undefined" ? 0 : Number(navigator.hardwareConcurrency) || 0;
@@ -68,7 +69,7 @@ function loadMapLibre() {
         document.head.appendChild(css);
       }
       const url = "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.mjs";
-      const gl = await import(url);
+      const gl = await import(/* @vite-ignore */ url);
       if (!gl?.Map) throw new Error("3D renderer unavailable");
       return gl;
     })().catch(error => { loader = null; throw error; });
@@ -104,6 +105,7 @@ function buildingSourceFromStyle(style) {
   return (layer && sources[layer.source]) || sources.openmaptiles || sources.openfreemap || null;
 }
 
+// api styles first, free tiles if that doesnt work
 async function getStyle(mapStyle, darkMode, signal) {
   const freeName = darkMode ? "dark" : "liberty";
   let freeStyle = freeStyleCache.get(freeName);
@@ -218,6 +220,7 @@ function buildingLayerInsertionPoint(map) {
     .find(layer => layer.type === "symbol")?.id;
 }
 
+// actual mapped colours first, then the material, then beige
 function buildingMaterialColor(darkMode) {
   const neutral = darkMode ? "#aeb5bb" : "#d1c8ba";
   const material = ["downcase", ["to-string", ["coalesce",
@@ -286,6 +289,7 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   return Boolean(map.getLayer("km-buildings-3d"));
 }
 
+// dont draw the provider buildings on top of our own
 function syncNativeBuildings(map, buildingsEnabled) {
   const layer = map.getLayer("km-buildings-3d");
   const source = buildingsEnabled ? layer?.source : null;
@@ -352,14 +356,57 @@ function removeLegacyLandmarks(map) {
   }
 }
 
+// near-horizon buildings look like they float once ground tiles stop rendering.
+// cut off distant extrusions instead of changing the entire city's height.
+function buildingRangeMeters(zoom, pitch) {
+  const meters = Math.min(8500, Math.max(1400, 3700 * 2 ** ((16 - zoom) * 0.65)));
+  return Math.round(meters * (pitch >= 68 ? 0.62 : pitch >= 50 ? 0.82 : 1));
+}
+
+function limitFarBuildings(map) {
+  if (!map.isStyleLoaded() || !map.__kmBuildingRangeFilters) return;
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const pitch = map.getPitch();
+  const previous = map.__kmBuildingRangeView;
+  const distanceMoved = previous ? Math.hypot(
+    (center.lng - previous.lng) * 111320 * Math.cos(center.lat * Math.PI / 180),
+    (center.lat - previous.lat) * 111320,
+  ) : Infinity;
+  const layers = (map.getStyle()?.layers || []).filter(layer => layer.type === "fill-extrusion");
+  const originals = map.__kmBuildingRangeFilters;
+  const newLayers = layers.some(layer => !originals.has(layer.id));
+  if (!newLayers && previous && distanceMoved < 100 &&
+      Math.abs(zoom - previous.zoom) < 0.18 && Math.abs(pitch - previous.pitch) < 8) return;
+
+  const maxDistance = buildingRangeMeters(zoom, pitch);
+  const nearby = ["<=", ["distance", {
+    type: "Point", coordinates: [center.lng, center.lat],
+  }], maxDistance];
+  for (const layer of layers) {
+    if (!originals.has(layer.id)) originals.set(layer.id, map.getFilter(layer.id) ?? null);
+    const original = originals.get(layer.id);
+    try {
+      map.setFilter(layer.id, original ? ["all", original, nearby] : nearby);
+    } catch (error) {
+      console.warn("Could not limit distant buildings", error);
+    }
+  }
+  map.__kmBuildingRangeView = { lng: center.lng, lat: center.lat, zoom, pitch };
+  map.__kmBuildingRangeMeters = maxDistance;
+}
+
 function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
   map.__kmBuildingDarkMode = darkMode;
   map.__kmBuildingCheck = null;
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
   removeLegacyLandmarks(map);
+  map.__kmBuildingRangeFilters = new Map();
+  map.__kmBuildingRangeView = null;
   if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
   syncNativeBuildings(map, buildingsEnabled);
+  limitFarBuildings(map);
   if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
     const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
     try { map.addLayer({
@@ -551,6 +598,7 @@ export default function Scene3D({
     callbackRef.current = { onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute };
   }, [onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute]);
 
+// draw the other route options underneath the chosen one
   const features = useMemo(() => {
     const result = [];
     for (const item of data?.routes || []) {
@@ -631,6 +679,7 @@ export default function Scene3D({
         delete map.__kmNotifyCamera;
       };
       syncGestures();
+// sample fps while moving, not while the map is idle
       let lastFrame = 0;
       let samples = 0;
       let totalFrameMs = 0;
@@ -662,6 +711,26 @@ export default function Scene3D({
         }
         samples = 0; totalFrameMs = 0;
       });
+      let rangeTimer;
+      const updateBuildingRange = () => {
+        if (rangeTimer) return;
+        rangeTimer = setTimeout(() => {
+          rangeTimer = null;
+          limitFarBuildings(map);
+        }, 300);
+      };
+      const finishBuildingRange = () => {
+        clearTimeout(rangeTimer);
+        rangeTimer = null;
+        limitFarBuildings(map);
+      };
+      map.on("move", updateBuildingRange);
+      map.on("moveend", finishBuildingRange);
+      map.__kmBuildingRangeCleanup = () => {
+        clearTimeout(rangeTimer);
+        map.off("move", updateBuildingRange);
+        map.off("moveend", finishBuildingRange);
+      };
       map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
       map.on("zoomend", () => {
         setZoom(map.getZoom());
@@ -714,6 +783,7 @@ export default function Scene3D({
           lastSource: map.__kmBuildingInfo?.sourceId ?? null,
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
+          buildingRangeMeters: map.__kmBuildingRangeMeters ?? null,
         };
       };
       let lastRotateAt = -Infinity;
@@ -733,6 +803,7 @@ export default function Scene3D({
         root.append(popupText(`${event.lngLat.lat.toFixed(5)}, ${event.lngLat.lng.toFixed(5)}`, "km-3d-coordinates"));
         const popup = scenePopup(gl, map, event.lngLat, root, { maxWidth: "235px" });
       });
+// popups request departures only after someone clicks a stop
       const openStop = feature => {
         const props = feature.properties || {};
         const coordinates = feature.geometry?.coordinates;
@@ -817,6 +888,7 @@ export default function Scene3D({
     return () => {
       active = false; styles.current++;
       markers.current.forEach(marker => marker.remove()); markers.current = [];
+      map?.__kmBuildingRangeCleanup?.();
       map?.__kmSpinCleanup?.();
       map?.__kmOpenPopup?.remove();
       map?.remove();
@@ -867,6 +939,7 @@ export default function Scene3D({
                 (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
             ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
             syncNativeBuildings(map, buildingsRef.current);
+            limitFarBuildings(map);
           }, delay));
         }
       };
@@ -879,6 +952,7 @@ export default function Scene3D({
           ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
         }
         syncNativeBuildings(map, buildingsRef.current);
+        limitFarBuildings(map);
       };
       map.on("idle", repairBuildings);
       const oldCleanup = map.__kmBuildingRepairCleanup;
@@ -978,6 +1052,7 @@ export default function Scene3D({
       ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
     }
     syncNativeBuildings(map, true);
+    limitFarBuildings(map);
   }, [ready, buildingsEnabled, profile]);
 
   useEffect(() => {

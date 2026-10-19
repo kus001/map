@@ -1,6 +1,6 @@
 const MATERIALS = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
 const EARTH_METERS = 40075016.68557849;
-const MIN_DETAIL_ZOOM = 16;
+const MIN_DETAIL_ZOOM = 14.5;
 const TILE_LIMIT = 450;
 
 export function facadeMaterial(properties = {}) {
@@ -17,8 +17,8 @@ export function facadeMaterial(properties = {}) {
 
 export function facadeRange(zoom, tier = "medium") {
   if (zoom < MIN_DETAIL_ZOOM) return 0;
-  const meters = Math.max(230, Math.min(780, 420 * 2 ** (zoom - 16)));
-  return tier === "low" ? meters * 0.65 : meters;
+  const meters = Math.max(1400, Math.min(3200, 1800 * 2 ** ((zoom - 15.5) * 0.25)));
+  return tier === "low" ? meters * 0.75 : meters;
 }
 
 function meters(point, center) {
@@ -96,7 +96,7 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
       const edgeUnits = Math.hypot(dx, dy);
       const length = edgeUnits / scale;
       if (length < 0.5 || length > 380) continue;
-      const offset = scale * 0.12 / edgeUnits;
+      const offset = scale * 0.55 / edgeUnits;
       const nx = direction * dy * offset;
       const ny = direction * -dx * offset;
       const x1 = a[0] + nx;
@@ -137,15 +137,29 @@ function program(gl) {
   layout(location = 1) in vec2 a_uv;
   uniform mat4 u_matrix;
   out vec2 v_uv;
-  void main() { v_uv = a_uv; gl_Position = u_matrix * vec4(a_pos, 1.0); }`);
+  out vec2 v_merc;
+  void main() {
+    v_uv = a_uv;
+    v_merc = a_pos.xy;
+    gl_Position = u_matrix * vec4(a_pos, 1.0);
+  }`);
   const fragment = shader(gl, gl.FRAGMENT_SHADER, `#version 300 es
-  precision mediump float;
+  precision highp float;
   in vec2 v_uv;
+  in vec2 v_merc;
   uniform sampler2D u_image;
+  uniform vec2 u_center;
+  uniform float u_world_meters;
+  uniform float u_range;
+  uniform float u_zoom_fade;
   out vec4 color;
   void main() {
+    float distance = length(v_merc - u_center) * u_world_meters;
+    float distanceFade = 1.0 - smoothstep(u_range * 0.7, u_range, distance);
+    float alpha = distanceFade * u_zoom_fade;
+    if (alpha < 0.005) discard;
     vec3 sampleColor = texture(u_image, v_uv).rgb;
-    color = vec4(min(vec3(1.0), sampleColor * 1.17), 1.0);
+    color = vec4(min(vec3(1.0), sampleColor * 1.12), alpha);
   }`);
   const result = gl.createProgram();
   gl.attachShader(result, vertex);
@@ -170,6 +184,8 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
   let pending = false;
   let lastView;
   let ready = false;
+  let hasWalls = false;
+  let lastError = null;
   const textures = new Map();
   const buffers = new Map();
   const positions = new Map();
@@ -185,12 +201,12 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       gl = context;
       active = true;
       try { gpuProgram = program(gl); vao = gl.createVertexArray(); }
-      catch (error) { onStatus("error", String(error?.message || error)); return; }
+      catch (error) { lastError = String(error?.message || error); onStatus("error", lastError); return; }
       const stamp = ++loadVersion;
       const base = String(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
       onStatus("loading");
       Promise.all(MATERIALS.map(async name => {
-        const { data } = await map.loadImage(`${base}textures/buildings/${name}.png?v=10.16.3`);
+        const { data } = await map.loadImage(`${base}textures/buildings/${name}.png?v=10.17.1`);
         if (!data || data.width !== 512 || data.height !== 512) {
           throw new Error(`Invalid image ${name}.png (expected 512×512)`);
         }
@@ -212,45 +228,101 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
           }
           gl.bindTexture(gl.TEXTURE_2D, null);
           ready = true;
-          onStatus("ready");
+          onStatus("waiting");
           refresh(true);
           map.triggerRepaint();
-        } catch (error) { onStatus("error", String(error?.message || error)); }
-      }).catch(error => { if (active && stamp === loadVersion) onStatus("error", String(error?.message || error)); });
+        } catch (error) { lastError = String(error?.message || error); onStatus("error", lastError); }
+      }).catch(error => { if (active && stamp === loadVersion) { lastError = String(error?.message || error); onStatus("error", lastError); } });
       map.on("moveend", changed);
       map.on("idle", idle);
     },
     render(context, args) {
-      if (!active || !ready || !gpuProgram || !buffers.size || map.getZoom() < MIN_DETAIL_ZOOM) return;
+      if (!active || !ready || !hasWalls || !gpuProgram || !buffers.size || map.getZoom() < MIN_DETAIL_ZOOM) return;
       if (map.getProjection?.()?.type === "globe") return;
       const matrix = args?.defaultProjectionData?.mainMatrix;
-      if (!matrix) return;
-      context.useProgram(gpuProgram);
-      context.bindVertexArray(vao);
-      context.depthFunc(context.LEQUAL);
-      context.uniformMatrix4fv(context.getUniformLocation(gpuProgram, "u_matrix"), false, matrix);
-      context.uniform1i(context.getUniformLocation(gpuProgram, "u_image"), 0);
-      context.enable(context.DEPTH_TEST);
-      context.depthMask(false);
-      context.disable(context.CULL_FACE);
-      context.disable(context.BLEND);
-      context.activeTexture(context.TEXTURE0);
-      for (const name of MATERIALS) {
-        const buffer = buffers.get(name);
-        const amount = positions.get(name);
-        if (!buffer || !amount) continue;
-        context.bindTexture(context.TEXTURE_2D, textures.get(name));
-        context.bindBuffer(context.ARRAY_BUFFER, buffer);
-        context.enableVertexAttribArray(0);
-        context.vertexAttribPointer(0, 3, context.FLOAT, false, 20, 0);
-        context.enableVertexAttribArray(1);
-        context.vertexAttribPointer(1, 2, context.FLOAT, false, 20, 12);
-        context.drawArrays(context.TRIANGLES, 0, amount);
+      if (!matrix) {
+        if (lastError !== "Map projection matrix unavailable") {
+          lastError = "Map projection matrix unavailable";
+          onStatus("error", lastError);
+        }
+        return;
       }
-      context.bindBuffer(context.ARRAY_BUFFER, null);
-      context.bindTexture(context.TEXTURE_2D, null);
-      context.depthMask(true);
-      context.bindVertexArray(null);
+      if (context.isContextLost?.()) return;
+      const previous = {
+        blend: context.isEnabled(context.BLEND),
+        cull: context.isEnabled(context.CULL_FACE),
+        depth: context.isEnabled(context.DEPTH_TEST),
+        depthMask: context.getParameter(context.DEPTH_WRITEMASK),
+        depthFunc: context.getParameter(context.DEPTH_FUNC),
+        program: context.getParameter(context.CURRENT_PROGRAM),
+        vao: context.getParameter(context.VERTEX_ARRAY_BINDING),
+        arrayBuffer: context.getParameter(context.ARRAY_BUFFER_BINDING),
+        activeTexture: context.getParameter(context.ACTIVE_TEXTURE),
+        blendSrcRGB: context.getParameter(context.BLEND_SRC_RGB),
+        blendDstRGB: context.getParameter(context.BLEND_DST_RGB),
+        blendSrcAlpha: context.getParameter(context.BLEND_SRC_ALPHA),
+        blendDstAlpha: context.getParameter(context.BLEND_DST_ALPHA),
+      };
+      context.activeTexture(context.TEXTURE0);
+      previous.texture0 = context.getParameter(context.TEXTURE_BINDING_2D);
+      const currentZoom = map.getZoom();
+      const focus = map.getCenter();
+      const lat = focus.lat * Math.PI / 180;
+      const mercatorY = (1 - Math.log(Math.tan(Math.PI / 4 + lat / 2)) / Math.PI) / 2;
+      const range = facadeRange(currentZoom, tier);
+      const fade = Math.max(0, Math.min(1, (currentZoom - MIN_DETAIL_ZOOM) / 1.1));
+      const smoothFade = fade * fade * (3 - 2 * fade);
+      try {
+        context.useProgram(gpuProgram);
+        context.bindVertexArray(vao);
+        context.depthFunc(context.LEQUAL);
+        context.uniformMatrix4fv(context.getUniformLocation(gpuProgram, "u_matrix"), false, matrix);
+        context.uniform1i(context.getUniformLocation(gpuProgram, "u_image"), 0);
+        context.uniform2f(context.getUniformLocation(gpuProgram, "u_center"), (focus.lng + 180) / 360, mercatorY);
+        context.uniform1f(context.getUniformLocation(gpuProgram, "u_world_meters"), EARTH_METERS * Math.cos(lat));
+        context.uniform1f(context.getUniformLocation(gpuProgram, "u_range"), range);
+        context.uniform1f(context.getUniformLocation(gpuProgram, "u_zoom_fade"), smoothFade);
+        context.enable(context.DEPTH_TEST);
+        context.depthMask(false);
+        context.disable(context.CULL_FACE);
+        context.enable(context.BLEND);
+        context.blendFunc(context.SRC_ALPHA, context.ONE_MINUS_SRC_ALPHA);
+        context.activeTexture(context.TEXTURE0);
+        for (const name of MATERIALS) {
+          const buffer = buffers.get(name);
+          const amount = positions.get(name);
+          if (!buffer || !amount) continue;
+          context.bindTexture(context.TEXTURE_2D, textures.get(name));
+          context.bindBuffer(context.ARRAY_BUFFER, buffer);
+          context.enableVertexAttribArray(0);
+          context.vertexAttribPointer(0, 3, context.FLOAT, false, 20, 0);
+          context.enableVertexAttribArray(1);
+          context.vertexAttribPointer(1, 2, context.FLOAT, false, 20, 12);
+          context.drawArrays(context.TRIANGLES, 0, amount);
+        }
+      } catch (error) {
+        lastError = String(error?.message || error);
+        onStatus("error", lastError);
+      } finally {
+        context.bindBuffer(context.ARRAY_BUFFER, previous.arrayBuffer);
+        context.bindVertexArray(previous.vao);
+        context.depthMask(previous.depthMask);
+        context.depthFunc(previous.depthFunc);
+        if (previous.depth) context.enable(context.DEPTH_TEST);
+        else context.disable(context.DEPTH_TEST);
+        if (previous.cull) context.enable(context.CULL_FACE);
+        else context.disable(context.CULL_FACE);
+        if (previous.blend) context.enable(context.BLEND);
+        else context.disable(context.BLEND);
+        context.activeTexture(context.TEXTURE0);
+        context.bindTexture(context.TEXTURE_2D, previous.texture0);
+        context.activeTexture(previous.activeTexture);
+        context.blendFuncSeparate(previous.blendSrcRGB, previous.blendDstRGB, previous.blendSrcAlpha, previous.blendDstAlpha);
+        context.useProgram(previous.program);
+      }
+      if (map && stats.vertices > 0) {
+        map.__kmFacadeStats = { ...stats, drawn: true, textureCount: textures.size, zoom: currentZoom, error: lastError };
+      }
     },
     onRemove() {
       active = false;
@@ -266,6 +338,7 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       buffers.clear();
       textures.clear();
       positions.clear();
+      hasWalls = false;
       if (map) map.__kmFacadeStats = null;
       map = null;
     },
@@ -294,7 +367,11 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       catch { continue; }
       if (features?.length) break;
     }
-    if (!features?.length) return;
+    if (!features?.length) {
+      map.__kmFacadeStats = { count: 0, vertices: 0, range: facadeRange(zoom, tier), textureCount: textures.size, reason: "no building geometry from loaded tiles" };
+      onStatus("waiting");
+      return;
+    }
     pending = true;
     try {
       const groundAt = point => map.getTerrain?.() ? map.queryTerrainElevation?.(point, { exaggerated: true }) || 0 : 0;
@@ -311,12 +388,15 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
         positions.set(name, count);
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
-      stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range };
+      const hadWalls = hasWalls;
+      hasWalls = mesh.vertices > 0;
+      stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range, textureCount: textures.size };
       map.__kmFacadeStats = stats;
+      if (hasWalls !== hadWalls || force) onStatus(hasWalls ? "ready" : "waiting");
       lastView = { center, zoom };
       lastRefresh = now;
       map.triggerRepaint();
-    } catch (error) { onStatus("error", String(error?.message || error)); }
+    } catch (error) { lastError = String(error?.message || error); onStatus("error", lastError); }
     finally { pending = false; }
   }
   return layer;

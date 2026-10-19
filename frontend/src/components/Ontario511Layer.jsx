@@ -231,7 +231,7 @@ export default function Ontario511Layer({ enabled = [], onStatus = () => {}, dar
     return () => map.attributionControl.removeAttribution('Data: Ontario 511');
   }, [map, has511]);
 
-  // Panning should only trigger one request after the user has stopped moving.
+                                                                               
   useMapEvents({
     moveend() { setView(mapView(map)); },
     zoomend() { setView(mapView(map)); },

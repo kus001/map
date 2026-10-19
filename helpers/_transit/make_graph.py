@@ -31,7 +31,7 @@ trip_to_service = {}
 calendar = {}
 calendar_dates = {}
 _seen_trip_hops = set()
-_route_info_cache = {}  # (route_id, headsign) (this is a shared dict, so every trip sharing the same route+headsign reuses only one dict)
+_route_info_cache = {}
 
 
 def service_active(service_id, check_date):
@@ -152,7 +152,7 @@ def add_agency_to_graph(agency, force_download=False):
             stop.get("stop_name"),
         )
 
-        # Add short walking transfer edges between nearby stops in any loaded agency.
+
         for other_agency, other_stops in all_stops.items():
             for other_stop in other_stops:
                 other_full_id = f"{other_agency}:{other_stop['stop_id']}"
@@ -240,9 +240,9 @@ def add_multiple_agencies_to_graph(
         calendar = getattr(loaded, "calendar", {})
         calendar_dates = getattr(loaded, "calendar_dates", {})
 
-        # One-time migration of an old list-of-dicts pickle. This needs the old (large)
-        # in-memory graph once; run `python -m helpers._transit.compact` on a bigger
-        # machine and commit the result to avoid that peak on a small server.
+
+
+
         if not is_compact(graph):
             compact_graph(graph)
             _write_graph(graph_path)
@@ -251,7 +251,7 @@ def add_multiple_agencies_to_graph(
     for agency in agencies:
         add_agency_to_graph(agency, force_download=force_download)
 
-    # Get rid of useless thingy magigs so they don't eat up all my precious RAM.
+
     _seen_trip_hops.clear()
     all_stops.clear()
     _route_info_cache.clear()
@@ -266,7 +266,7 @@ def add_multiple_agencies_to_graph(
                     )
                 )
 
-    # Replace the ~2M per-trip dicts with typed arrays (about 40x less RAM).
+
     compact_graph(graph)
     _write_graph(graph_path)
 
@@ -336,8 +336,8 @@ class Graph:
         }
 
     def is_trip_active(self, trip_id, check_date):
-        # Older prebuilt graph caches may not include service calendars. In that case,
-        # keep trips available instead of incorrectly removing every route.
+
+
         if not self.trip_to_service and not self.calendar and not self.calendar_dates:
             return True
 

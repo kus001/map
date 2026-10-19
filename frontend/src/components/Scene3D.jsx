@@ -26,7 +26,7 @@ function deviceProfile() {
     tier,
     pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.2 : 1.4),
     tileCache: tier === "low" ? 8 : tier === "medium" ? 14 : 22,
-    buildingZoom: tier === "low" ? 15.6 : tier === "medium" ? 15.2 : 14.8,
+    buildingZoom: 14.1,
     demZoom: tier === "low" ? 9 : tier === "medium" ? 10 : 11,
     shadeZoom: tier === "low" ? 8 : 6,
   };
@@ -302,7 +302,7 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     diagnostic.lastError = "Vector source not registered in map style";
     return false;
   }
-  const startZoom = Math.min(profile.buildingZoom, 15.3);
+  const startZoom = profile.buildingZoom;
   const layer = {
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
     "source-layer": "building", minzoom: startZoom,
@@ -310,13 +310,9 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     filter: ["!=", ["get", "hide_3d"], true],
     paint: {
       "fill-extrusion-color": buildingMaterialColor(darkMode),
-      "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5,
-        ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]],
-      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5,
-        ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]],
-      "fill-extrusion-opacity": 1,
+      "fill-extrusion-height": ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]],
+      "fill-extrusion-base": ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]],
+      "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], startZoom, 0, startZoom + 1.2, 1],
     },
   };
   const before = buildingLayerInsertionPoint(map);
@@ -369,6 +365,10 @@ function syncNativeBuildings(map, buildingsEnabled) {
           map.setPaintProperty(nativeLayer.id, "fill-extrusion-pattern", null);
         }
         map.setPaintProperty(nativeLayer.id, "fill-extrusion-color", buildingMaterialColor(map.__kmBuildingDarkMode || false));
+        map.setPaintProperty(nativeLayer.id, "fill-extrusion-height",
+          ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]);
+        map.setPaintProperty(nativeLayer.id, "fill-extrusion-base",
+          ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]);
         map.setPaintProperty(nativeLayer.id, "fill-extrusion-opacity", 1);
         styled.add(nativeLayer.id);
       } catch (error) { console.warn("Building colour fallback unavailable", error); }
@@ -400,9 +400,9 @@ function removeLegacyLandmarks(map) {
 
 // near-horizon buildings look like they float once ground tiles stop rendering.
 // cut off distant extrusions instead of changing the entire city's height.
-function buildingRangeMeters(zoom, pitch) {
-  const meters = Math.min(8500, Math.max(1400, 3700 * 2 ** ((16 - zoom) * 0.65)));
-  return Math.round(meters * (pitch >= 68 ? 0.62 : pitch >= 50 ? 0.82 : 1));
+function buildingRangeMeters(_zoom, pitch) {
+  const tilt = Math.min(1, Math.max(0, (pitch - 35) / 45));
+  return Math.round(4400 - tilt * 1600);
 }
 
 function limitFarBuildings(map) {
@@ -1330,7 +1330,7 @@ export default function Scene3D({
             ? "Facade images could not load; normal colours are still shown"
             : "Switch between plain building colours and textured walls. Roofs stay plain; globe uses colours."}
           onClick={() => setBuildingAppearance(value => value === "textured" ? "coloured" : "textured")}>
-          {buildingAppearance !== "textured" ? "Coloured" : textureStatus === "error" ? "Textures failed" : textureStatus === "loading" ? "Loading textures" : "Textured"}
+          {buildingAppearance !== "textured" ? "Coloured" : textureStatus === "error" ? "Textures failed" : (textureStatus === "loading" || textureStatus === "waiting") ? "Loading textures" : "Textured"}
         </button>
       </div>
     </div>

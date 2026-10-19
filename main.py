@@ -35,6 +35,8 @@ DEV_MODE = "--dev" in sys.argv or os.getenv("MAP_DEV_MODE", "0") == "1"
 PRINT_ROUTE_TIMING = DEV_MODE or os.getenv("MAP_ROUTE_TIMING", "0") == "1"
 
 
+
+# browser sends local time, dont accidentally read it as utc
 def parse_departure_datetime(value):
     """Parse a browser datetime-local value as Waterloo/Toronto local time."""
     if value is None or str(value).strip() == "":
@@ -70,6 +72,7 @@ def parse_coordinates(value):
     return [lat, lon]
 
 
+# check vague addresses before asking the router to guess
 def address_issue_for(start, destination, start_coordinates, destination_coordinates):
     """Describe a typed address that needs the user's choice, in a form the UI can show.
 
@@ -553,6 +556,7 @@ def transit_alternatives():
     return jsonify({"success": True, "route": None, "routes": []})
 
 
+# all travel modes come through here, then split to their routers
 @app.route("/api/routes", methods=["POST"])
 def routes():
     payload = request.get_json(silent=True)

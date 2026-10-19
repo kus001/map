@@ -1,4 +1,4 @@
-// Format.js
+            
 
 export function formatDuration(minutes) {
   const total = Math.max(0, Math.round(Number(minutes) || 0));
@@ -33,8 +33,8 @@ export function directionText(step) {
   const modifier = String(step.modifier || "").trim();
   const road = String(step.road || step.name || "").trim();
 
-  // ORS already returns natural-language cycling/walking instructions such as
-  // "Turn right onto Wissler Road". Prefer those whenever they are available.
+                                                                              
+                                                                              
   if (instruction) {
     return instruction;
   }
@@ -54,7 +54,7 @@ export function directionText(step) {
   } else if (type === "turn") {
     text = modifier === "straight" ? "Continue straight" : modifier ? `Turn ${modifier}` : "Turn";
   } else if (type === "new name") {
-    // OSRM: the road changes name but you keep going the same way.
+                                                                   
     text = "Continue";
   } else if (type === "fork") {
     text = modifier ? `Keep ${modifier.replace("slight ", "")}` : "Keep going";

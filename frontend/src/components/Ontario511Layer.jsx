@@ -19,6 +19,7 @@ const CAMERA_ICON = L.divIcon({
 });
 
 
+// bbox tells the backend which road reports we actually need
 function mapView(map) {
   const bounds = map.getBounds();
   return {
@@ -28,6 +29,7 @@ function mapView(map) {
   };
 }
 
+// cycle camera shots, pause while someone is hovering
 function CameraViews({ images, name }) {
   const [index, setIndex] = useState(0);
   const [failedUrl, setFailedUrl] = useState(null);

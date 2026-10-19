@@ -32,7 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 KNOWN_PLACES_PATH = PROJECT_ROOT / "transit_data" / "known_places.json"
 GEOCODE_CACHE_PATH = PROJECT_ROOT / "transit_data" / "geocode_cache.json"
 
-# Rough Waterloo Region viewbox. This biases Nominatim toward local results
+
 WATERLOO_REGION_VIEWBOX = [
     (43.65, -80.65),
     (43.30, -80.25),
@@ -45,18 +45,18 @@ _COORDINATE_RE = re.compile(
 
 _geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
 
-# Nominatim's usage policy allows ~1 request/second, so calls are spaced out, and
-# failed lookups are remembered for a while instead of being retried on every click.
+
+
 _NOMINATIM_MIN_INTERVAL = 1.0
 _NOMINATIM_TIMEOUT = 2.5
 _NEGATIVE_TTL = 15 * 60
 _NEGATIVE_MAX = 500
 _nominatim_lock = threading.Lock()
 _last_nominatim_call = 0.0
-_negative_cache = OrderedDict()  # key -> expiry (monotonic seconds)
+_negative_cache = OrderedDict()
 _negative_lock = threading.Lock()
 
-# If Nominatim and the local street data disagree by more than this, trust the local data
+
 _NOMINATIM_DISAGREE_KM = 5.0
 
 
@@ -119,7 +119,7 @@ def _load_coordinate_map(path):
     return result
 
 
-# CHANGE: files are written to now!!!
+
 _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
 _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
@@ -156,7 +156,7 @@ def remember_place(label, lat, lon):
         _remember_runtime(key, point)
 
 
-# --- known places (aliases) --------------------------------------------------
+
 
 _LOWER_WORDS = {"of", "the", "and", "at", "de", "du"}
 _known_places = None
@@ -166,11 +166,11 @@ _known_lock = threading.Lock()
 def _display_name(key):
     words = key.split()
     if len(words) == 1 and len(words[0]) <= 4:
-        return words[0].upper()  # uw, wlu, rom, mit, e7 ...
+        return words[0].upper()
     shown = []
     for index, word in enumerate(words):
         if len(word) <= 2 and word.isalpha() and word not in _LOWER_WORDS:
-            shown.append(word.upper())  # "boston us" -> "Boston US"
+            shown.append(word.upper())
         elif index and word in _LOWER_WORDS:
             shown.append(word)
         else:
@@ -232,7 +232,7 @@ def _search_known(query, limit, bias):
     ]
 
 
-# --- Nominatim fallback ------------------------------------------------------
+
 
 def _negative_hit(key):
     now = time.monotonic()
@@ -303,7 +303,7 @@ def _nominatim_lookup(query, bias=None):
                 country_codes="ca",
             )
         except Exception:
-            # Network trouble is not evidence the place doesn't exist: don't cache it.
+
             return None
 
     if not locations:
@@ -318,10 +318,10 @@ def _nominatim_lookup(query, bias=None):
     )
 
 
-# --- named places (schools etc. by full name or initials) ---------------------
 
-# entry id -> (lat, lon) once located. Offline sources (coordinates, address points)
-# are always tried first; the network is only used for entries that have neither.
+
+
+
 _named_locations = {}
 
 
@@ -353,7 +353,7 @@ def _locate_named(entry, allow_network=True):
             or ", ".join(part for part in (entry["name"], entry["city"]) if part)
         )
         found = _nominatim_lookup(text)
-        # These are Waterloo Region places: an answer elsewhere is a wrong match.
+
         if found is not None and _in_region((found[0], found[1])):
             point = (found[0], found[1])
 
@@ -399,7 +399,7 @@ def prime_named_places():
         def work():
             found = sum(1 for entry in pending if _locate_named(entry) is not None)
             if found:
-                _search_places_cached.cache_clear()  # drop results computed without them
+                _search_places_cached.cache_clear()
 
         threading.Thread(target=work, name="named-places-prime", daemon=True).start()
 
@@ -409,7 +409,7 @@ def prime_named_places():
     )
 
 
-# --- public resolution API ---------------------------------------------------
+
 
 def _coordinates_from_text(value):
     match = _COORDINATE_RE.match(value)
@@ -421,7 +421,7 @@ def _coordinates_from_text(value):
 
 def _result(status, point=None, label=None, source=None, options=None):
     return {
-        "status": status,  # ok | approximate | ambiguous | mismatch | not_found
+        "status": status,
         "lat": point[0] if point else None,
         "lon": point[1] if point else None,
         "label": label,
@@ -459,22 +459,22 @@ def resolve_address(address, bias=None, allow_network=True):
 
     key = _normalize_key(clean)
 
-    # Intentionally saved project aliases / shorthand names.
+
     for source in (_cached_places, _saved_aliases):
         if key in source:
             return _result("ok", source[key], clean, "known")
 
-    # Places known by full name or initials ("LHSS", "L.H.S.S.", "jhss waterloo").
+
     named = named_places.find_exact(clean)
     if named:
         options = _named_options(named, bias, allow_network=True)
         if len(options) == 1:
             only = options[0]
             return _result("ok", (only["lat"], only["lon"]), only["label"], "named")
-        if len(options) > 1:  # two places share these initials: the user must choose
+        if len(options) > 1:
             return _result("ambiguous", options=options)
 
-    # Exact coordinates remembered from an autocomplete selection this session.
+
     remembered = _recall_runtime(key)
     if remembered is not None:
         return _result("ok", remembered, clean, "session")
@@ -487,9 +487,9 @@ def resolve_address(address, bias=None, allow_network=True):
         return _result("ok", point, payload[4], "local")
 
     if status in ("ambiguous", "mismatch"):
-        # Never guess between "Chesapeake Dr" and "Chesapeake Cres" (or between two
-        # towns), and never hand an address the municipality knows is different to
-        # Nominatim.
+
+
+
         options = _sort_options([_entry_option(e) for e in payload], bias)
         return _result(status, options=options)
 
@@ -506,7 +506,7 @@ def resolve_address(address, bias=None, allow_network=True):
             return _result("ok", point, found[2], "nominatim")
 
     if approximate is not None:
-        # Not cached: if Nominatim was only unreachable, a later try may do better.
+
         return _result("approximate", approximate[0], approximate[1], "local")
 
     return _result("not_found")
@@ -548,7 +548,7 @@ def explain_address_problem(address, default="Address couldn't be found."):
     return default
 
 
-# --- autocomplete ------------------------------------------------------------
+
 
 def _bias_key(bias):
     point = _valid_point(bias) if bias else None
@@ -567,8 +567,8 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     known = _search_known(clean_query, limit, bias_key)
     local = search_local(clean_query, limit=limit, bias=bias_key)
 
-    # A leading number means the user is typing an address; otherwise they are more
-    # likely naming a place, so curated places come first.
+
+
     ordered = (
         local + named + known
         if clean_query[0].isdigit()

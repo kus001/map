@@ -92,7 +92,7 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
     if shape_index.database(agency) is not None:
         return shape_index.trip(agency, trip_id)
 
-    # TTC's full CSV can be enormous. Only use the compiled SQLite index here.
+
     if agency == "ttc":
         return None
 
@@ -174,7 +174,7 @@ def shape_for_trip(
 ):
     meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
     if not meta and agency == "ttc":
-        # Timetable-only TTC installs still work, but can't draw track geometry.
+
         return None, {"route_short_name": str(route_hint or ""),
                       "headsign": str(headsign_hint or ""),
                       "route_type": "", "route_color": ""}

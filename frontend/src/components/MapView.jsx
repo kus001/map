@@ -35,15 +35,11 @@ async function validMapTilerStyle(styleId, signal) {
   return style?.version === 8 && Array.isArray(style.layers) && !!style.sources;
 }
 
-// MapTiler sometimes sends its "Invalid key" screen as an actual PNG, not
-// an HTTP/image error. Leaflet's tileerror event won't catch that.
+
 function isMapTilerErrorTile(tile) {
   if (!tile?.complete || !tile.naturalWidth) return false;
   try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const ctx = getImageContext(128);
     if (!ctx) return false;
     ctx.drawImage(tile, 0, 0, 128, 128);
     const pixels = ctx.getImageData(0, 0, 128, 128).data;
@@ -61,7 +57,7 @@ function isMapTilerErrorTile(tile) {
     return pale / count > 0.48 && white / count > 0.10 &&
       (grey / count > 0.025 || ink / count > 0.008);
   } catch {
-    // No CORS access to the pixels: use the JSON key check and tileerror.
+    imageCanvases.delete(128);
     return false;
   }
 }
@@ -70,9 +66,19 @@ const MAP_MAX_ZOOM = 22;
 const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
 const EMPTY_TILE = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 const satTileCache = new Map();
+const imageCanvases = new Map();
 
-// Esri has different image detail in different places. A tilemap tells us
-// which sharper tiles exist so we don't show its grey missing-image tiles.
+function getImageContext(size) {
+  if (imageCanvases.has(size)) return imageCanvases.get(size);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (context) imageCanvases.set(size, context);
+  return context;
+}
+
+
 async function hasSatelliteTile(coords) {
   const size = 8;
   const left = Math.floor(coords.x / size) * size;
@@ -103,10 +109,7 @@ async function hasSatelliteTile(coords) {
 
 function missingSatelliteImage(tile) {
   try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 32;
-    canvas.height = 32;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const ctx = getImageContext(32);
     if (!ctx) return false;
     ctx.drawImage(tile, 0, 0, 32, 32);
     const data = ctx.getImageData(0, 0, 32, 32).data;
@@ -118,6 +121,7 @@ function missingSatelliteImage(tile) {
     }
     return grey > 0.78 * 1024 && (white > 0.005 * 1024 || grey > 0.96 * 1024);
   } catch {
+    imageCanvases.delete(32);
     return false;
   }
 }
@@ -157,8 +161,7 @@ function SatelliteDetails() {
       },
     });
 
-    // Each level fills the gaps in the next one. If a block has no zoom 22
-    // imagery, zoom 21 (or 20 or 19) stays visible underneath it.
+
     const layers = [20, 21, 22].map(level => new SharpTile(`${ESRI_IMAGERY}/tile/{z}/{y}/{x}`, {
       minZoom: level,
       maxZoom: MAP_MAX_ZOOM,
@@ -209,14 +212,12 @@ function validCoordinate(coordinate) {
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
-// Offset (px) of the centre of the *visible* map area from the centre of the
-// map container, given the pixels covered by overlays on each side.
+
 function visibleOffset(insets) {
   return [(insets.left - insets.right) / 2, (insets.top - insets.bottom) / 2];
 }
 
-// Returns the map centre that makes `latlng` appear in the middle of the
-// visible (un-covered) area at the given zoom.
+
 function centeredTarget(map, latlng, zoom, insets) {
   const [dx, dy] = visibleOffset(insets);
   if (!dx && !dy) {
@@ -225,8 +226,7 @@ function centeredTarget(map, latlng, zoom, insets) {
   return map.unproject(map.project(latlng, zoom).subtract([dx, dy]), zoom);
 }
 
-// When an overlay opens/closes, shift the map so whatever was in the middle of
-// the visible area stays in the middle of the visible area.
+
 function MapInsetEffect({ insets }) {
   const map = useMap();
   const previous = useRef(insets);
@@ -247,13 +247,17 @@ function MapInsetEffect({ insets }) {
 
 function MapCameraSync({ onCameraChange }) {
   const map = useMap();
+  const callback = useRef(onCameraChange);
+  useEffect(() => { callback.current = onCameraChange; }, [onCameraChange]);
   const report = () => {
     const center = map.getCenter();
-    onCameraChange?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
   };
   useMapEvents({ moveend: report });
-  // Capture the camera even if the user hasn't moved this map yet.
-  useEffect(() => { report(); });
+  useEffect(() => {
+    const center = map.getCenter();
+    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+  }, [map]);
   return null;
 }
 
@@ -576,30 +580,42 @@ function TransitStops({ enabled, selectedStops = [], mapStyle }) {
 
   const stops = useMemo(() => {
     const combined = [];
+    const ids = new Set();
+    const cells = new Map();
+    const cellKey = (lat, lon) => `${lat}:${lon}`;
     for (const stop of [...selectedStops, ...nearby]) {
-      if (!validCoordinate(stop.coordinates)) continue;
-      // Adjacent platforms can share nearly identical GTFS points.
-      const duplicate = combined.some(item =>
-        item.id === stop.id || (
-          item.agency === stop.agency &&
-          map.distance(item.coordinates, stop.coordinates) < 12 &&
-          item.name === stop.name
-        )
-      );
-      if (!duplicate) combined.push(stop);
+      if (!validCoordinate(stop.coordinates) || ids.has(stop.id)) continue;
+      const latitude = Math.floor(Number(stop.coordinates[0]) * 5000);
+      const longitude = Math.floor(Number(stop.coordinates[1]) * 5000);
+      let duplicate = false;
+      for (let latitudeOffset = -1; latitudeOffset <= 1 && !duplicate; latitudeOffset++) {
+        for (let longitudeOffset = -1; longitudeOffset <= 1 && !duplicate; longitudeOffset++) {
+          const neighbours = cells.get(cellKey(latitude + latitudeOffset, longitude + longitudeOffset)) || [];
+          duplicate = neighbours.some(item => item.agency === stop.agency &&
+            item.name === stop.name && map.distance(item.coordinates, stop.coordinates) < 12);
+        }
+      }
+      if (duplicate) continue;
+      ids.add(stop.id);
+      combined.push(stop);
+      const key = cellKey(latitude, longitude);
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(stop);
     }
     return combined;
   }, [selectedStops, nearby, map]);
 
+  const updateViewport = () => {
+    const center = map.getCenter();
+    const next = { lat: center.lat, lon: center.lng, zoom: map.getZoom() };
+    setViewport(previous => Math.floor(previous.zoom) === Math.floor(next.zoom) &&
+      Math.abs(previous.lat - next.lat) < 0.0009 &&
+      Math.abs(previous.lon - next.lon) < 0.0009 ? previous : next);
+  };
+
   useMapEvents({
-    moveend() {
-      const center = map.getCenter();
-      setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
-    },
-    zoomend() {
-      const center = map.getCenter();
-      setViewport({ lat: center.lat, lon: center.lng, zoom: map.getZoom() });
-    },
+    moveend: updateViewport,
+    zoomend: updateViewport,
     click(event) {
       if (!enabled || map.getZoom() < 16) return;
       const clickPoint = map.latLngToContainerPoint(event.latlng);
@@ -617,18 +633,18 @@ function TransitStops({ enabled, selectedStops = [], mapStyle }) {
   });
 
   useEffect(() => {
-    if (!enabled || viewport.zoom < 16) {
-      return;
-    }
+    if (!enabled || viewport.zoom < 16) return;
     const controller = new AbortController();
-    const query = new URLSearchParams({
-      lat: String(viewport.lat), lon: String(viewport.lon), radius: "800",
-    });
-    fetch(`/api/transit/stops?${query}`, { signal: controller.signal })
-      .then(response => response.ok ? response.json() : { stops: [] })
-      .then(result => setNearby(result.stops || []))
-      .catch(error => { if (error.name !== "AbortError") console.warn("Stop map layer:", error); });
-    return () => controller.abort();
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams({
+        lat: String(viewport.lat), lon: String(viewport.lon), radius: "800",
+      });
+      fetch(`/api/transit/stops?${query}`, { signal: controller.signal })
+        .then(response => response.ok ? response.json() : { stops: [] })
+        .then(result => { if (!controller.signal.aborted) setNearby(result.stops || []); })
+        .catch(error => { if (error.name !== "AbortError") console.warn("Stop map layer:", error); });
+    }, 180);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [enabled, viewport]);
 
   if (!enabled || viewport.zoom < 16) return null;
@@ -636,8 +652,8 @@ function TransitStops({ enabled, selectedStops = [], mapStyle }) {
     <>
       {stops.map(stop => {
         const majorStop = /station|terminal|centre|center|mall|exchange|hub/i.test(stop.name || "");
-        // Large stations usually have a symbol in the basemap already.
-        // At close zoom, smaller curbside stops get a dot if no tile icon is shown.
+
+
         const showDot = mapStyle === "satellite" || (!majorStop && viewport.zoom >= 18);
         return <TransitStopMarker key={stop.id} stop={stop} showDot={showDot} />;
       })}
@@ -693,7 +709,7 @@ function TransitSegments({ route, darkMode, mapStyle }) {
 function getBaseLayer(mapStyle, darkMode, useKey) {
   if (mapStyle === "hybrid") {
     if (useKey) {
-      // MapTiler's rendered hybrid style includes imagery, roads and labels.
+
       const styleId = darkMode ? "hybrid-v4-dark" : "hybrid-v4";
       return {
         id: `maptiler-${styleId}`,
@@ -703,7 +719,7 @@ function getBaseLayer(mapStyle, darkMode, useKey) {
       };
     }
 
-    // Key-free fallback: Esri satellite imagery with a transparent label overlay.
+
     return {
       id: "esri-hybrid",
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -784,8 +800,7 @@ export default function MapView({
     let checking = false;
     let controller;
 
-    // Start on the free map until the key is confirmed. Check it again
-    // occasionally, since quotas can run out after the page has loaded.
+
     const verify = async () => {
       if (checking) return;
       checking = true;

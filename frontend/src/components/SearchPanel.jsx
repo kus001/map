@@ -13,7 +13,7 @@ import { PiMapPinFill } from "react-icons/pi";
 import Button from "./Button.jsx";
 
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
-// Results from external search are kept for this browser session.
+                                                                  
 const placeCache = new Map();
 let mapTilerPauseUntil = 0;
 
@@ -34,7 +34,7 @@ async function extraPlaces(query, proximity, signal) {
       });
     const response = await fetch(url, { signal });
     if ([401, 403, 429].includes(response.status)) {
-      // Invalid key or quota reached; don't repeat the request for every keystroke.
+                                                                                    
       mapTilerPauseUntil = Date.now() + (response.status === 429 ? 5 * 60_000 : 30 * 60_000);
       return [];
     }
@@ -76,7 +76,7 @@ const WALK_TYPES = [
   { id: "scenic", label: "Scenic"},
 ];
 
-const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 }; // Kitchener-Waterloo
+const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 };                      
 
 function roundedBias(bias) {
   if (!Array.isArray(bias)) {
@@ -89,7 +89,7 @@ function roundedBias(bias) {
     return null;
   }
 
-  // Rounded so small GPS jitter doesn't change the search.
+                                                           
   return { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100 };
 }
 
@@ -100,11 +100,11 @@ function sourceLabel(item) {
   return item.kind === "address" ? "Address" : "Place search";
 }
 
-// Combine the server's results (curated places, civic addresses, streets) with
-// MapTiler's. Each kind gets a few guaranteed slots so a long run of one kind can't
-// push out the rest, then leftovers fill whatever room remains. The same building
-// often arrives as both a local address point and a MapTiler address, so address-like
-// results within ~30 m of one already listed are shown once.
+                                                                               
+                                                                                    
+                                                                                  
+                                                                                      
+                                                             
 function mergeSuggestions(serverResults, mapTilerResults, limit = 6) {
   const known = serverResults.filter(item => item.source === "known");
   const addresses = serverResults.filter(item => item.source === "local");
@@ -192,9 +192,9 @@ function LocationInput({
   const moreController = useRef(null);
 
 
-  // Where the user probably means (their location, or the other end of the trip).
-  // Kept in a ref and read when a lookup fires, so a moving GPS fix can't re-trigger
-  // a search or pop the dropdown open on a place that was already chosen.
+                                                                                  
+                                                                                     
+                                                                          
   const biasRef = useRef(null);
   useEffect(() => {
     biasRef.current = roundedBias(bias);
@@ -211,7 +211,7 @@ function LocationInput({
     }
 
     const query = value.trim();
-    // Coordinates entered by the map aren't geocoding search terms.
+                                                                    
     const coordMatch = query.match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
     if (query.length < 2 || (coordMatch &&
       Math.abs(Number(coordMatch[1])) <= 90 &&
@@ -232,8 +232,8 @@ function LocationInput({
         const json = response.ok ? await response.json() : null;
         const local = json?.success ? json.results ?? [] : [];
 
-        // Plenty of local results? Don't use the paid API at all.
-        // A user can still press "More places" to look farther afield.
+                                                                  
+                                                                       
         const external = local.length < 3
           ? await extraPlaces(query, proximity, controller.signal)
           : [];

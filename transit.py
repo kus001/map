@@ -103,6 +103,7 @@ def _in_toronto(point):
     return 43.54 <= lat <= 43.92 and -79.72 <= lon <= -79.05
 
 
+# only load the extra ttc graph when the trip is near toronto
 def maybe_load_ttc(*points):
     """Load TTC on demand if it was not already loaded at startup."""
     if _ttc_loaded:
@@ -358,6 +359,7 @@ def _load_scheduled_trip_hops(trip_keys):
         return {key: list(_scheduled_trip_cache.get(key, [])) for key in normalized}
 
 
+# estimate vehicle positions when realtime isnt available
 def scheduled_vehicle_positions(steps, realtime=None, now=None):
     """Estimate selected vehicles from GTFS when a usable live GPS fix is absent.
 
@@ -931,6 +933,7 @@ async def walking_geometry_async(client, start, end, fallback_min=None) -> dict:
     return result or _straight_walk(start, end, straight_distance, fallback_min)
 
 
+# try the road walking route first, then fall back if the api fails
 def walking_geometry(start, end, fallback_min=None) -> dict:
     """Synchronous wrapper kept for existing callers."""
     start = coord(start)

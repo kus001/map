@@ -12,7 +12,7 @@ import os
 import asyncio
 from aioconsole import ainput
 
-#----------- Text Colors -----------
+
 NORMAL_TEXT = "\033[0m"
 
 RED = '\033[0;31m'

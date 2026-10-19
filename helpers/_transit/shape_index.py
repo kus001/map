@@ -79,7 +79,7 @@ def _build(agency, path):
              r.get('trip_headsign') or '')
             for r in _rows(feed / 'trips.txt') or () if r.get('trip_id')
         ))
-        # A streaming insert keeps peak RAM low even for GO's large shapes.txt.
+
         batch = []
         for r in _rows(feed / 'shapes.txt') or ():
             try:
@@ -112,8 +112,8 @@ def database(agency):
 
     feed = ROOT / agency
     path = CACHE_DIR / f'{agency}.sqlite'
-    # Exported installs often have the SQLite indexes, but not the original GTFS CSVs.
-    # In that case use the index as-is; don't silently drop back to stop-to-stop lines.
+
+
     has_source = (feed / 'trips.txt').is_file() and (feed / 'shapes.txt').is_file()
     stamp = (tuple(_stamp(feed / f) for f in ('trips.txt', 'routes.txt', 'shapes.txt'))
              if has_source else ('cached', _stamp(path)))
@@ -178,7 +178,7 @@ def shape(agency, shape_id):
 
 
 def prewarm():
-    # Existing TTC shape cache is cheap to open; no downloads happen here.
+
     for agency in ('grt_trains', 'grt_busses', 'go', 'ttc'):
         database(agency)
 

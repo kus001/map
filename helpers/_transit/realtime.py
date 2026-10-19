@@ -106,7 +106,7 @@ def _parse_trip_updates(agency, feed):
         if not trip_id:
             continue
 
-        # GTFS-RT TripDescriptor.CANCELED is enum value 3.
+
         cancelled = int(trip.schedule_relationship) == 3
         default_delay = None
 
@@ -360,7 +360,7 @@ def _seconds_since_service_midnight(timestamp, scheduled_seconds):
     dt = datetime.fromtimestamp(timestamp, TRANSIT_TIMEZONE)
     seconds = dt.hour * 3600 + dt.minute * 60 + dt.second
 
-    # GTFS allows times after 24:00 for service that continues past midnight.
+
     if scheduled_seconds >= 24 * 3600 and seconds < 12 * 3600:
         seconds += 24 * 3600
 
@@ -424,8 +424,8 @@ def adjusted_arrival(realtime, agency, trip, stop_id):
 
 
 def vehicle_for_trip(realtime, agency, trip_id):
-    # Vehicle-position feeds are independent of TripUpdates. A temporary delay
-    # feed outage should not make valid bus/train GPS positions disappear.
+
+
     return realtime.get("vehicles", {}).get(_trip_key(agency, trip_id))
 
 

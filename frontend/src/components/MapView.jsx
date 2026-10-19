@@ -36,6 +36,7 @@ async function validMapTilerStyle(styleId, signal) {
 }
 
 
+// maptiler sometimes returns an error picture instead of a tile
 function isMapTilerErrorTile(tile) {
   if (!tile?.complete || !tile.naturalWidth) return false;
   try {
@@ -79,6 +80,7 @@ function getImageContext(size) {
 }
 
 
+// check a block of tiles at once so we dont spam esri
 async function hasSatelliteTile(coords) {
   const size = 8;
   const left = Math.floor(coords.x / size) * size;
@@ -218,6 +220,7 @@ function visibleOffset(insets) {
 }
 
 
+// offset the camera so the sidebar doesnt cover the route
 function centeredTarget(map, latlng, zoom, insets) {
   const [dx, dy] = visibleOffset(insets);
   if (!dx && !dy) {
@@ -569,6 +572,7 @@ function TransitStopMarker({ stop, showDot }) {
   );
 }
 
+// combine nearby stops with route stops, skip duplicates
 function TransitStops({ enabled, selectedStops = [], mapStyle }) {
   const map = useMap();
   const [viewport, setViewport] = useState(() => {

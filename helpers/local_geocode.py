@@ -35,14 +35,14 @@ CANDIDATE_PATHS = [
     PROJECT_ROOT / "transit_data" / "addresses.csv",
     PROJECT_ROOT / "transit_data" / "address_points.csv",
 ]
-ADDRESS_DIR = PROJECT_ROOT / "transit_data" / "addresses"  # every *.csv in here is loaded
+ADDRESS_DIR = PROJECT_ROOT / "transit_data" / "addresses"
 ADDRESS_FILES_ENV = "MAP_ADDRESS_FILES"
 
-# The index is cached as {"format", "sources", "index"}. "sources" is the name and size
-# of every address file, so adding, removing or changing a file rebuilds it (file times
-# are useless for this: git sets them at checkout). Bump INDEX_FORMAT if the parsing
-# below changes. The old single-file cache (v3, a bare dict) is still used as long as
-# the one address file it was built from is the only one.
+
+
+
+
+
 INDEX_FORMAT = 4
 INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v4.pkl"
 LEGACY_INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v3.pkl"
@@ -51,16 +51,16 @@ UTM17N_TO_LATLON = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=Tru
 
 _by_civic = None
 _index_lock = threading.Lock()
-_loaded_files = []  # names of the address files the index came from
-_settlements = set()  # lowercase settlement names found in the data
+_loaded_files = []
+_settlements = set()
 
-# Street-level index
+
 _streets = None
 _streets_by_core = {}
 _streets_lock = threading.Lock()
 
-# Street types, mapped to ONE canonical token. The same function is applied to the
-# query and to the data, so "Court"/"Crt"/"Ct" or "Parkway"/"Pky" all line up.
+
+
 SUFFIX_CANON = {
     "street": "st", "st": "st", "drive": "dr", "dr": "dr",
     "avenue": "ave", "ave": "ave", "av": "ave", "road": "rd", "rd": "rd",
@@ -76,8 +76,8 @@ SUFFIX_CANON = {
     "grove": "grove", "green": "green", "hill": "hill", "run": "run",
 }
 
-# Words that name the place, not the street. They are only treated as a city hint
-# when they TRAIL the address, so "175 Waterloo St" keeps its street name.
+
+
 PLACE_WORDS = {
     "kitchener", "waterloo", "cambridge", "ontario", "on", "canada", "wellesley",
     "woolwich", "wilmot", "elmira", "ayr", "baden", "breslau", "dumfries",
@@ -126,7 +126,7 @@ def _parse_query(address):
 
     words = _tokens(address)
 
-    # "1310-4286 King St E" / "2-41 Brewster Pl": the civic number follows the unit.
+
     civic = None
     if words:
         match = re.match(r"^(?:\d+[a-z]?-)?(\d+[a-z]?)$", words[0])
@@ -134,9 +134,9 @@ def _parse_query(address):
             civic = match.group(1)
             words = words[1:]
 
-    # Everything after the first comma is place information ("..., Waterloo, ON").
-    # Without a comma, peel trailing place names / postal codes, but never consume
-    # the whole street ("100 Woolwich" stays a street name).
+
+
+
     cities = set()
     text_after_comma = str(address).lower().split(",", 1)[1] if "," in str(address) else ""
     if text_after_comma:
@@ -144,7 +144,7 @@ def _parse_query(address):
         for name in _settlements:
             if f" {name} " in place_text:
                 cities.add(name)
-        # Re-tokenise only the part before the comma for the street.
+
         words = _tokens(str(address).split(",", 1)[0])
         if words:
             match = re.match(r"^(?:\d+[a-z]?-)?(\d+[a-z]?)$", words[0])
@@ -262,15 +262,15 @@ def _read_legacy_cache(csv_path):
 def _write_cache(path, signature, index):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")  # replaced atomically: another worker may
-        with temporary.open("wb") as file:    # be starting at the same moment
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("wb") as file:
             pickle.dump(
                 {"format": INDEX_FORMAT, "sources": signature, "index": index},
                 file, protocol=pickle.HIGHEST_PROTOCOL,
             )
         os.replace(temporary, path)
     except Exception:
-        pass  # an unwritable cache only costs startup time
+        pass
 
 
 def _read_csv(path, built):
@@ -314,7 +314,7 @@ def _read_csv(path, built):
         if not x_field or not y_field:
             return 0
 
-        is_utm = None  # decided per file: files can use different coordinate systems
+        is_utm = None
 
         for row in reader:
             x_raw = row.get(x_field)
@@ -336,8 +336,8 @@ def _read_csv(path, built):
             else:
                 lat, lon = y_value, x_value
 
-            # Prefer the dedicated number/street columns: they are not polluted by
-            # unit prefixes ("1310-4286 King St E") or settlement suffixes.
+
+
             if civic_field and street_field and row.get(civic_field) and row.get(street_field):
                 civic_raw = row[civic_field].strip().lower()
                 street_raw = row[street_field].strip()
@@ -412,7 +412,7 @@ def _build_index(icp):
             _loaded_files = [signature[0][0]]
             return legacy
 
-    built = {}  # dedupe key -> entry; prefers the IsPrimary point of a building
+    built = {}
     for path in paths:
         try:
             if _read_csv(path, built):
@@ -420,14 +420,14 @@ def _build_index(icp):
             else:
                 print(f"[local_geocode] skipped {path.name}: no usable address columns",
                       file=sys.stderr, flush=True)
-        except Exception as error:  # one bad file must not take the others down
+        except Exception as error:
             print(f"[local_geocode] skipped {path.name}: {type(error).__name__}: {error}",
                   file=sys.stderr, flush=True)
 
     result = {}
     for (civic_raw, *_), (entry, _primary) in built.items():
         result.setdefault(civic_raw, []).append(entry)
-    built.clear()  # done with the dedup scratch structure - free it before pickling
+    built.clear()
 
     if _loaded_files:
         _write_cache(icp, signature, result)
@@ -448,7 +448,7 @@ def _load_index(icp=INDEX_CACHE_PATH):
         if _by_civic is not None:
             return
         index = _build_index(icp)
-        _by_civic = index  # published whole, so other threads never see it half-built
+        _by_civic = index
         _collect_settlements()
 
 
@@ -515,7 +515,7 @@ def _build_street_index():
                 key = (core, direction, suffix, settlement)
                 bucket = streets.get(key)
                 if bucket is None:
-                    # "100 King St E, Kitchener" -> "King St E, Kitchener"
+
                     bucket = streets[key] = [label.split(" ", 1)[-1], []]
                 bucket[1].append((number, lat, lon))
 
@@ -528,8 +528,8 @@ def _build_street_index():
         _streets = streets
 
 
-# Scores: exact name 2.0 > whole-word prefix 1.5-1.99 > partial-word prefix 1.3-1.49
-# (only while the user is still typing) > spelling similarity (0-1).
+
+
 def _candidate_score(query_street, candidate_street, partial=False):
     """Similarity used for fuzzy matching and autocomplete ranking."""
     if not query_street:
@@ -543,16 +543,16 @@ def _candidate_score(query_street, candidate_street, partial=False):
     return SequenceMatcher(None, query_street, candidate_street).ratio()
 
 
-# Fuzzy matching is only for typos.
-#   >= FUZZY_ACCEPT  a different spelling is auto-corrected (if clearly ahead of the rest)
-#   >= FUZZY_CUTOFF  offered as a "did you mean", never silently used
-#   <  FUZZY_CUTOFF  not related ("Chesapeake" is not "Chapel")
+
+
+
+
 FUZZY_CUTOFF = 0.72
 FUZZY_ACCEPT = 0.85
 FUZZY_MARGIN = 0.05
 
-# A civic number missing from the data is placed next to the nearest numbered address
-# on the same (unambiguous) street, but only if that neighbour is this close.
+
+
 APPROX_MAX_GAP = 40
 
 
@@ -578,7 +578,7 @@ def _approximate(q):
         and (not q["cities"] or key[3] in q["cities"])
     ]
     if len(keys) != 1:
-        return "none", None  # unknown street, or several streets share the name
+        return "none", None
 
     label, civics = _streets[keys[0]]
     nearest = min(
@@ -633,7 +633,7 @@ def resolve_detailed(address, fuzzy_cutoff=FUZZY_CUTOFF, fuzzy_accept=FUZZY_ACCE
         if ranked[0][1] < fuzzy_accept or (
             len(ranked) > 1 and ranked[0][1] - ranked[1][1] < FUZZY_MARGIN
         ):
-            # Low confidence: offer the closest names instead of choosing one.
+
             names = close if ranked[0][1] < fuzzy_accept else close[:2]
             return "ambiguous", _distinct(c for c in candidates if c[0] in names)[:6]
         pool = [c for c in candidates if c[0] == ranked[0][0]]
@@ -701,7 +701,7 @@ def _search_streets(q, limit, bias):
             ratio = SequenceMatcher(None, core, c_core).ratio()
             if ratio < 0.8:
                 continue
-            score = ratio * 0.95  # typo'd names rank below real prefix matches
+            score = ratio * 0.95
         else:
             continue
 

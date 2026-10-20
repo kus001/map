@@ -10,6 +10,8 @@ import threading
 from pathlib import Path
 from contextlib import closing
 
+from helpers._transit.agencies import AGENCIES
+
 ROOT = Path(__file__).resolve().parents[2] / 'transit_data' / 'GTFS_Files'
 CACHE_DIR = ROOT.parent / '.shape_index'
 _lock = threading.Lock()
@@ -107,7 +109,7 @@ def _build(agency, path):
 
 def database(agency):
     agency = str(agency)
-    if agency not in ('go', 'grt_busses', 'grt_trains', 'ttc'):
+    if agency not in AGENCIES:
         return None
 
     feed = ROOT / agency
@@ -179,7 +181,7 @@ def shape(agency, shape_id):
 
 def prewarm():
 
-    for agency in ('grt_trains', 'grt_busses', 'go', 'ttc'):
+    for agency in AGENCIES:
         database(agency)
 
 

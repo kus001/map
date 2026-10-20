@@ -3,6 +3,7 @@
     python -m helpers._transit.agency_setup ttc                 # download + build
     python -m helpers._transit.agency_setup ttc --zip feed.zip  # use a local zip or folder
     python -m helpers._transit.agency_setup ttc --shapes-only   # add route geometry only
+    python -m helpers._transit.agency_setup ttc --redownload    # ignore files already on disk
 """
 import argparse
 import csv
@@ -24,6 +25,7 @@ from helpers._transit.make_graph import Graph, GTFS_ROOT
 from helpers.distance import find_dist
 from helpers.time_management import time_to_seconds
 
+TIMETABLE_FILES = ("stops.txt", "routes.txt", "trips.txt", "stop_times.txt")
 FIELDS = "monday tuesday wednesday thursday friday saturday sunday".split()
 
 
@@ -188,6 +190,11 @@ def build_agency(agency, folder, target=None):
     return len(stops), len(trip_service)
 
 
+def _already_downloaded(agency):
+    folder = GTFS_ROOT / agency.id
+    return all((folder / name).is_file() for name in TIMETABLE_FILES)
+
+
 def _download(agency):
     GTFS_ROOT.mkdir(parents=True, exist_ok=True)
     path = GTFS_ROOT / f"{agency.id}_download.zip"
@@ -245,12 +252,19 @@ def install_shapes(agency, source=None):
     return path
 
 
-def install_agency(agency, source=None):
-    """Get the agency's GTFS and build its compact schedule and shape index."""
+def install_agency(agency, source=None, redownload=False):
+    """Get the agency's GTFS and build its compact schedule and shape index.
+
+    If the GTFS files are already in transit_data/GTFS_Files/<id>, they are reused
+    instead of downloaded again (pass redownload=True to fetch a fresh copy)."""
     agency = _agency(agency)
     folder = GTFS_ROOT / agency.id
     if source is None:
-        source = _download(agency)
+        if not redownload and _already_downloaded(agency):
+            print(f"{agency.label} GTFS already downloaded, skipping download.", flush=True)
+            source = folder
+        else:
+            source = _download(agency)
     source = Path(source)
     if source.is_dir():
         timetable_folder = source
@@ -279,10 +293,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build an on-demand transit agency cache.")
     parser.add_argument("agency", choices=ids, help="agency id from helpers/_transit/agencies.py")
     parser.add_argument("--zip", help="Local GTFS ZIP or extracted folder")
+    parser.add_argument("--redownload", action="store_true",
+                        help="Download the feed again even if its files are already on disk")
     parser.add_argument("--shapes-only", action="store_true",
                         help="Add track/road shapes without rebuilding the timetable")
     args = parser.parse_args()
     if args.shapes_only:
         install_shapes(args.agency, args.zip)
     else:
-        install_agency(args.agency, args.zip)
+        install_agency(args.agency, args.zip, redownload=args.redownload)

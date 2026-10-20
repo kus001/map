@@ -230,7 +230,7 @@ def raw_gtfs_available(agency=None):
     return any(raw_gtfs_available(name) for name in agencies.AGENCIES)
 
 
-def prewarm(agency_ids=tuple(a.id for a in agencies.SHARED_AGENCIES)):
+def prewarm(agency_ids=tuple(agencies.AGENCIES)):
     """Fill the small per-agency route tables and build the SQLite shape indexes."""
     shape_index.prewarm()
     for agency in agency_ids:

@@ -5,7 +5,6 @@ the original lazy code paths remain as a fallback for that piece.
 
 Environment switches
   MAP_PRELOAD_TRANSIT=0            skip all of this (restores lazy behaviour)
-  MAP_PRELOAD_TTC=0                keep TTC lazy (saves RAM on small servers)
   MAP_WARMUP_REALTIME_TIMEOUT=8    seconds to wait for the first GTFS-RT fetch
 """
 import os
@@ -54,7 +53,7 @@ def _run(name, fn):
         return False
     elapsed = time.perf_counter() - started
     skipped = isinstance(detail, str) and detail.startswith("skipped")
-    missing = isinstance(detail, str) and detail.startswith("no TTC cache")
+    missing = isinstance(detail, str) and detail.startswith("no cache file")
     _report[name] = {"ok": not missing, "seconds": round(elapsed, 2),
                      "detail": detail, "skipped": skipped}
     suffix = f" - {detail}" if detail else ""
@@ -77,11 +76,12 @@ def _transit_graph():
     transit.ensure_transit_loaded()
     return f"{len(transit.stops):,} stops"
 
-def _ttc() -> str:
+def _agencies() -> str:
     import transit
-    if not _flag("MAP_PRELOAD_TTC"):
-        return "skipped (MAP_PRELOAD_TTC=0)"
-    return "loaded" if transit.load_ttc() else "no TTC cache file"
+    missing = transit.missing_agency_caches()
+    if missing:
+        return "no cache file for " + ", ".join(missing)
+    return "loaded " + ", ".join(a.id for a in transit.agencies.OWN_CACHE_AGENCIES)
 
 def _stop_grid():
     import transit
@@ -145,7 +145,7 @@ def warm_up() -> dict:
     graph_ok = _run("transit_graph", _transit_graph)
     if graph_ok:
 
-        _run("ttc", _ttc)
+        _run("agencies", _agencies)
         _run("stop_grid", _stop_grid)
         _run("gtfs_indexes", _gtfs_indexes)
         _run("service_calendars", _service_calendars)

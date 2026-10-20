@@ -12,7 +12,7 @@
     aside { position: absolute; top: 18px; left: 18px; background: #ffffffec; border: 1px solid #d4ddd7; border-radius: 12px; padding: 16px; width: 285px; box-shadow: 0 8px 25px #18312218; }
     h1 { font-size: 16px; margin: 0 0 9px; }
     p { font-size: 12px; line-height: 1.5; color: #50665b; margin: 8px 0; }
-    .controls { display: flex; gap: 8px; margin-top: 12px; }
+    .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     button { border: 1px solid #bfcec3; background: white; color: #244b34; border-radius: 7px; padding: 8px 11px; font: inherit; font-size: 12px; cursor: pointer; }
     button[aria-pressed="true"] { background: #236744; color: white; border-color: #236744; }
     #status { font-size: 12px; margin-top: 12px; line-height: 1.5; white-space: pre-line; }
@@ -25,11 +25,15 @@
     <h1>kmaps — building renderer test</h1>
     <p>Separate test scene. Doesnt touch the actual map. Drag to orbit, scroll to zoom.</p>
     <div class="controls">
+      <button id="toronto" aria-pressed="false">Toronto</button>
+      <button id="samples" aria-pressed="true">Samples</button>
+    </div>
+    <div class="controls">
       <button id="textures" aria-pressed="true">Textures on</button>
       <button id="reset">Reset view</button>
     </div>
     <div id="status">Loading renderer...</div>
-    <p>The test blocks are samples, not real buildings or live map data.</p>
+    <p>Toronto mode fetches one fixed area near downtown Toronto from the city's building-outline dataset. It isn't live tile streaming. Missing heights use an explicitly marked 12 m estimate. Façade materials are illustrative. Map data © City of Toronto.</p>
   </aside>
   <script type="module" src="./buildings.mjs"></script>
 </body>

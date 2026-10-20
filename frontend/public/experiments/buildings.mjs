@@ -1,9 +1,11 @@
-import { createBuildingMesh, sceneStats } from "./buildingMesh.mjs";
+import { createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
 
 const canvas = document.querySelector("#scene");
 const status = document.querySelector("#status");
 const texturesButton = document.querySelector("#textures");
 const resetButton = document.querySelector("#reset");
+const torontoButton = document.querySelector("#toronto");
+const samplesButton = document.querySelector("#samples");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true, alpha: false });
 
 const vertexShader = `#version 300 es
@@ -113,7 +115,7 @@ function makeBuffer(values, positionLocation, uvLocation, normalLocation) {
   gl.enableVertexAttribArray(uvLocation);
   gl.enableVertexAttribArray(normalLocation);
   gl.bindVertexArray(null);
-  return { vao, count: array.length / 8 };
+  return { vao, buffer, count: array.length / 8 };
 }
 
 function loadTexture(name, fallback) {
@@ -149,6 +151,118 @@ let textureMode = true;
 let pointer;
 let pendingFrame = false;
 let renderer;
+let mode = "samples";
+let requestedMode = "toronto";
+let torontoData = null;
+let torontoPromise = null;
+let sampleStatus = "";
+let torontoStatus = "Loading Toronto building outlines...";
+let cameraTarget = [10, 18, 0];
+const sampleCamera = { yaw: -0.62, tilt: 0.65, distance: 260, target: [10, 18, 0] };
+let torontoCamera = null;
+
+// Single snapshot request; moving the camera never fetches or updates building geometry.
+const CITY_DATA_URL = "https://gis.toronto.ca/arcgis/rest/services/cot_geospatial3/FeatureServer/2/query";
+function cityQuery() {
+  const params = new URLSearchParams({
+    where: "1=1", geometry: "-79.3865,43.6480,-79.3773,43.6553",
+    geometryType: "esriGeometryEnvelope", inSR: "4326", spatialRel: "esriSpatialRelIntersects",
+    outSR: "4326", outFields: "OBJECTID,BUILDINGID,DERIVED_HEIGHT,SUBTYPE_DESC",
+    returnGeometry: "true", resultRecordCount: "1200", f: "geojson",
+  });
+  return `${CITY_DATA_URL}?${params}`;
+}
+
+function refreshButtons() {
+  torontoButton.setAttribute("aria-pressed", String(mode === "toronto"));
+  samplesButton.setAttribute("aria-pressed", String(mode === "samples"));
+}
+
+function installScene(mesh, stats, camera) {
+  const position = gl.getAttribLocation(renderer.program, "position");
+  const uv = gl.getAttribLocation(renderer.program, "uv");
+  const normal = gl.getAttribLocation(renderer.program, "normal");
+  const nextParts = new Map();
+  for (const [name, entry] of mesh) {
+    if (entry.walls.length === 0) continue;
+    nextParts.set(name, {
+      walls: makeBuffer(entry.walls, position, uv, normal),
+      roofs: makeBuffer(entry.roofs, position, uv, normal),
+    });
+  }
+  const previous = renderer.parts;
+  renderer.parts = nextParts;
+  renderer.stats = stats;
+  yaw = camera.yaw;
+  tilt = camera.tilt;
+  distance = camera.distance;
+  cameraTarget = camera.target;
+  for (const entry of previous.values()) {
+    for (const part of [entry.walls, entry.roofs]) {
+      gl.deleteVertexArray(part.vao);
+      gl.deleteBuffer(part.buffer);
+    }
+  }
+  requestDraw();
+}
+
+function cameraForBuildings(items) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const item of items) for (const [x, z] of item.points) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+  }
+  const span = Math.max(maxX - minX, maxZ - minZ);
+  return { yaw: -0.62, tilt: 0.88, distance: Math.max(420, span * 1.75),
+    target: [(minX + maxX) / 2, 30, (minZ + maxZ) / 2] };
+}
+
+function showSamples(reason = "") {
+  mode = "samples";
+  installScene(createBuildingMesh(), sceneStats(), sampleCamera);
+  refreshButtons();
+  status.textContent = `${sampleStatus}${reason ? `\n${reason}` : ""}`;
+}
+
+function showToronto() {
+  if (!torontoData) return;
+  mode = "toronto";
+  installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera);
+  refreshButtons();
+  status.textContent = torontoStatus;
+}
+
+async function loadToronto() {
+  if (torontoData) { showToronto(); return; }
+  if (torontoPromise) return torontoPromise;
+  torontoStatus = "Fetching one fixed area of downtown Toronto...";
+  status.textContent = torontoStatus;
+  torontoPromise = (async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      let response;
+      try { response = await fetch(cityQuery(), { signal: controller.signal, mode: "cors" }); }
+      finally { clearTimeout(timeout); }
+      if (!response.ok) throw new Error(`Toronto data service returned HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message || "Toronto data service reported an error");
+      const parsed = convertTorontoGeoJSON(data);
+      if (parsed.buildings.length < 3) throw new Error("No usable building polygons in the Toronto response");
+      torontoData = parsed;
+      torontoCamera = cameraForBuildings(parsed.buildings);
+      const stats = polygonSceneStats(parsed.buildings);
+      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nMaterials are illustrative, not verified façade types. Camera movement does not rebuild the geometry.`;
+      if (requestedMode === "toronto") showToronto();
+    } catch (error) {
+      torontoStatus = `Couldn't fetch Toronto buildings (${error.message}). Sample blocks are still available.`;
+      if (requestedMode === "toronto") showSamples(torontoStatus);
+    } finally {
+      torontoPromise = null;
+    }
+  })();
+  return torontoPromise;
+}
 
 function resize() {
   const ratio = Math.min(devicePixelRatio || 1, 1.8);
@@ -168,10 +282,10 @@ function draw() {
   gl.clearColor(0.92, 0.95, 0.96, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.useProgram(renderer.program);
-  const target = [10, 18, 0];
+  const target = cameraTarget;
   const horizontal = Math.cos(tilt) * distance;
   const eye = [target[0] + horizontal * Math.sin(yaw), target[1] + distance * Math.sin(tilt), target[2] + horizontal * Math.cos(yaw)];
-  const matrix = multiply(perspective(Math.PI / 3, canvas.width / canvas.height, 0.5, 1500), lookAt(eye, target));
+  const matrix = multiply(perspective(Math.PI / 3, canvas.width / canvas.height, 0.5, 8000), lookAt(eye, target));
   gl.uniformMatrix4fv(renderer.viewProjection, false, matrix);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
@@ -218,7 +332,7 @@ canvas.addEventListener("pointerup", () => { pointer = null; });
 canvas.addEventListener("pointercancel", () => { pointer = null; });
 canvas.addEventListener("wheel", event => {
   event.preventDefault();
-  distance = Math.max(90, Math.min(700, distance * Math.exp(event.deltaY * 0.001)));
+  distance = Math.max(mode === "toronto" ? 100 : 90, Math.min(mode === "toronto" ? 5000 : 700, distance * Math.exp(event.deltaY * 0.001)));
   requestDraw();
 }, { passive: false });
 texturesButton.addEventListener("click", () => {
@@ -228,10 +342,21 @@ texturesButton.addEventListener("click", () => {
   requestDraw();
 });
 resetButton.addEventListener("click", () => {
-  yaw = -0.62;
-  tilt = 0.65;
-  distance = 260;
+  const camera = mode === "toronto" ? torontoCamera : sampleCamera;
+  yaw = camera.yaw;
+  tilt = camera.tilt;
+  distance = camera.distance;
+  cameraTarget = camera.target;
   requestDraw();
+});
+torontoButton.addEventListener("click", () => {
+  requestedMode = "toronto";
+  if (torontoData) showToronto();
+  else loadToronto();
+});
+samplesButton.addEventListener("click", () => {
+  requestedMode = "samples";
+  showSamples();
 });
 new ResizeObserver(requestDraw).observe(canvas);
 
@@ -263,9 +388,15 @@ async function start() {
   renderer.textures = new Map(loaded.map(value => [value.name, value]));
   const readyCount = loaded.filter(value => value.ok).length;
   const stats = sceneStats();
-  status.textContent = `${stats.buildings} sample buildings · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${readyCount}/${names.length} material textures loaded\nAll meshes built once; moving the camera never rebuilds them.`;
+  sampleStatus = `${stats.buildings} sample buildings · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${readyCount}/${names.length} material textures loaded\nAll meshes built once; moving the camera never rebuilds them.`;
+  status.textContent = sampleStatus;
   requestDraw();
-  window.__kmBuildingDemo = { gl, renderer, sceneStats, draw, getCamera: () => ({ yaw, tilt, distance }) };
+  window.__kmBuildingDemo = { gl, renderer, sceneStats, draw,
+    getCamera: () => ({ yaw, tilt, distance, target: cameraTarget, mode }),
+    getBuildingStats: () => renderer.stats,
+    getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode }),
+  };
+  loadToronto();
 }
 
 start().catch(error => {

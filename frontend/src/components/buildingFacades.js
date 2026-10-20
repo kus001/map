@@ -1,4 +1,11 @@
 const MATERIALS = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
+const ROOF_MATERIALS = MATERIALS.map(name => `roof-${name}`);
+const DRAW_MATERIALS = [...MATERIALS, ...ROOF_MATERIALS];
+const ROOF_COLOURS = {
+  glass: [174, 184, 189], brick: [170, 155, 145], concrete: [185, 184, 180],
+  stone: [198, 188, 174], metal: [172, 181, 185], wood: [184, 169, 147],
+  plaster: [205, 197, 186], default: [184, 180, 170],
+};
 const EARTH_METERS = 40075016.68557849;
 const MIN_DETAIL_ZOOM = 14.8;
 const TILE_LIMIT = 450;
@@ -19,6 +26,71 @@ export function facadeRange(zoom, tier = "medium") {
   if (zoom < MIN_DETAIL_ZOOM) return 0;
   const meters = Math.max(1400, Math.min(3200, 1800 * 2 ** ((zoom - 15.5) * 0.25)));
   return tier === "low" ? meters * 0.75 : meters;
+}
+
+function polygonDistance(ring, center) {
+  const latScale = 111320;
+  const lonScale = latScale * Math.cos(center[1] * Math.PI / 180);
+  let inside = false;
+  let nearest = Infinity;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[j], b = ring[i];
+    const ay = (a[1] - center[1]) * latScale;
+    const by = (b[1] - center[1]) * latScale;
+    const ax = (a[0] - center[0]) * lonScale;
+    const bx = (b[0] - center[0]) * lonScale;
+    if ((ay > 0) !== (by > 0) && 0 < ax + (bx - ax) * (0 - ay) / (by - ay)) inside = !inside;
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy || 1)));
+    nearest = Math.min(nearest, Math.hypot(ax + t * dx, ay + t * dy));
+  }
+  return inside ? 0 : nearest;
+}
+
+function triangulate(points) {
+  const size = points.length > 1 && points[0][0] === points.at(-1)[0] && points[0][1] === points.at(-1)[1]
+    ? points.length - 1 : points.length;
+  if (size < 3) return [];
+  const centre = points.slice(0, size).reduce((sum, point) => [sum[0] + point[0], sum[1] + point[1]], [0, 0]);
+  centre[0] /= size; centre[1] /= size;
+  const shape = points.slice(0, size).map(([x, y]) => [(x - centre[0]) * 1e7, (y - centre[1]) * 1e7]);
+  const order = shape.map((_, i) => i);
+  let area = 0;
+  for (let i = 0; i < size; i++) {
+    const a = shape[i], b = shape[(i + 1) % size];
+    area += a[0] * b[1] - a[1] * b[0];
+  }
+  if (Math.abs(area) < 1e-10) return [];
+  const sign = Math.sign(area);
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const triangles = [];
+  for (let tries = 0; order.length > 3 && tries < size * size; tries++) {
+    let found = false;
+    for (let i = 0; i < order.length; i++) {
+      const a = order[(i + order.length - 1) % order.length];
+      const b = order[i];
+      const c = order[(i + 1) % order.length];
+      if (sign * cross(shape[a], shape[b], shape[c]) <= 1e-8) continue;
+      let contains = false;
+      for (const other of order) {
+        if (other === a || other === b || other === c) continue;
+        const p = shape[other];
+        if (sign * cross(shape[a], shape[b], p) >= -1e-8 &&
+            sign * cross(shape[b], shape[c], p) >= -1e-8 &&
+            sign * cross(shape[c], shape[a], p) >= -1e-8) {
+          contains = true; break;
+        }
+      }
+      if (contains) continue;
+      triangles.push([a, b, c]);
+      order.splice(i, 1);
+      found = true;
+      break;
+    }
+    if (!found) break;
+  }
+  if (order.length === 3) triangles.push([order[0], order[1], order[2]]);
+  return triangles;
 }
 
 function meters(point, center) {
@@ -42,7 +114,7 @@ function number(value, fallback) {
 
 export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainHeight = () => 0) {
   const range = facadeRange(zoom, tier);
-  const buckets = Object.fromEntries(MATERIALS.map(name => [name, []]));
+  const buckets = Object.fromEntries(DRAW_MATERIALS.map(name => [name, []]));
   if (!range) return { buckets, count: 0, range: 0, vertices: 0, coveredRadius: 0 };
   const seen = new Set();
   let count = 0;
@@ -66,7 +138,7 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
       const minY = Math.min(...ring.map(item => item[1]));
       const maxY = Math.max(...ring.map(item => item[1]));
       const middle = [(minX + maxX) / 2, (minY + maxY) / 2];
-      const distance = meters(middle, center);
+      const distance = polygonDistance(ring, center);
       if (distance > range + 120) continue;
       const key = `${Math.round(minX * 1e6)}:${Math.round(minY * 1e6)}:${Math.round(maxX * 1e6)}:${Math.round(maxY * 1e6)}:${Math.round(height * 10)}`;
       if (seen.has(key)) continue;
@@ -75,8 +147,10 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
     }
   }
   candidates.sort((a, b) => a.distance - b.distance);
+  // all buildings inside this circle have to be in the mesh too
   const selected = candidates.slice(0, maxBuildings);
-  const coveredRadius = selected.length ? Math.min(range, Math.max(85, selected[selected.length - 1].distance - 40)) : 0;
+  const coveredRadius = selected.length
+    ? Math.min(range, Math.max(50, selected[selected.length - 1].distance - 8)) : 0;
   for (const item of selected) {
     if (item.distance > coveredRadius) continue;
     const { ring, properties, height, base, middle } = item;
@@ -115,6 +189,16 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
         x2, y2, z0, u, 0, x2, y2, z1, u, v];
       verticesOut.push(...face);
       vertices += 6;
+    }
+    // roofs go through this same layer, so theres no second wall fighting depth
+    const roof = buckets[`roof-${material}`];
+    const faces = triangulate(points);
+    const roofZ = (height + ground) * scale;
+    for (const [a, b, c] of faces) {
+      for (const index of [a, b, c]) {
+        roof.push(points[index][0], points[index][1], roofZ, 0, 0);
+      }
+      vertices += 3;
     }
     count++;
   }
@@ -220,6 +304,17 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
             gl.generateMipmap(gl.TEXTURE_2D);
             textures.set(name, texture);
           }
+          for (const name of MATERIALS) {
+            const roof = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, roof);
+            const rgba = Uint8Array.from([...ROOF_COLOURS[name], 255]);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            textures.set(`roof-${name}`, roof);
+          }
           gl.bindTexture(gl.TEXTURE_2D, null);
           ready = true;
           onStatus("waiting");
@@ -267,11 +362,12 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
         context.uniformMatrix4fv(context.getUniformLocation(gpuProgram, "u_matrix"), false, matrix);
         context.uniform1i(context.getUniformLocation(gpuProgram, "u_image"), 0);
         context.enable(context.DEPTH_TEST);
-        context.depthMask(false);
+        // walls and roofs now own the depth, so they should hide each other properly
+        context.depthMask(true);
         context.disable(context.CULL_FACE);
         context.disable(context.BLEND);
         context.activeTexture(context.TEXTURE0);
-        for (const name of MATERIALS) {
+        for (const name of DRAW_MATERIALS) {
           const buffer = buffers.get(name);
           const amount = positions.get(name);
           if (!buffer || !amount) continue;
@@ -369,7 +465,7 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
     try {
       const groundAt = point => map.getTerrain?.() ? map.queryTerrainElevation?.(point, { exaggerated: true }) || 0 : 0;
       const mesh = makeFacadeMesh(features, center, zoom, tier, groundAt);
-      for (const name of MATERIALS) {
+      for (const name of DRAW_MATERIALS) {
         const data = mesh.buckets[name];
         const count = data.length / 5;
         if (count) {

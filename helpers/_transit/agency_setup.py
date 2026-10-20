@@ -1,4 +1,10 @@
-"""Import TTC schedules once; normal route requests only read the compact cache."""
+"""Import an own-cache agency's schedule once; normal route requests only read the compact cache.
+
+    python -m helpers._transit.agency_setup ttc                 # download + build
+    python -m helpers._transit.agency_setup ttc --zip feed.zip  # use a local zip or folder
+    python -m helpers._transit.agency_setup ttc --shapes-only   # add route geometry only
+    python -m helpers._transit.agency_setup ttc --redownload    # ignore files already on disk
+"""
 import argparse
 import csv
 import math
@@ -13,18 +19,24 @@ from pathlib import Path
 
 import requests
 
+from helpers._transit.agencies import AGENCIES, OWN_CACHE_AGENCIES, Agency
 from helpers._transit.compact import CompactTrips, TripPools
-from helpers._transit.make_graph import Graph, GTFS_ROOT, TRANSIT_DATA
+from helpers._transit.make_graph import Graph, GTFS_ROOT
 from helpers.distance import find_dist
 from helpers.time_management import time_to_seconds
 
-
-TTC_FEED = ("https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/"
-            "7795b45e-e65a-4465-81fc-c36b9dfff169/resource/"
-            "cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/"
-            "TTC%20Routes%20and%20Schedules%20Data.zip")
-CACHE = TRANSIT_DATA / "ttc_compact.pkl"
+TIMETABLE_FILES = ("stops.txt", "routes.txt", "trips.txt", "stop_times.txt")
 FIELDS = "monday tuesday wednesday thursday friday saturday sunday".split()
+
+
+def _agency(agency) -> Agency:
+    found = agency if isinstance(agency, Agency) else AGENCIES.get(str(agency))
+    if found is None:
+        raise ValueError(f"Unknown agency: {agency}")
+    if not found.own_cache:
+        raise ValueError(f"{found.id} is built into the shared startup graph by "
+                         "helpers/_transit/make_graph.py, not by agency_setup")
+    return found
 
 
 def rows(path):
@@ -36,9 +48,11 @@ def _grid_key(lat, lon):
     return int(math.floor(lat / .001)), int(math.floor(lon / .001))
 
 
-def build_ttc(folder, target=CACHE):
+def build_agency(agency, folder, target=None):
     """Build from a GTFS folder. SQLite does the large sort, not Python RAM."""
-    folder, target = Path(folder), Path(target)
+    agency = _agency(agency)
+    pre = agency.prefix
+    folder, target = Path(folder), Path(target or agency.cache_path)
     for name in ("stops.txt", "routes.txt", "trips.txt", "stop_times.txt"):
         if not (folder / name).exists():
             raise FileNotFoundError(folder / name)
@@ -46,7 +60,7 @@ def build_ttc(folder, target=CACHE):
     graph, stops, grid = {}, {}, {}
     for row in rows(folder / "stops.txt"):
         try:
-            sid = "ttc:" + row["stop_id"]
+            sid = pre + row["stop_id"]
             pos = (float(row["stop_lat"]), float(row["stop_lon"]))
         except (ValueError, KeyError):
             continue
@@ -75,18 +89,18 @@ def build_ttc(folder, target=CACHE):
     cal, dates, trip_service = {}, {}, {}
     if (folder / "calendar.txt").exists():
         for r in rows(folder / "calendar.txt"):
-            cal["ttc:" + r["service_id"]] = {
+            cal[pre + r["service_id"]] = {
                 "days": [r.get(day) == "1" for day in FIELDS],
                 "start": datetime.strptime(r["start_date"], "%Y%m%d").date(),
                 "end": datetime.strptime(r["end_date"], "%Y%m%d").date(),
             }
     if (folder / "calendar_dates.txt").exists():
         for r in rows(folder / "calendar_dates.txt"):
-            dates[("ttc:" + r["service_id"], r["date"])] = int(r["exception_type"])
+            dates[(pre + r["service_id"], r["date"])] = int(r["exception_type"])
 
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="ttc_build_") as temp:
+    with tempfile.TemporaryDirectory(prefix=f"{agency.id}_build_") as temp:
         db = sqlite3.connect(str(Path(temp) / "gtfs.sqlite"))
         db.execute("PRAGMA journal_mode=OFF")
         db.execute("PRAGMA synchronous=OFF")
@@ -94,7 +108,7 @@ def build_ttc(folder, target=CACHE):
         batch = []
         for r in rows(folder / "trips.txt"):
             original_id = r["trip_id"]
-            trip_service["ttc:" + original_id] = "ttc:" + r["service_id"]
+            trip_service[pre + original_id] = pre + r["service_id"]
             batch.append((original_id, route_names.get(r["route_id"], r["route_id"]), r.get("trip_headsign", "")))
             if len(batch) == 10000:
                 db.executemany("INSERT OR REPLACE INTO trips VALUES (?,?,?)", batch)
@@ -127,7 +141,7 @@ def build_ttc(folder, target=CACHE):
                 current_trip, last = trip, None
                 tid = len(pools.trip_ids)
                 trip_index[trip] = tid
-                pools.trip_ids.append("ttc:" + trip)
+                pools.trip_ids.append(pre + trip)
                 rkey = (route, headsign)
                 rid = route_index.get(rkey)
                 if rid is None:
@@ -136,7 +150,7 @@ def build_ttc(folder, target=CACHE):
                     pools.routes.append({"route": route, "headsign": headsign,
                                          "route_color": route_colors.get(route, "")})
                 pools.trip_route.append(rid)
-            sid = "ttc:" + stop
+            sid = pre + stop
             if sid not in stops:
                 last = None
                 continue
@@ -176,11 +190,16 @@ def build_ttc(folder, target=CACHE):
     return len(stops), len(trip_service)
 
 
-def _download_ttc():
+def _already_downloaded(agency):
+    folder = GTFS_ROOT / agency.id
+    return all((folder / name).is_file() for name in TIMETABLE_FILES)
+
+
+def _download(agency):
     GTFS_ROOT.mkdir(parents=True, exist_ok=True)
-    path = GTFS_ROOT / "ttc_download.zip"
-    print("Downloading TTC GTFS...", flush=True)
-    with requests.get(TTC_FEED, stream=True, timeout=(10, 120)) as response:
+    path = GTFS_ROOT / f"{agency.id}_download.zip"
+    print(f"Downloading {agency.label} GTFS...", flush=True)
+    with requests.get(agency.feed_url, stream=True, timeout=(10, 120)) as response:
         response.raise_for_status()
         with path.open("wb") as out:
             for chunk in response.iter_content(512 * 1024):
@@ -189,7 +208,7 @@ def _download_ttc():
     return path
 
 
-def _extract_files(source, target, wanted):
+def _extract_files(agency, source, target, wanted):
     source, target = Path(source), Path(target)
     target.mkdir(parents=True, exist_ok=True)
     if source.is_dir():
@@ -205,38 +224,47 @@ def _extract_files(source, target, wanted):
         entries = {Path(name).name: name for name in archive.namelist()
                    if Path(name).name in wanted}
         if not wanted.issubset(entries):
-            raise ValueError(f"TTC feed missing: {', '.join(sorted(wanted - entries.keys()))}")
+            raise ValueError(f"{agency.label} feed missing: {', '.join(sorted(wanted - entries.keys()))}")
         for name in wanted:
             with archive.open(entries[name]) as src, (target / name).open("wb") as dst:
                 shutil.copyfileobj(src, dst)
 
 
-def install_ttc_shapes(source=None):
-    """Add route geometry to an existing compact TTC install, without rebuilding it."""
+def install_shapes(agency, source=None):
+    """Add route geometry to an existing compact install, without rebuilding it."""
     from helpers._transit import shape_index
 
-    folder = GTFS_ROOT / "ttc"
+    agency = _agency(agency)
+    folder = GTFS_ROOT / agency.id
     wanted = {"trips.txt", "routes.txt", "shapes.txt"}
     if source is None and not all((folder / name).is_file() for name in wanted):
-        source = _download_ttc()
+        source = _download(agency)
     if source is not None:
-        _extract_files(source, folder, wanted)
+        _extract_files(agency, source, folder, wanted)
     if not all((folder / name).is_file() for name in wanted):
-        raise FileNotFoundError("TTC trips.txt, routes.txt and shapes.txt are needed")
+        raise FileNotFoundError(f"{agency.label} trips.txt, routes.txt and shapes.txt are needed")
 
-    print("Building TTC route shapes (one-time, SQLite; no timetable rebuild)...", flush=True)
-    path = shape_index.database("ttc")
+    print(f"Building {agency.label} route shapes (one-time, SQLite; no timetable rebuild)...", flush=True)
+    path = shape_index.database(agency.id)
     if not path:
-        raise RuntimeError("TTC shape index could not be built")
-    print(f"TTC route shapes ready: {path}", flush=True)
+        raise RuntimeError(f"{agency.label} shape index could not be built")
+    print(f"{agency.label} route shapes ready: {path}", flush=True)
     return path
 
 
-def install_ttc(source=None):
-    """Get TTC GTFS and build the compact schedule and shape index."""
-    folder = GTFS_ROOT / "ttc"
+def install_agency(agency, source=None, redownload=False):
+    """Get the agency's GTFS and build its compact schedule and shape index.
+
+    If the GTFS files are already in transit_data/GTFS_Files/<id>, they are reused
+    instead of downloaded again (pass redownload=True to fetch a fresh copy)."""
+    agency = _agency(agency)
+    folder = GTFS_ROOT / agency.id
     if source is None:
-        source = _download_ttc()
+        if not redownload and _already_downloaded(agency):
+            print(f"{agency.label} GTFS already downloaded, skipping download.", flush=True)
+            source = folder
+        else:
+            source = _download(agency)
     source = Path(source)
     if source.is_dir():
         timetable_folder = source
@@ -245,33 +273,32 @@ def install_ttc(source=None):
 
         with zipfile.ZipFile(source) as archive:
             available = {Path(name).name for name in archive.namelist()}
-        if "shapes.txt" in available:
-            wanted.add("shapes.txt")
-        if "calendar.txt" in available:
-            wanted.add("calendar.txt")
-        if "calendar_dates.txt" in available:
-            wanted.add("calendar_dates.txt")
-        _extract_files(source, folder, wanted)
+        wanted |= {"shapes.txt", "calendar.txt", "calendar_dates.txt"} & available
+        _extract_files(agency, source, folder, wanted)
         timetable_folder = folder
 
-    print("Building compact TTC timetable (this may take several minutes)...", flush=True)
-    num_stops, num_trips = build_ttc(timetable_folder)
+    print(f"Building compact {agency.label} timetable (this may take several minutes)...", flush=True)
+    num_stops, num_trips = build_agency(agency, timetable_folder)
     if (timetable_folder / "shapes.txt").exists():
         try:
-            install_ttc_shapes(timetable_folder)
+            install_shapes(agency, timetable_folder)
         except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
-            print(f"TTC timetable is ready, but shape import failed: {error}", flush=True)
-    print(f"TTC ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.")
+            print(f"{agency.label} timetable is ready, but shape import failed: {error}", flush=True)
+    print(f"{agency.label} ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.")
     return num_stops, num_trips
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--zip", help="Local TTC GTFS ZIP or extracted folder")
+    ids = [a.id for a in OWN_CACHE_AGENCIES]
+    parser = argparse.ArgumentParser(description="Build an on-demand transit agency cache.")
+    parser.add_argument("agency", choices=ids, help="agency id from helpers/_transit/agencies.py")
+    parser.add_argument("--zip", help="Local GTFS ZIP or extracted folder")
+    parser.add_argument("--redownload", action="store_true",
+                        help="Download the feed again even if its files are already on disk")
     parser.add_argument("--shapes-only", action="store_true",
-                        help="Add TTC track/road shapes without rebuilding the timetable")
+                        help="Add track/road shapes without rebuilding the timetable")
     args = parser.parse_args()
     if args.shapes_only:
-        install_ttc_shapes(args.zip)
+        install_shapes(args.agency, args.zip)
     else:
-        install_ttc(args.zip)
+        install_agency(args.agency, args.zip, redownload=args.redownload)

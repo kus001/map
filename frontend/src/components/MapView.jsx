@@ -516,7 +516,7 @@ function StopBoard({ stop }) {
     <div className="stop-board min-w-[230px] text-slate-900">
       <div className="text-sm font-bold leading-snug">{stop.name}</div>
       <div className="mt-1 text-xs text-slate-600">
-        {stop.agency === "go" ? "GO Transit" : stop.agency === "ttc" ? "TTC" : "GRT"} · Departures
+        {stop.agency_label || String(stop.agency || "").toUpperCase()} · Departures
       </div>
       {!board && <div className="mt-3 text-xs">Loading times…</div>}
       {board?.error && <div className="mt-3 text-xs text-amber-800">{board.error}</div>}
@@ -1040,7 +1040,7 @@ export default function MapView({
             >
               <Popup>
                 <div className="font-semibold">
-                  {vehicle.agency === "go" ? "GO Transit" : vehicle.agency === "ttc" ? "TTC" : "GRT"} • {
+                  {vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {
                     estimated ? "Scheduled estimate" : "Live"
                   } {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
                 </div>

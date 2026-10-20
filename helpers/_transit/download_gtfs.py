@@ -7,6 +7,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from helpers._transit.agencies import AGENCIES
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -17,25 +19,10 @@ GTFS_ROOT = (
 )
 
 
-GTFS_LINKS = {
-    "grt_busses":
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
-
-    "grt_trains":
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
-
-    "go":
-        "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
-    "ttc":
-        (
-            "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/package_show",
-            {"id": "merged-gtfs-ttc-routes-and-schedules"}
-        )
-}
+GTFS_LINKS = {agency.id: agency.feed_url for agency in AGENCIES.values()}
 
 
 REQUIRED_FILES = {
-    "agency.txt",
     "routes.txt",
     "stops.txt",
     "trips.txt",
@@ -258,7 +245,5 @@ def download_multiple_gtfs(
 
 if __name__ == "__main__":
     download_multiple_gtfs(
-        "grt_trains",
-        "grt_busses",
-        "go"
+        *(agency.id for agency in AGENCIES.values())
     )

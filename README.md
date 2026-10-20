@@ -9,19 +9,19 @@
 
 #### Street view: 
 
-![Street 2d light](assets/lightmode.png)
-
-↑↑ Light Mode (2D) ↑↑ | ↓↓ Dark Mode (2D) ↓↓
-
 ![Street 2d dark](assets/darkmode.png)
+
+↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
+
+![Street 2d light](assets/lightmode.png)
 
 ---
 
-![Street 3d light](assets/street_3d_light.png)
-
-↑↑ Light Mode (3D) ↑↑ | ↓↓ Dark Mode (3D) ↓↓
-
 ![Street 3d dark](assets/street_3d_dark.png)
+
+↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
+
+![Street 3d light](assets/street_3d_light.png)
 </details>
 
 <details>
@@ -29,28 +29,40 @@
 
 #### Satellite: 
 
-![Satellite 2d light](assets/dark_sat.png)
+![Satellite 2d dark](assets/dark_sat.png)
 
 ↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
 
-![Satelite 2d dark](assets/light_sat.png)
+![Satelite 2d light](assets/light_sat.png)
 
 ---
 
-![Satellite 3d light](assets/satellite_3d_light.png)
+![Satellite 3d dark](assets/satellite_3d_dark.png)
 
 ↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
 
-![Satellite 3d dark](assets/satellite_3d_dark.png)
+![Satellite 3d light](assets/satellite_3d_light.png)
 </details>
+
+<details>
+<summary>Hybrid View</summary>
 
 #### Hybrid:
 
-![Hybrid Dark Mode Example](assets/hybrid_dark.png)
+![Hybrid 2d dark](assets/hybrid_dark.png)
 
 ↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
 
-![Hybrid Light Mode Example](assets/hybrid_light.png)
+![Hybrid 2d light](assets/hybrid_light.png)
+
+---
+
+![Hybrid 3d dark](assets/hybrid_3d_dark.png)
+
+↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
+
+![Hybrid 3d light](assets/hybrid_3d_light.png)
+</details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)
 

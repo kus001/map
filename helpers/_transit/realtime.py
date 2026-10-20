@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from helpers._transit import agencies, rt_match
+
 try:
     from google.transit import gtfs_realtime_pb2
 except ImportError:
@@ -17,7 +19,13 @@ REFRESH_SECONDS = int(os.getenv("GRT_REALTIME_REFRESH_SECONDS", "30"))
 REQUEST_TIMEOUT = 3.0
 MAX_FRESH_AGE_SECONDS = 180
 
+def _declared(attr):
+    """GTFS-RT links written on the Agency(...) entries in agencies.py."""
+    return {a.id: getattr(a, attr) for a in agencies.AGENCIES.values() if getattr(a, attr)}
+
+
 TRIP_UPDATE_URLS = {
+    **_declared("trip_updates_url"),
     "grt_busses": os.getenv(
         "GRT_BUS_TRIP_UPDATES_URL",
         "https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/1",
@@ -29,6 +37,7 @@ TRIP_UPDATE_URLS = {
 }
 
 VEHICLE_URLS = {
+    **_declared("vehicles_url"),
     "grt_busses": os.getenv(
         "GRT_BUS_VEHICLES_URL",
         "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1",
@@ -43,6 +52,9 @@ ALERTS_URL = os.getenv(
     "GRT_ALERTS_URL",
     "https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts",
 )
+
+# alert feeds by agency id; the GRT alerts feed covers both GRT agencies
+ALERT_URLS = {"grt": ALERTS_URL, **_declared("alerts_url")}
 
 _lock = threading.Lock()
 _worker_lock = threading.Lock()
@@ -154,6 +166,7 @@ def _parse_trip_updates(agency, feed):
             stop_updates[stop_id] = info
 
         updates[(agency, trip_id)] = {
+            "route_id": str(trip.route_id or ""),
             "cancelled": cancelled,
             "delay": default_delay,
             "stops": stop_updates,
@@ -199,7 +212,7 @@ def _parse_vehicles(agency, feed):
     return vehicles
 
 
-def _parse_alerts(feed):
+def _parse_alerts(feed, agency="grt"):
     alerts = []
     if feed is None:
         return alerts
@@ -233,8 +246,8 @@ def _parse_alerts(feed):
         alerts.append(
             {
                 "id": str(entity.id),
-                "agency": "grt",
-                "header": header or "GRT service alert",
+                "agency": agency,
+                "header": header or f"{agencies.label(agency)} service alert",
                 "description": description,
                 "route_ids": route_ids,
                 "stop_ids": stop_ids,
@@ -245,22 +258,65 @@ def _parse_alerts(feed):
     return alerts
 
 
+def _translate_by_time(agency, updates):
+    """For feeds whose trip ids aren't the static ones: re-key live trips (and their stops) to
+    static trips by route + stop + time. Returns (updates, {live_id: static_id}, stats)."""
+    index = rt_match.get_index(agency)
+    if index is None:  # lookup table still being built in the background
+        return {}, {}, None
+
+    live = [(live_id, update.get("route_id", ""),
+             [(stop, info.get("departure_time") or info.get("arrival_time"))
+              for stop, info in update["stops"].items()])
+            for (_, live_id), update in updates.items()]
+    matched, stats = index.match(live)
+
+    translated, mapping = {}, {}
+    for live_id, (static_id, _delay) in matched.items():
+        update = updates[(agency, live_id)]
+        stops = {}
+        for stop_id, info in update["stops"].items():
+            static_stop = index.static_stop(stop_id)
+            if static_stop:
+                info = dict(info)
+                if "arrival_time" in info:
+                    info.setdefault("departure_time", info["arrival_time"])
+                if "departure_time" in info:
+                    info.setdefault("arrival_time", info["departure_time"])
+                stops[static_stop] = info
+        translated[(agency, static_id)] = {**update, "stops": stops}
+        mapping[live_id] = static_id
+    return translated, mapping, stats
+
+
+def _remap_vehicles(vehicles, mapping):
+    if not mapping:
+        return vehicles
+    return {(agency, mapping.get(trip_id, trip_id)): {**item, "trip_id": mapping.get(trip_id, trip_id)}
+            for (agency, trip_id), item in vehicles.items()}
+
+
 def _refresh_once():
     trip_updates = {}
     vehicles = {}
     alerts = []
     trip_feed_timestamps = []
+    fresh_feed_found = False
     alerts_received = False
     jobs = {}
+    vehicle_feeds = []
+    trip_maps = {}
+    now_epoch = int(time.time())
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         for agency, url in TRIP_UPDATE_URLS.items():
             jobs[pool.submit(_fetch_feed, url)] = ("trip", agency)
 
         for agency, url in VEHICLE_URLS.items():
             jobs[pool.submit(_fetch_feed, url)] = ("vehicle", agency)
 
-        jobs[pool.submit(_fetch_feed, ALERTS_URL)] = ("alerts", None)
+        for agency, url in ALERT_URLS.items():
+            jobs[pool.submit(_fetch_feed, url)] = ("alerts", agency)
 
         for future in as_completed(jobs):
             kind, agency = jobs[future]
@@ -272,28 +328,31 @@ def _refresh_once():
 
             if kind == "trip":
                 parsed, timestamp = _parse_trip_updates(agency, feed)
-                trip_updates.update(parsed)
                 if timestamp:
                     trip_feed_timestamps.append(timestamp)
+                # only trust a feed that is itself fresh (each agency publishes on its own clock)
+                if timestamp and 0 <= now_epoch - timestamp <= MAX_FRESH_AGE_SECONDS:
+                    if agencies.get(agency).match_live_by_time:
+                        parsed, trip_maps[agency], _ = _translate_by_time(agency, parsed)
+                    trip_updates.update(parsed)
+                    fresh_feed_found = True
             elif kind == "vehicle":
-                vehicles.update(_parse_vehicles(agency, feed))
+                vehicle_feeds.append((agency, feed))
             else:
-                alerts_received = feed is not None
-                alerts = _parse_alerts(feed)
+                alerts_received = alerts_received or feed is not None
+                alerts.extend(_parse_alerts(feed, agency))
+
+    for agency, feed in vehicle_feeds:  # after the trip feeds, so live ids can be translated
+        vehicles.update(_remap_vehicles(_parse_vehicles(agency, feed), trip_maps.get(agency)))
 
     newest_timestamp = max(trip_feed_timestamps) if trip_feed_timestamps else None
-    now_epoch = int(time.time())
-    fresh = (
-        newest_timestamp is not None
-        and 0 <= now_epoch - newest_timestamp <= MAX_FRESH_AGE_SECONDS
-    )
 
     return {
         "loaded_at": time.monotonic(),
         "trip_updates": trip_updates,
         "vehicles": vehicles,
         "alerts": alerts,
-        "available": bool(trip_updates) and fresh,
+        "available": bool(trip_updates) and fresh_feed_found,
         "alerts_available": alerts_received,
         "feed_timestamp": newest_timestamp,
     }
@@ -455,3 +514,84 @@ def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None):
             break
 
     return matches
+
+
+def _report_time_match(agency, feed):
+    parsed, _ = _parse_trip_updates(agency.id, feed)
+    rt_match.get_index(agency.id, block=True)
+    _, mapping, stats = _translate_by_time(agency.id, parsed)
+    share = 100 * stats["matched"] / max(1, stats["live"])
+    print(f"  matched {stats['matched']}/{stats['live']} live trips to scheduled trips ({share:.0f}%), "
+          f"median gap to schedule {stats['median_abs_delay_s']}s")
+    print(f"  not matched: {stats['no_scheduled_trip']} with no scheduled trip near that time, "
+          f"{stats['unknown_stop']} with a stop id not in stops.txt, "
+          f"{stats['no_route_or_time']} missing route/time")
+
+
+def _check(agency_id, trip_updates_url=None):
+    """python -m helpers._transit.realtime <agency> [trip_updates_url]  - fetch its live feeds and compare trip ids
+    with the static GTFS from agency_setup, so you know the live data will actually line up."""
+    import csv
+    from pathlib import Path
+
+    agency = agencies.get(agency_id)
+    if agency is None:
+        raise SystemExit(f"Unknown agency {agency_id!r}. Known: {', '.join(agencies.AGENCIES)}")
+    if gtfs_realtime_pb2 is None:
+        raise SystemExit("Install gtfs-realtime-bindings first (pip install gtfs-realtime-bindings).")
+
+    urls = {"trip updates": trip_updates_url or TRIP_UPDATE_URLS.get(agency.id), "vehicles": VEHICLE_URLS.get(agency.id),
+            "alerts": ALERT_URLS.get(agency.id)}
+    if not any(urls.values()):
+        raise SystemExit(f"{agency.label}: no GTFS-RT links yet. Add trip_updates_url= / vehicles_url= / "
+                         f"alerts_url= to its Agency(...) entry in agencies.py.")
+
+    static_trips = set()
+    trips_file = agencies.TRANSIT_DATA / "GTFS_Files" / agency.id / "trips.txt"
+    if trips_file.is_file():
+        with trips_file.open(encoding="utf-8-sig", newline="") as file:
+            static_trips = {row.get("trip_id") for row in csv.DictReader(file)}
+        days_old = (time.time() - trips_file.stat().st_mtime) / 86400
+        print(f"static feed on disk: {len(static_trips)} trips, downloaded {days_old:.0f} days ago "
+              f"(agency_setup {agency.id} --redownload fetches a fresh copy)")
+    else:
+        print(f"(no {trips_file.name} for {agency.id} yet - run agency_setup first to check trip ids)")
+
+    for name, url in urls.items():
+        if not url:
+            continue
+        feed = _fetch_feed(url)
+        if feed is None:
+            print(f"{name}: FAILED to fetch/parse {url}")
+            continue
+        age = int(time.time()) - int(feed.header.timestamp) if feed.header.timestamp else None
+        line = f"{name}: {len(feed.entity)} entities" + (f", {age}s old" if age is not None else "")
+        if name == "trip updates" and static_trips:
+            ids = {e.trip_update.trip.trip_id for e in feed.entity if e.HasField("trip_update")}
+            hits = len(ids & static_trips)
+            line += f", {hits}/{len(ids)} trip ids match the static feed"
+            if agency.match_live_by_time:
+                line += " (not needed: matching by route+stop+time)"
+            elif ids and hits < len(ids) / 2:
+                line += "  <-- most don't match; try match_live_by_time=True on the agency entry"
+        print(line)
+        if name == "trip updates" and agency.match_live_by_time:
+            _report_time_match(agency, feed)
+        if name == "trip updates" and static_trips and ids and hits < len(ids) / 2 and not agency.match_live_by_time:
+            print(f"  live ids e.g.   {', '.join(sorted(ids)[:4])}")
+            print(f"  static ids e.g. {', '.join(sorted(map(str, static_trips))[:4])}")
+            from google.protobuf.text_format import MessageToString
+            sample = next(e.trip_update for e in feed.entity if e.HasField("trip_update"))
+            print(f"  live trip descriptor: {MessageToString(sample.trip, as_one_line=True)}")
+            if sample.stop_time_update:
+                print(f"  first live stop update: {MessageToString(sample.stop_time_update[0], as_one_line=True)}")
+            with trips_file.open(encoding="utf-8-sig", newline="") as file:
+                print(f"  first static trips.txt row: {dict(next(csv.DictReader(file)))}")
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit("usage: python -m helpers._transit.realtime <agency> [trip_updates_url]")
+    _check(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None)

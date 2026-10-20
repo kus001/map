@@ -1476,6 +1476,16 @@ def route_signature(route):
     return tuple(signature)
 
 
+def _namespaced_trip_keys(items):
+    """The router's trip ids are '<agency>:<id>' but live feeds key trips by the raw id."""
+    out = {}
+    for (agency, trip_id), value in items.items():
+        prefix = f"{agency}:"
+        trip_id = str(trip_id)
+        out[(agency, trip_id if trip_id.startswith(prefix) else prefix + trip_id)] = value
+    return out
+
+
 def combine_realtime(grt, go):
 
 
@@ -1491,6 +1501,8 @@ def combine_realtime(grt, go):
 
     vehicles = dict(grt.get("vehicles", {}))
     vehicles.update(go.get("vehicles", {}))
+    trip_updates = _namespaced_trip_keys(trip_updates)
+    vehicles = _namespaced_trip_keys(vehicles)
     timestamps = [v for v in (grt.get("feed_timestamp"), go.get("feed_timestamp")) if v]
     return {
         "loaded_at": max(float(grt.get("loaded_at") or 0), float(go.get("loaded_at") or 0)),

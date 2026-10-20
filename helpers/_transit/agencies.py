@@ -6,6 +6,7 @@ then run ``python -m helpers._transit.agency_setup <id>`` to download and index 
 For live delays / vehicles / alerts, add the agency's GTFS-RT links to the same entry:
     trip_updates_url="...", vehicles_url="...", alerts_url="..."   (all optional)
 then run ``python -m helpers._transit.realtime <id>`` to check the feed and its trip ids.
+If the live trip ids don't exist in the static feed (the check says so), add match_live_by_time=True.
 
 Two ways an agency's schedule is stored
   own_cache  - built by agency_setup into ``transit_data/<id>_compact.pkl`` and merged into the
@@ -30,6 +31,7 @@ class Agency:
     trip_updates_url: str | None = None   # GTFS-RT TripUpdates feed (live delays)
     vehicles_url: str | None = None       # GTFS-RT VehiclePositions feed
     alerts_url: str | None = None         # GTFS-RT Alerts feed
+    match_live_by_time: bool = False      # live trip ids aren't the static ones (TTC): match by route+stop+time
     fallback_mode: str = "transit"  # vehicle label when routes.txt has no route_type
 
     def __post_init__(self):
@@ -51,7 +53,6 @@ class Agency:
 
 
 AGENCIES = {agency.id: agency for agency in (
-    # Order of the shared agencies decides the shared cache's file name; don't reorder.
     Agency("grt_trains", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
            realtime=True, cache="dion.pkl", fallback_mode="tram"),
 

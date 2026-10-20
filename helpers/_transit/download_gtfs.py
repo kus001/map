@@ -19,16 +19,18 @@ GTFS_ROOT = (
 
 GTFS_LINKS = {
     "grt_busses":
-        "https://webapps.regionofwaterloo.ca/"
-        "api/grt-routes/api/staticfeeds/1",
+        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
 
     "grt_trains":
-        "https://webapps.regionofwaterloo.ca/"
-        "api/grt-routes/api/staticfeeds/2",
+        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
 
     "go":
-        "https://assets.metrolinx.com/raw/upload/"
-        "Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
+        "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
+    "ttc":
+        (
+            "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/package_show",
+            {"id": "merged-gtfs-ttc-routes-and-schedules"}
+        )
 }
 
 
@@ -47,33 +49,15 @@ def make_session():
         connect=2,
         read=2,
         backoff_factor=1.5,
-        status_forcelist=[
-            429,
-            500,
-            502,
-            503,
-            504,
-        ],
-        allowed_methods=[
-            "GET"
-        ],
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"]
     )
 
-    adapter = HTTPAdapter(
-        max_retries=retry
-    )
+    adapter = HTTPAdapter(max_retries=retry)
 
     session = requests.Session()
-
-    session.mount(
-        "https://",
-        adapter
-    )
-
-    session.mount(
-        "http://",
-        adapter
-    )
+    session.mount("https://",adapter)
+    session.mount("http://",adapter)
 
     return session
 
@@ -93,110 +77,43 @@ def feed_exists(folder):
     )
 
 
-def download_gtfs(
-    agency,
-    force=False
-):
-    url = GTFS_LINKS.get(
-        agency
-    )
+def download_gtfs(agency, force=False):
+    url = GTFS_LINKS.get(agency)
+    if not url: raise ValueError(f"Unknown agency: {agency}")
 
-    if not url:
-        raise ValueError(
-            f"Unknown agency: {agency}"
-        )
+    destination = GTFS_ROOT / agency
 
-    destination = (
-        GTFS_ROOT
-        / agency
-    )
-
-    if (
-        not force
-        and feed_exists(
-            destination
-        )
-    ):
-        print(
-            f"{agency}: GTFS already exists, skipping."
-        )
-
+    if not force and feed_exists(destination):
+        print(f"{agency}: GTFS already exists, skipping.")
         return True
 
-    GTFS_ROOT.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    GTFS_ROOT.mkdir(parents=True, exist_ok=True)
 
-    temp_zip = (
-        GTFS_ROOT
-        / f"{agency}.download.zip"
-    )
-
+    temp_zip = GTFS_ROOT / f"{agency}.download.zip"
     session = make_session()
 
-    print(
-        f"{agency}: downloading GTFS..."
-    )
+    print(f"{agency}: downloading GTFS...")
 
     try:
-        with session.get(
-            url,
-            stream=True,
-
-
-
-            timeout=(
-                10,
-                120
-            ),
-        ) as response:
-
+        with session.get(url, stream=True, timeout=(10, 120)) as response:
             response.raise_for_status()
+            with temp_zip.open("wb") as file:
 
-            with temp_zip.open(
-                "wb"
-            ) as file:
-
-                for chunk in response.iter_content(
-                    chunk_size=1024 * 256
-                ):
-                    if chunk:
-                        file.write(
-                            chunk
-                        )
+                for chunk in response.iter_content(chunk_size=1024 * 256):
+                    if chunk: file.write(chunk)
 
     except requests.RequestException as error:
-        temp_zip.unlink(
-            missing_ok=True
-        )
-
+        temp_zip.unlink(missing_ok=True)
         print(
-            f"{agency}: download failed."
-        )
-
-        print(
-            f"  {error}"
-        )
-
-        print(
-            "  Existing transit data was left unchanged."
-        )
-
-        return False
+            f"{agency}: download failed.\n" +
+            f"  {error}\n" +
+            f"  Existing transit data was left unchanged."
+        ); return False
 
 
-    if not zipfile.is_zipfile(
-        temp_zip
-    ):
-        temp_zip.unlink(
-            missing_ok=True
-        )
-
-        print(
-            f"{agency}: server response was not a valid ZIP file."
-        )
-
+    if not zipfile.is_zipfile(temp_zip):
+        temp_zip.unlink(missing_ok=True)
+        print(f"{agency}: server response was not a valid ZIP file.")
         return False
 
 

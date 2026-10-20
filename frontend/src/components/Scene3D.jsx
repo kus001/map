@@ -248,13 +248,13 @@ function applyBuildingAppearance(map, appearance) {
   if (!map?.isStyleLoaded?.()) return;
   map.__kmBuildingAppearance = appearance;
   const originals = map.__kmOriginalBuildingFilters || (map.__kmOriginalBuildingFilters = new Map());
-  const facade = map.__kmFacadeSnapshot;
   const textured = appearance === "textured" && map.__kmBuildingsEnabled !== false &&
-    map.__kmTextureState === "ready" && map.getProjection?.()?.type !== "globe";
-  const radius = textured ? Math.max(0, facade?.coveredRadius || 0) : 0;
-  const excluded = radius > 0 ? [">", ["distance", {
-    type: "Point", coordinates: facade.center,
-  }], radius] : null;
+    map.__kmTextureState === "ready" &&
+    (map.__kmFacadeSnapshot?.count || 0) > 0 &&
+    map.getProjection?.()?.type !== "globe";
+  // dont carve a moving circle out of the original buildings
+  // the facade mesh covers the loaded view, so theres no second wall underneath it
+  const hiddenFilter = ["==", ["literal", 1], ["literal", 0]];
   for (const layer of map.getStyle()?.layers || []) {
     if (layer.type !== "fill-extrusion") continue;
     try {
@@ -263,7 +263,7 @@ function applyBuildingAppearance(map, appearance) {
         originals.set(layer.id, baseline === undefined ? map.getFilter(layer.id) : baseline);
       }
       const baseline = originals.get(layer.id);
-      const next = excluded ? (baseline ? ["all", baseline, excluded] : excluded) : baseline;
+      const next = textured ? hiddenFilter : baseline;
       if (JSON.stringify(map.getFilter(layer.id)) !== JSON.stringify(next)) {
         map.setFilter(layer.id, next);
       }

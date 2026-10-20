@@ -7,8 +7,8 @@ const ROOF_COLOURS = {
   plaster: [205, 197, 186], default: [184, 180, 170],
 };
 const EARTH_METERS = 40075016.68557849;
-const MIN_DETAIL_ZOOM = 14.8;
-const TILE_LIMIT = 450;
+const MIN_DETAIL_ZOOM = 14.1;
+const TILE_LIMIT = 2800;
 
 export function facadeMaterial(properties = {}) {
   const name = String(properties.render_material ?? properties["building:material"] ?? properties.material ?? "").toLowerCase();
@@ -24,7 +24,7 @@ export function facadeMaterial(properties = {}) {
 
 export function facadeRange(zoom, tier = "medium") {
   if (zoom < MIN_DETAIL_ZOOM) return 0;
-  const meters = Math.max(1400, Math.min(3200, 1800 * 2 ** ((zoom - 15.5) * 0.25)));
+  const meters = Math.max(2600, Math.min(5100, 3200 * 2 ** ((zoom - 15.5) * 0.24)));
   return tier === "low" ? meters * 0.75 : meters;
 }
 
@@ -112,14 +112,14 @@ function number(value, fallback) {
   return Number.isFinite(result) ? result : fallback;
 }
 
-export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainHeight = () => 0) {
+export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainHeight = () => 0, viewport = null) {
   const range = facadeRange(zoom, tier);
   const buckets = Object.fromEntries(DRAW_MATERIALS.map(name => [name, []]));
   if (!range) return { buckets, count: 0, range: 0, vertices: 0, coveredRadius: 0 };
   const seen = new Set();
   let count = 0;
   let vertices = 0;
-  const maxBuildings = tier === "low" ? 120 : tier === "medium" ? 260 : TILE_LIMIT;
+  const maxBuildings = tier === "low" ? 650 : tier === "medium" ? 1600 : TILE_LIMIT;
   const candidates = [];
   for (const feature of features || []) {
     const geometry = feature?.geometry;
@@ -143,16 +143,23 @@ export function makeFacadeMesh(features, center, zoom, tier = "medium", terrainH
       const key = `${Math.round(minX * 1e6)}:${Math.round(minY * 1e6)}:${Math.round(maxX * 1e6)}:${Math.round(maxY * 1e6)}:${Math.round(height * 10)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      candidates.push({ ring, properties, height, base, distance, middle });
+      let screenRank = 0;
+      if (viewport?.project && viewport.width > 0 && viewport.height > 0) {
+        const screen = viewport.project(middle);
+        if (Number.isFinite(screen?.x) && Number.isFinite(screen?.y)) {
+          const x = Math.max(0, -screen.x - viewport.width * 0.65, screen.x - viewport.width * 1.65);
+          const y = Math.max(0, -screen.y - viewport.height * 0.65, screen.y - viewport.height * 1.65);
+          screenRank = x * x + y * y;
+        }
+      }
+      candidates.push({ ring, properties, height, base, distance, middle, screenRank });
     }
   }
-  candidates.sort((a, b) => a.distance - b.distance);
-  // all buildings inside this circle have to be in the mesh too
+  candidates.sort((a, b) => a.screenRank - b.screenRank || a.distance - b.distance);
+  // keep all selected buildings together instead of trimming the last ring
   const selected = candidates.slice(0, maxBuildings);
-  const coveredRadius = selected.length
-    ? Math.min(range, Math.max(50, selected[selected.length - 1].distance - 8)) : 0;
+  const coveredRadius = selected.length ? Math.min(range, Math.max(...selected.map(item => item.distance))) : 0;
   for (const item of selected) {
-    if (item.distance > coveredRadius) continue;
     const { ring, properties, height, base, middle } = item;
     const scale = 1 / (EARTH_METERS * Math.cos(middle[1] * Math.PI / 180));
     const ground = Number(terrainHeight(middle)) || 0;
@@ -434,6 +441,7 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
   function refresh(force) {
     if (!active || !ready || !map || !map.isStyleLoaded() || pending || map.isMoving?.()) return;
     if (map.getProjection?.()?.type === "globe") return;
+    // only rebuild from complete building sources, not whatever the camera has cached mid move
     const zoom = map.getZoom();
     const focus = map.getCenter();
     const center = [focus.lng, focus.lat];
@@ -464,7 +472,18 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
     pending = true;
     try {
       const groundAt = point => map.getTerrain?.() ? map.queryTerrainElevation?.(point, { exaggerated: true }) || 0 : 0;
-      const mesh = makeFacadeMesh(features, center, zoom, tier, groundAt);
+      const canvas = map.getCanvas?.();
+      const viewport = canvas ? {
+        project: point => map.project(point),
+        width: canvas.clientWidth || canvas.width,
+        height: canvas.clientHeight || canvas.height,
+      } : null;
+      const mesh = makeFacadeMesh(features, center, zoom, tier, groundAt, viewport);
+      if (!mesh.count && hasWalls) {
+        waitingForTiles = true;
+        lastTileRetry = now;
+        return;
+      }
       for (const name of DRAW_MATERIALS) {
         const data = mesh.buckets[name];
         const count = data.length / 5;
@@ -482,7 +501,7 @@ export function createFacadeLayer(tier = "medium", onStatus = () => {}) {
       stats = { count: mesh.count, vertices: mesh.vertices, range: mesh.range, coveredRadius: mesh.coveredRadius, textureCount: textures.size };
       map.__kmFacadeStats = stats;
       // only change the cap after its exact matching wall buffers are uploaded
-      map.__kmFacadeSnapshot = hasWalls ? { center, coveredRadius: mesh.coveredRadius } : null;
+      map.__kmFacadeSnapshot = hasWalls ? { count: mesh.count, center, coveredRadius: mesh.coveredRadius } : null;
       if (hasWalls !== hadWalls || force || mesh.coveredRadius !== lastView?.coveredRadius ||
           meters(center, lastView?.center || center) > 10) {
         onStatus(hasWalls ? "ready" : "waiting");

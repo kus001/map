@@ -39,13 +39,8 @@ ADDRESS_DIR = PROJECT_ROOT / "transit_data" / "addresses"
 ADDRESS_FILES_ENV = "MAP_ADDRESS_FILES"
 
 
-
-
-
-
 INDEX_FORMAT = 4
 INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v4.pkl"
-LEGACY_INDEX_CACHE_PATH = PROJECT_ROOT / "transit_data" / "address_index_cache_v3.pkl"
 
 UTM17N_TO_LATLON = Transformer.from_crs("EPSG:32617", "EPSG:4326", always_xy=True)
 
@@ -58,7 +53,6 @@ _settlements = set()
 _streets = None
 _streets_by_core = {}
 _streets_lock = threading.Lock()
-
 
 
 SUFFIX_CANON = {
@@ -75,7 +69,6 @@ SUFFIX_CANON = {
     "ridge": "ridge", "cove": "cove", "view": "view", "hollow": "hollow",
     "grove": "grove", "green": "green", "hill": "hill", "run": "run",
 }
-
 
 
 PLACE_WORDS = {
@@ -247,18 +240,6 @@ def _read_cache(path, signature):
     return None
 
 
-def _read_legacy_cache(csv_path):
-    """The old cache: a bare {civic: [...]} dict, trusted if newer than its CSV."""
-    try:
-        if LEGACY_INDEX_CACHE_PATH.stat().st_mtime < csv_path.stat().st_mtime:
-            return None
-        with LEGACY_INDEX_CACHE_PATH.open("rb") as file:
-            data = pickle.load(file)
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def _write_cache(path, signature, index):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -402,16 +383,6 @@ def _build_index(icp):
         _loaded_files = [name for name, _size in signature]
         return cached
 
-    if (
-        icp == INDEX_CACHE_PATH
-        and len(paths) == 1
-        and paths[0].resolve() in {p.resolve() for p in CANDIDATE_PATHS}
-    ):
-        legacy = _read_legacy_cache(paths[0])
-        if legacy is not None:
-            _loaded_files = [signature[0][0]]
-            return legacy
-
     built = {}
     for path in paths:
         try:
@@ -528,8 +499,6 @@ def _build_street_index():
         _streets = streets
 
 
-
-
 def _candidate_score(query_street, candidate_street, partial=False):
     """Similarity used for fuzzy matching and autocomplete ranking."""
     if not query_street:
@@ -543,18 +512,11 @@ def _candidate_score(query_street, candidate_street, partial=False):
     return SequenceMatcher(None, query_street, candidate_street).ratio()
 
 
-
-
-
-
 FUZZY_CUTOFF = 0.72
 FUZZY_ACCEPT = 0.85
 FUZZY_MARGIN = 0.05
 
-
-
 APPROX_MAX_GAP = 40
-
 
 def _distinct(entries):
     """One representative entry per label, sorted by label."""

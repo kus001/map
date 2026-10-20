@@ -240,9 +240,6 @@ def add_multiple_agencies_to_graph(
         calendar = getattr(loaded, "calendar", {})
         calendar_dates = getattr(loaded, "calendar_dates", {})
 
-
-
-
         if not is_compact(graph):
             compact_graph(graph)
             _write_graph(graph_path)

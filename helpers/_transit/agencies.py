@@ -41,18 +41,18 @@ class Agency:
 AGENCIES = {agency.id: agency for agency in (
     # Order of the shared agencies decides the shared cache's file name; don't reorder.
     Agency("grt_trains", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
-           realtime=True, own_cache=True, cache="ion.pkl", fallback_mode="tram"),
+           realtime=True, own_cache=True, cache="dion.pkl", fallback_mode="tram"),
     Agency("grt_busses", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
-           realtime=True, own_cache=True, cache="grt.pkl", fallback_mode="bus"),
+           realtime=True, own_cache=True, cache="dgrt.pkl", fallback_mode="bus"),
     Agency("go", "GO Transit",
            "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
-           realtime=True, own_cache=True, cache="go.pkl", fallback_mode="train/bus"),
+           realtime=True, own_cache=True, cache="dgo.pkl", fallback_mode="train/bus"),
     Agency("ttc", "TTC",
            "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/"
            "7795b45e-e65a-4465-81fc-c36b9dfff169/resource/"
            "cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/"
            "TTC%20Routes%20and%20Schedules%20Data.zip",
-           own_cache=True, cache="ttc.pkl", fallback_mode="TTC"),
+           own_cache=True, cache="dttc.pkl", fallback_mode="TTC"),
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

@@ -4,7 +4,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from helpers._transit.agencies import SHARED_AGENCIES
 from helpers._transit.compact import compact_graph, is_compact
 from helpers._transit.download_gtfs import download_gtfs
 from helpers.distance import find_dist
@@ -347,8 +346,8 @@ class Graph:
 
 
 def make_graph():
-    add_multiple_agencies_to_graph(*(agency.id for agency in SHARED_AGENCIES))
-    return Graph(graph, node_positions, trip_to_service, calendar, calendar_dates)
+    # No shared agencies any more: every agency lives in its own cache and is merged in by transit.py.
+    return Graph({}, {}, {}, {}, {})
 
 
 if __name__ == "__main__":

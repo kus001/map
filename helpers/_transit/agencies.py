@@ -3,6 +3,10 @@
 To add an agency, add one ``Agency(...)`` entry to ``AGENCIES`` below with ``own_cache=True``,
 then run ``python -m helpers._transit.agency_setup <id>`` to download and index its GTFS feed.
 
+For live delays / vehicles / alerts, add the agency's GTFS-RT links to the same entry:
+    trip_updates_url="...", vehicles_url="...", alerts_url="..."   (all optional)
+then run ``python -m helpers._transit.realtime <id>`` to check the feed and its trip ids.
+
 Two ways an agency's schedule is stored
   own_cache  - built by agency_setup into ``transit_data/<id>_compact.pkl`` and merged into the
                shared graph at startup. This is the one to use for new agencies.
@@ -12,7 +16,6 @@ This module must stay import-light (no project imports) so every other helper ca
 from dataclasses import dataclass
 from pathlib import Path
 
-from helpers._transit import realtime
 
 TRANSIT_DATA = Path(__file__).resolve().parents[2] / "transit_data"
 
@@ -22,9 +25,16 @@ class Agency:
     label: str                    # name shown in the UI
     feed_url: str                 # direct link to the static GTFS zip
     own_cache: bool = True       # built by agency_setup instead of the shared graph
-    cache: str | None = None      # own_cache only; defaults to "<id>_compact.pkl"
-    realtime: bool = False        # has a GTFS-RT integration (live delays / vehicles)
+    cache: str | None = None      # own_cache only; defaults to "d<id>.pkl"
+    realtime: bool = False        # has a GTFS-RT integration (set automatically if a *_url below is given)
+    trip_updates_url: str | None = None   # GTFS-RT TripUpdates feed (live delays)
+    vehicles_url: str | None = None       # GTFS-RT VehiclePositions feed
+    alerts_url: str | None = None         # GTFS-RT Alerts feed
     fallback_mode: str = "transit"  # vehicle label when routes.txt has no route_type
+
+    def __post_init__(self):
+        if self.trip_updates_url or self.vehicles_url or self.alerts_url:
+            object.__setattr__(self, "realtime", True)
 
     @property
     def prefix(self) -> str:
@@ -37,7 +47,7 @@ class Agency:
 
     @property
     def cache_path(self) -> Path:
-        return TRANSIT_DATA / (self.cache or f"{self.id}_compact.pkl")
+        return TRANSIT_DATA / (self.cache or f"d{self.id}.pkl")
 
 
 AGENCIES = {agency.id: agency for agency in (
@@ -53,29 +63,29 @@ AGENCIES = {agency.id: agency for agency in (
            realtime=True, cache="dgo.pkl", fallback_mode="train/bus"),
 
     Agency("ttc", "TTC",
-           "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/"
-           "7795b45e-e65a-4465-81fc-c36b9dfff169/resource/"
-           "cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/"
-           "TTC%20Routes%20and%20Schedules%20Data.zip",
-           realtime=False, cache="dttc.pkl", fallback_mode="TTC"),
+           "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e-e65a-4465-81fc-c36b9dfff169/resource/cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/TTC Routes and Schedules Data.zip",
+            trip_updates_url="https://bustime.ttc.ca/gtfsrt/trips",
+            vehicles_url="https://bustime.ttc.ca/gtfsrt/vehicles",
+            alerts_url="https://bustime.ttc.ca/gtfsrt/alerts",
+            cache="dttc.pkl", fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore
-           realtime=False, cache="dhsr.pkl", fallback_mode="bus"),
+           cache="dhsr.pkl", fallback_mode="bus"),
 
     Agency("ltc", "London Transit", "https://www.londontransit.ca/gtfsfeed/google_transit.zip",                 # https://www.londontransit.ca/open-data/
-           realtime=False, cache="dltc.pkl", fallback_mode="bus"),
+           cache="dltc.pkl", fallback_mode="bus"),
 
     # Agency("nrt", "Niagara Transit", "http://68.71.24.110/gtfs/GTFSExport.zip",                                 # http://68.71.24.110/gtfs/GTFSExport.zip
     #        realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
 
     Agency("miway", "MiWay", "https://www.miapp.ca/GTFS/google_transit.zip",                                    # https://www.mississauga.ca/miway-transit/developer-download/
-           realtime=False, cache="dmiway.pkl", fallback_mode="bus"),
+           cache="dmiway.pkl", fallback_mode="bus"),
 
     Agency("bt", "BT", "https://www.arcgis.com/sharing/rest/content/items/a355aabd5a8c490186bdce559c9c75fb/data",
-           realtime=False, cache="dbt.pkl", fallback_mode="bus"),                                               # a
+           cache="dbt.pkl", fallback_mode="bus"),
 
     Agency("yrt", "YRT", "https://www.yrt.ca/google/google_transit.zip",                                        # https://forms.yrt.ca/YRT-GTFS-Data?Id=db191ee1-cdb9-4909-aa49-b4e96679e142
-           realtime=False, cache="dyrt.pkl", fallback_mode="bus")
+           cache="dyrt.pkl", fallback_mode="bus")
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

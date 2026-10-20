@@ -4,28 +4,65 @@
 
 #### [kmaps](https://map.kmaps.ca/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
 
+<details>
+<summary>Street View</summary>
+
 #### Street view: 
-![Example run!](assets/lightmode.png)
 
-↑↑ Light Mode ↑↑ | ↓↓ Dark Mode ↓↓
+![Street 2d dark](assets/darkmode.png)
 
-![Dark mode example](assets/darkmode.png)
+↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
+
+![Street 2d light](assets/lightmode.png)
+
+---
+
+![Street 3d dark](assets/street_3d_dark.png)
+
+↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
+
+![Street 3d light](assets/street_3d_light.png)
+</details>
+
+<details>
+<summary>Satellite View</summary>
 
 #### Satellite: 
 
-![Satellite Dark Mode Example](assets/dark_sat.png)
+![Satellite 2d dark](assets/dark_sat.png)
 
-↑↑ Dark Mode (Satellite) ↑↑ | ↓↓ Light Mode (Satellite) ↓↓
+↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
 
-![Satelite Light Mode Example](assets/light_sat.png)
+![Satelite 2d light](assets/light_sat.png)
+
+---
+
+![Satellite 3d dark](assets/satellite_3d_dark.png)
+
+↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
+
+![Satellite 3d light](assets/satellite_3d_light.png)
+</details>
+
+<details>
+<summary>Hybrid View</summary>
 
 #### Hybrid:
 
-![Hybrid Dark Mode Example](assets/hybrid_dark.png)
+![Hybrid 2d dark](assets/hybrid_dark.png)
 
 ↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
 
-![Hybrid Light Mode Example](assets/hybrid_light.png)
+![Hybrid 2d light](assets/hybrid_light.png)
+
+---
+
+![Hybrid 3d dark](assets/hybrid_3d_dark.png)
+
+↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
+
+![Hybrid 3d light](assets/hybrid_3d_light.png)
+</details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)
 

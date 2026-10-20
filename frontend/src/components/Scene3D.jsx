@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFacadeLayer } from "./buildingFacades";
 
 const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
 const FREE = "https://tiles.openfreemap.org/styles/";
@@ -26,7 +25,7 @@ function deviceProfile() {
     tier,
     pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.2 : 1.4),
     tileCache: tier === "low" ? 8 : tier === "medium" ? 14 : 22,
-    buildingZoom: 14.1,
+    buildingZoom: tier === "low" ? 15.6 : tier === "medium" ? 15.2 : 14.8,
     demZoom: tier === "low" ? 9 : tier === "medium" ? 10 : 11,
     shadeZoom: tier === "low" ? 8 : 6,
   };
@@ -241,69 +240,6 @@ function buildingMaterialColor(darkMode) {
     byMaterial];
 }
 
-
-// the photo walls and plain roofs are one 3d mesh now.
-// hide the matching map extrusions instead of drawing a second wall.
-function applyBuildingAppearance(map, appearance) {
-  if (!map?.isStyleLoaded?.()) return;
-  map.__kmBuildingAppearance = appearance;
-  const originals = map.__kmOriginalBuildingFilters || (map.__kmOriginalBuildingFilters = new Map());
-  const textured = appearance === "textured" && map.__kmBuildingsEnabled !== false &&
-    map.__kmTextureState === "ready" &&
-    (map.__kmFacadeSnapshot?.count || 0) > 0 &&
-    map.getProjection?.()?.type !== "globe";
-  // dont carve a moving circle out of the original buildings
-  // the facade mesh covers the loaded view, so theres no second wall underneath it
-  const hiddenFilter = ["==", ["literal", 1], ["literal", 0]];
-  for (const layer of map.getStyle()?.layers || []) {
-    if (layer.type !== "fill-extrusion") continue;
-    try {
-      if (!originals.has(layer.id)) {
-        const baseline = map.__kmBuildingRangeFilters?.get(layer.id);
-        originals.set(layer.id, baseline === undefined ? map.getFilter(layer.id) : baseline);
-      }
-      const baseline = originals.get(layer.id);
-      const next = textured ? hiddenFilter : baseline;
-      if (JSON.stringify(map.getFilter(layer.id)) !== JSON.stringify(next)) {
-        map.setFilter(layer.id, next);
-      }
-      if (map.getPaintProperty(layer.id, "fill-extrusion-pattern") != null) {
-        map.setPaintProperty(layer.id, "fill-extrusion-pattern", null);
-      }
-    } catch (error) { console.warn("Building appearance unavailable", error); }
-  }
-
-  const id = "km-textured-facades";
-  if (appearance !== "textured" || map.__kmBuildingsEnabled === false) {
-    if (map.getLayer(id)) map.removeLayer(id);
-    map.__kmTextureState = "idle";
-    map.__kmTextureError = null;
-    map.__kmTextureNotify?.("idle");
-    return;
-  }
-  if (map.getLayer(id)) return;
-  const all = map.getStyle()?.layers || [];
-  const lastBuilding = all.reduce((index, layer, at) => layer.type === "fill-extrusion" ? at : index, -1);
-  const after = all.slice(lastBuilding + 1).find(layer => layer.type === "symbol")?.id;
-  const profile = map.__kmDeviceTier || "medium";
-  try {
-    map.addLayer(createFacadeLayer(profile, (state, error = null) => {
-      map.__kmTextureState = state;
-      map.__kmTextureError = error;
-      map.__kmTextureNotify?.(state);
-      if (map.__kmRoofUpdate) clearTimeout(map.__kmRoofUpdate);
-      map.__kmRoofUpdate = setTimeout(() => {
-        map.__kmRoofUpdate = null;
-        if (map.isStyleLoaded?.()) applyBuildingAppearance(map, map.__kmBuildingAppearance);
-      }, 0);
-    }), after);
-  } catch (error) {
-    map.__kmTextureState = "error";
-    map.__kmTextureError = String(error?.message || error);
-    map.__kmTextureNotify?.("error");
-    console.warn("Facade renderer unavailable", error);
-  }
-}
 function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
   if (map.getLayer("km-buildings-3d")) {
     map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
@@ -324,7 +260,7 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     diagnostic.lastError = "Vector source not registered in map style";
     return false;
   }
-  const startZoom = profile.buildingZoom;
+  const startZoom = Math.min(profile.buildingZoom, 15.3);
   const layer = {
     id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
     "source-layer": "building", minzoom: startZoom,
@@ -332,9 +268,13 @@ function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
     filter: ["!=", ["get", "hide_3d"], true],
     paint: {
       "fill-extrusion-color": buildingMaterialColor(darkMode),
-      "fill-extrusion-height": ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]],
-      "fill-extrusion-base": ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]],
-      "fill-extrusion-opacity": ["interpolate", ["linear"], ["zoom"], startZoom, 0, startZoom + 1.2, 1],
+      "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
+        startZoom, 0, startZoom + 0.5,
+        ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]],
+      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
+        startZoom, 0, startZoom + 0.5,
+        ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]],
+      "fill-extrusion-opacity": 1,
     },
   };
   const before = buildingLayerInsertionPoint(map);
@@ -373,15 +313,9 @@ function syncNativeBuildings(map, buildingsEnabled) {
     if (!sourceLoaded) map.__kmBuildingCheck = null;
     customReady = sourceLoaded && Boolean(map.__kmBuildingCheck?.hasBuildings);
   }
-  const now = performance.now();
-  if (customReady) map.__kmBuildingSourceGoodAt = now;
-  // dont swap providers just cause some vector tiles are loading mid-pan
-  if (!customReady && source && map.__kmNativeBuildingSync?.ready &&
-      (map.isMoving?.() || now - (map.__kmBuildingSourceGoodAt || 0) < 4500)) {
-    customReady = true;
-  }
   const styled = map.__kmStyledNativeBuildings || (map.__kmStyledNativeBuildings = new Set());
   const lastSync = map.__kmNativeBuildingSync;
+  const now = performance.now();
   if (lastSync && lastSync.ready === customReady && lastSync.enabled === buildingsEnabled &&
       now - lastSync.checkedAt < 1000) return customReady;
   map.__kmNativeBuildingSync = { ready: customReady, enabled: buildingsEnabled, checkedAt: now };
@@ -393,10 +327,6 @@ function syncNativeBuildings(map, buildingsEnabled) {
           map.setPaintProperty(nativeLayer.id, "fill-extrusion-pattern", null);
         }
         map.setPaintProperty(nativeLayer.id, "fill-extrusion-color", buildingMaterialColor(map.__kmBuildingDarkMode || false));
-        map.setPaintProperty(nativeLayer.id, "fill-extrusion-height",
-          ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]);
-        map.setPaintProperty(nativeLayer.id, "fill-extrusion-base",
-          ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]);
         map.setPaintProperty(nativeLayer.id, "fill-extrusion-opacity", 1);
         styled.add(nativeLayer.id);
       } catch (error) { console.warn("Building colour fallback unavailable", error); }
@@ -428,13 +358,12 @@ function removeLegacyLandmarks(map) {
 
 // near-horizon buildings look like they float once ground tiles stop rendering.
 // cut off distant extrusions instead of changing the entire city's height.
-function buildingRangeMeters(_zoom, pitch) {
-  const tilt = Math.min(1, Math.max(0, (pitch - 35) / 45));
-  return Math.round(4400 - tilt * 1600);
+function buildingRangeMeters(zoom, pitch) {
+  const meters = Math.min(8500, Math.max(1400, 3700 * 2 ** ((16 - zoom) * 0.65)));
+  return Math.round(meters * (pitch >= 68 ? 0.62 : pitch >= 50 ? 0.82 : 1));
 }
 
 function limitFarBuildings(map) {
-  if (map.__kmBuildingAppearance === "textured") return;
   if (!map.isStyleLoaded() || !map.__kmBuildingRangeFilters) return;
   const center = map.getCenter();
   const zoom = map.getZoom();
@@ -472,10 +401,6 @@ function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnable
   map.__kmBuildingCheck = null;
   map.__kmNativeBuildingSync = null;
   map.__kmStyledNativeBuildings = new Set();
-  map.__kmFacadeStats = null;
-  map.__kmFacadeSnapshot = null;
-  map.__kmBuildingSourceGoodAt = 0;
-  map.__kmOriginalBuildingFilters = new Map();
   removeLegacyLandmarks(map);
   map.__kmBuildingRangeFilters = new Map();
   map.__kmBuildingRangeView = null;
@@ -655,17 +580,13 @@ export default function Scene3D({
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const terrainRef = useRef(true);
   const [buildingsEnabled, setBuildingsEnabled] = useState(true);
-  const [buildingAppearance, setBuildingAppearance] = useState("textured");
-  const [textureStatus, setTextureStatus] = useState("idle");
-  const appearanceRef = useRef(buildingAppearance);
   const buildingsRef = useRef(buildingsEnabled);
   const globeRef = useRef(globe);
   useEffect(() => {
     buildingsRef.current = buildingsEnabled;
-    appearanceRef.current = buildingAppearance;
     globeRef.current = globe;
     terrainRef.current = terrainEnabled;
-  }, [buildingsEnabled, buildingAppearance, globe, terrainEnabled]);
+  }, [buildingsEnabled, globe, terrainEnabled]);
   const mode = displayedMode || data?.mode || "driving";
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
@@ -736,9 +657,6 @@ export default function Scene3D({
         attributionControl: true,
       });
       mapRef.current = map;
-      map.__kmTextureNotify = state => { if (active) setTextureStatus(state); };
-      map.__kmDeviceTier = profile.tier;
-      map.__kmBuildingsEnabled = buildingsRef.current;
       map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
       map.dragRotate.enable();
       map.touchZoomRotate.enableRotation();
@@ -793,10 +711,24 @@ export default function Scene3D({
         }
         samples = 0; totalFrameMs = 0;
       });
-      // changing vector filters mid-pan rebuilds tiles and makes walls flash
-      const finishBuildingRange = () => limitFarBuildings(map);
+      let rangeTimer;
+      const updateBuildingRange = () => {
+        if (rangeTimer) return;
+        rangeTimer = setTimeout(() => {
+          rangeTimer = null;
+          limitFarBuildings(map);
+        }, 300);
+      };
+      const finishBuildingRange = () => {
+        clearTimeout(rangeTimer);
+        rangeTimer = null;
+        limitFarBuildings(map);
+      };
+      map.on("move", updateBuildingRange);
       map.on("moveend", finishBuildingRange);
       map.__kmBuildingRangeCleanup = () => {
+        clearTimeout(rangeTimer);
+        map.off("move", updateBuildingRange);
         map.off("moveend", finishBuildingRange);
       };
       map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
@@ -852,14 +784,6 @@ export default function Scene3D({
           style: style?.name ?? null,
           providerErrors: (map.__kmBuildingErrors || []).slice(-4),
           buildingRangeMeters: map.__kmBuildingRangeMeters ?? null,
-          textureMode: map.__kmBuildingAppearance || "coloured",
-          textureState: map.__kmTextureState || "idle",
-          textureError: map.__kmTextureError || null,
-          facade: map.__kmFacadeStats || null,
-          facadeLayer: Boolean(map.getLayer("km-textured-facades")),
-          textureLayers: (style?.layers || []).filter(item => item.type === "fill-extrusion")
-            .map(item => ({ id: item.id, visible: map.getLayoutProperty(item.id, "visibility") !== "none",
-              pattern: map.getPaintProperty(item.id, "fill-extrusion-pattern") ?? null })),
         };
       };
       let lastRotateAt = -Infinity;
@@ -963,12 +887,6 @@ export default function Scene3D({
     const styles = stylesRef;
     return () => {
       active = false; styles.current++;
-      if (map) {
-        map.__kmTextureDisposed = true;
-        if (map.__kmRoofUpdate) clearTimeout(map.__kmRoofUpdate);
-        delete map.__kmRoofUpdate;
-        delete map.__kmTextureNotify;
-      }
       markers.current.forEach(marker => marker.remove()); markers.current = [];
       map?.__kmBuildingRangeCleanup?.();
       map?.__kmSpinCleanup?.();
@@ -1006,7 +924,6 @@ export default function Scene3D({
           buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
           addSceneLayers(map, buildingSource, darkMode, mapStyle,
             buildingsRef.current, terrainRef.current, profile);
-          applyBuildingAppearance(map, appearanceRef.current);
           if (typeof map.setLight === "function") {
             try { map.setLight({ anchor: "map", color: "#fff7e8",
               intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
@@ -1023,7 +940,6 @@ export default function Scene3D({
             ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
             syncNativeBuildings(map, buildingsRef.current);
             limitFarBuildings(map);
-            applyBuildingAppearance(map, appearanceRef.current);
           }, delay));
         }
       };
@@ -1037,9 +953,6 @@ export default function Scene3D({
         }
         syncNativeBuildings(map, buildingsRef.current);
         limitFarBuildings(map);
-        if (appearanceRef.current === "textured") {
-          applyBuildingAppearance(map, appearanceRef.current);
-        }
       };
       map.on("idle", repairBuildings);
       const oldCleanup = map.__kmBuildingRepairCleanup;
@@ -1128,9 +1041,7 @@ export default function Scene3D({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !map.isStyleLoaded()) return;
-    map.__kmBuildingsEnabled = buildingsEnabled;
     if (!buildingsEnabled) {
-      applyBuildingAppearance(map, "coloured");
       for (const layer of map.getStyle().layers) {
         if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
       }
@@ -1142,16 +1053,7 @@ export default function Scene3D({
     }
     syncNativeBuildings(map, true);
     limitFarBuildings(map);
-    applyBuildingAppearance(map, appearanceRef.current);
   }, [ready, buildingsEnabled, profile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    appearanceRef.current = buildingAppearance;
-    if (ready && map?.isStyleLoaded()) {
-      applyBuildingAppearance(map, buildingAppearance);
-    }
-  }, [ready, buildingAppearance]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1347,13 +1249,6 @@ export default function Scene3D({
           title={`3D buildings appear from zoom ${profile.buildingZoom} (move closer to see them)`}
           onClick={() => setBuildingsEnabled(value => !value)}>
           Buildings {buildingsEnabled ? (zoom >= profile.buildingZoom ? "On" : "Zoom in") : "Off"}
-        </button>
-        <button type="button" className="km-3d-toggle" aria-pressed={buildingAppearance === "textured"}
-          title={textureStatus === "error"
-            ? "Facade images could not load; normal colours are still shown"
-            : "Switch between plain building colours and textured walls. Roofs stay plain; globe uses colours."}
-          onClick={() => setBuildingAppearance(value => value === "textured" ? "coloured" : "textured")}>
-          {buildingAppearance !== "textured" ? "Coloured" : textureStatus === "error" ? "Textures failed" : (textureStatus === "loading" || textureStatus === "waiting") ? "Loading textures" : "Textured"}
         </button>
       </div>
     </div>

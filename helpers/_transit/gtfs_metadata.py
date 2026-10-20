@@ -4,7 +4,7 @@ from functools import lru_cache
 from heapq import nsmallest
 from pathlib import Path
 
-from helpers._transit import shape_index
+from helpers._transit import agencies, shape_index
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GTFS_ROOT = PROJECT_ROOT / "transit_data" / "GTFS_Files"
@@ -19,6 +19,11 @@ def _iter_rows(path):
             yield from csv.DictReader(file)
     except Exception:
         return
+
+
+def _has_own_cache(agency):
+    info = agencies.get(agency)
+    return bool(info and info.namespaced_trips)
 
 
 @lru_cache(maxsize=8)
@@ -84,8 +89,9 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
     """Find one trip without loading every GTFS trip into a giant Python dict."""
     agency = str(agency)
     trip_id = str(trip_id)
-    if agency == "ttc" and trip_id.startswith("ttc:"):
-        trip_id = trip_id[4:]
+    own_cache = _has_own_cache(agency)
+    if own_cache and trip_id.startswith(agencies.get(agency).prefix):
+        trip_id = trip_id[len(agencies.get(agency).prefix):]
     route_hint = str(route_hint or "").strip().lower()
     headsign_hint = str(headsign_hint or "").strip().lower()
 
@@ -93,7 +99,8 @@ def get_trip_meta(agency, trip_id, route_hint="", headsign_hint=""):
         return shape_index.trip(agency, trip_id)
 
 
-    if agency == "ttc":
+    if own_cache:
+        # these feeds are big; only their shape index is used, never a CSV scan
         return None
 
     folder = GTFS_ROOT / agency
@@ -173,7 +180,7 @@ def shape_for_trip(
     headsign_hint="",
 ):
     meta = get_trip_meta(agency, trip_id, route_hint, headsign_hint)
-    if not meta and agency == "ttc":
+    if not meta and _has_own_cache(agency):
 
         return None, {"route_short_name": str(route_hint or ""),
                       "headsign": str(headsign_hint or ""),
@@ -220,14 +227,12 @@ def raw_gtfs_available(agency=None):
         folder = GTFS_ROOT / agency
         return (folder / "trips.txt").exists() and (folder / "shapes.txt").exists()
 
-    return any(
-        raw_gtfs_available(name) for name in ("grt_busses", "grt_trains", "go", "ttc")
-    )
+    return any(raw_gtfs_available(name) for name in agencies.AGENCIES)
 
 
-def prewarm(agencies=("grt_busses", "grt_trains", "go")):
+def prewarm(agency_ids=tuple(a.id for a in agencies.SHARED_AGENCIES)):
     """Fill the small per-agency route tables and build the SQLite shape indexes."""
     shape_index.prewarm()
-    for agency in agencies:
+    for agency in agency_ids:
         if (GTFS_ROOT / agency / "routes.txt").exists():
             _routes_index(agency)

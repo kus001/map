@@ -2655,16 +2655,9 @@ def _print_local_route_result(result, timing, graph_load_seconds):
             f"Estimated commute time: {route.get('duration_min', 0):.1f} minutes"
         )
     )
-    print(f"Distance: {route.get('distance_km', 0):.2f} km")
+    print(f"Distance walked: {route.get('distance_km', 0):.2f} km")
     print(f"Departure: {route.get('departure_datetime', 'now')}")
     print(f"Transit preference: {route.get('transit_preference_label', 'Balanced')}")
-    if route.get("access_walk_limit_expanded"):
-        print(
-            yellow(
-                f"Nearby-stop search expanded to {route.get('access_walk_limit_m', '?')} m "
-                "because no complete route was found in the smaller walking tier."
-            )
-        )
 
     realtime = route.get("realtime", {})
     if realtime.get("available"):
@@ -2676,8 +2669,6 @@ def _print_local_route_result(result, timing, graph_load_seconds):
 
 
 if __name__ == "__main__":
-
-
     bold, blue, green, magenta, red, yellow = _local_test_color_helpers()
 
     print(bold("=" * 64))
@@ -2690,9 +2681,7 @@ if __name__ == "__main__":
     end_address = input(bold("End Address: ")).strip()
 
     departure_text = input(
-        bold(
-            "Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: "
-        )
+        bold("Departure date/time [Enter = now, or YYYY-MM-DD HH:MM]: ")
     ).strip()
 
     departure_datetime = None
@@ -2704,17 +2693,13 @@ if __name__ == "__main__":
                     tzinfo=TRANSIT_TIMEZONE
                 )
             else:
-                departure_datetime = departure_datetime.astimezone(
-                    TRANSIT_TIMEZONE
-                )
+                departure_datetime = departure_datetime.astimezone(TRANSIT_TIMEZONE)
         except ValueError:
             print(red("Invalid date/time. Using current time instead."))
             departure_datetime = None
 
     preference_text = input(
-        bold(
-            "Transit preference [Enter = balanced, less_walking, fastest]: "
-        )
+        bold("Transit preference [Enter = balanced, less_walking, fastest]: ")
     ).strip().lower()
     if preference_text not in TRANSIT_PREFERENCES:
         preference_text = "balanced"

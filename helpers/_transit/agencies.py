@@ -55,7 +55,6 @@ AGENCIES = {agency.id: agency for agency in (
            own_cache=True, cache="ttc.pkl", fallback_mode="TTC"),
 )}
 
-SHARED_AGENCIES = tuple(a for a in AGENCIES.values() if not a.own_cache)
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)
 
 

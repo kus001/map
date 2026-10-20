@@ -7,7 +7,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from helpers._transit.agencies import AGENCIES, SHARED_AGENCIES
+from helpers._transit.agencies import AGENCIES
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +23,6 @@ GTFS_LINKS = {agency.id: agency.feed_url for agency in AGENCIES.values()}
 
 
 REQUIRED_FILES = {
-    "agency.txt",
     "routes.txt",
     "stops.txt",
     "trips.txt",
@@ -246,5 +245,5 @@ def download_multiple_gtfs(
 
 if __name__ == "__main__":
     download_multiple_gtfs(
-        *(agency.id for agency in SHARED_AGENCIES)
+        *(agency.id for agency in AGENCIES.values())
     )

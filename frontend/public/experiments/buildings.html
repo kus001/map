@@ -41,12 +41,13 @@
       <button id="textures" aria-pressed="true">Textures on</button>
       <button id="details" aria-pressed="true">Architecture on</button>
       <button id="streets" aria-pressed="true">Streets on</button>
+      <button id="satellite" aria-pressed="true">Satellite on</button>
       <button id="zoom-in" title="Zoom toward the centre">Zoom +</button>
       <button id="zoom-out" title="Zoom out">Zoom −</button>
       <button id="reset">Reset view</button>
     </div>
     <div id="status">Loading renderer...</div>
-    <p>Toronto mode fetches one fixed area near downtown Toronto from the city's building-outline dataset. It isn't live tile streaming. Missing heights use an explicitly marked 12 m estimate. Façade architecture and materials are illustrative, not surveyed. Streets and parks load separately from OpenStreetMap when available. Map data © City of Toronto; street data © OpenStreetMap contributors.</p>
+    <p>Toronto mode fetches one fixed area near downtown Toronto from the city's building-outline dataset. It isn't live tile streaming. Missing heights use an explicitly marked 12 m estimate. Façade architecture and materials are illustrative, not surveyed. Streets and parks load separately from OpenStreetMap when available. Satellite ground uses Esri World Imagery tiles (subject to imagery service access); if unavailable the neutral ground remains. Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community. Map data © City of Toronto; street data © OpenStreetMap contributors.</p>
     </div>
   </aside>
   <script type="module" src="./buildings.mjs"></script>

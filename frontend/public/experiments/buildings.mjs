@@ -1,6 +1,6 @@
 import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
 import { createGroundMesh, parseOSMStreets } from "./cityGround.mjs";
-import { satelliteTileURL, satelliteTileVertices, desiredSatelliteTiles } from "./satelliteGround.mjs";
+import { satelliteTileURL, satelliteTileVertices, desiredSatelliteTiles, setSatelliteOrigin } from "./satelliteGround.mjs";
 import { FOV, clamp, cameraEye, screenRay, hitBuildings, zoomAt, panOnPlane, clippingPlanes, cameraInsideBuildings } from "./cameraMath.mjs";
 
 const canvas = document.querySelector("#scene");
@@ -49,20 +49,71 @@ const fragmentShader = `#version 300 es
   uniform vec3 frameColor;
   uniform vec2 moduleSize;
   out vec4 outputColor;
+
+  float rectMask(vec2 uv, vec2 minUV, vec2 maxUV, float feather) {
+    float x = smoothstep(minUV.x, minUV.x + feather, uv.x) * (1.0 - smoothstep(maxUV.x - feather, maxUV.x, uv.x));
+    float y = smoothstep(minUV.y, minUV.y + feather, uv.y) * (1.0 - smoothstep(maxUV.y - feather, maxUV.y, uv.y));
+    return x * y;
+  }
+
+  float hash12(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+
   void main() {
-    vec3 surface = useImage ? texture(facade, sampleUV).rgb : color;
-    if (useImage && useArchitecture) {
-      // Keep the photograph's windows intact. A second independent window grid
-      // doesn't line up with the image and produces the beige crosshatching.
-      float brightness = dot(surface, vec3(0.2126, 0.7152, 0.0722));
-      float solid = smoothstep(0.38, 0.78, brightness);
+    vec3 sampled = useImage ? texture(facade, sampleUV).rgb : color;
+    vec3 surface = sampled;
+
+    if (useArchitecture) {
+      vec2 metres = sampleUV * 9.0;
+      float bay = max(moduleSize.x, 2.3);
+      float floorHeight = max(moduleSize.y, 3.0);
+      vec2 cell = vec2(metres.x / bay, metres.y / floorHeight);
+      vec2 grid = fract(cell);
+      vec2 cellId = floor(cell);
       float glassTower = float(wallStyle == 0);
-      vec3 cladding = mix(surface, masonry, (1.0 - glassTower) * 0.09 * solid);
-      surface = cladding;
-      // A quiet podium treatment, not floor bands painted across windows.
-      float lowLevel = 1.0 - smoothstep(3.5, 5.2, sampleUV.y * 9.0);
-      surface = mix(surface, mix(surface, masonry * 0.85, 0.22), lowLevel * (1.0-glassTower));
+      float heavyTower = float(wallStyle == 2);
+      float softTower = float(wallStyle == 3);
+
+      // Toronto buildings looked too busy with photo-sheet windows.
+      // Keep the photo only as a gentle colour cue; build the actual facade
+      // rhythm procedurally with larger modules and stronger wall masses.
+      vec3 cue = mix(vec3(dot(sampled, vec3(0.299, 0.587, 0.114))), sampled, 0.38);
+      vec3 baseFacade = mix(masonry, cue, 0.18 + 0.32 * glassTower);
+      surface = mix(baseFacade, sampled, 0.10 * glassTower);
+
+      float pierWidth = mix(0.18, 0.11, glassTower);
+      float sill = mix(0.20, 0.14, glassTower);
+      float head = mix(0.82, 0.90, glassTower);
+      float windowWidth = mix(0.34, 0.68, glassTower);
+      float windowMinX = 0.5 - windowWidth * 0.5;
+      float windowMaxX = 0.5 + windowWidth * 0.5;
+      float windowMask = rectMask(grid, vec2(windowMinX, sill), vec2(windowMaxX, head), 0.035);
+
+      // Some bays stay solid to break up endless hotel-like repetition.
+      float bayVariant = hash12(vec2(cellId.x, floor(cellId.y * 0.35)) + float(wallStyle) * 1.37);
+      float bayActive = glassTower > 0.5 ? 1.0 : step(0.18, bayVariant);
+      windowMask *= bayActive;
+
+      float verticalJoint = rectMask(grid, vec2(0.5 - pierWidth, 0.0), vec2(0.5 + pierWidth, 1.0), 0.04);
+      float horizontalBand = rectMask(grid, vec2(0.0, 0.0), vec2(1.0, 0.08 + 0.05 * heavyTower), 0.03);
+      float spandrel = rectMask(grid, vec2(windowMinX, head - 0.02), vec2(windowMaxX, 0.97), 0.03) * (0.45 + 0.55 * glassTower);
+      float podium = 1.0 - smoothstep(1.8, 5.0, metres.y / floorHeight);
+
+      vec3 shadowGlass = mix(vec3(0.10, 0.12, 0.15), vec3(0.18, 0.23, 0.29), glassTower);
+      shadowGlass = mix(shadowGlass, vec3(0.23, 0.28, 0.34), 0.16 * hash12(cellId));
+
+      surface = mix(surface, frameColor, verticalJoint * (0.10 + 0.10 * heavyTower));
+      surface = mix(surface, masonry * 0.82, horizontalBand * (0.10 + 0.10 * softTower));
+      surface = mix(surface, shadowGlass, windowMask);
+      surface = mix(surface, mix(surface, masonry * 0.86, 0.38), podium * (0.35 + 0.18 * heavyTower));
+      surface = mix(surface, frameColor, spandrel * 0.18);
+
+      // Slight corner softening for rounded towers without painting extra window grids.
+      float broadStripe = 0.5 + 0.5 * cos(sampleUV.x * 3.14159 * 0.55);
+      surface = mix(surface, mix(surface, frameColor, 0.12), broadStripe * 0.10 * glassTower);
     }
+
     surface *= tint;
     outputColor = vec4(clamp(surface * lighting, 0.0, 1.0), 1.0);
   }
@@ -253,6 +304,28 @@ function cityQuery() {
     returnGeometry: "true", resultRecordCount: "1200", f: "geojson",
   });
   return `${CITY_DATA_URL}?${params}`;
+}
+
+function geojsonBoundsCenter(geojson) {
+  if (geojson?.type !== "FeatureCollection" || !Array.isArray(geojson.features)) return null;
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  let seen = false;
+  for (const feature of geojson.features) {
+    const geom = feature?.geometry;
+    if (!geom) continue;
+    const polygons = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
+    for (const poly of polygons) {
+      if (!Array.isArray(poly) || !poly.length || !Array.isArray(poly[0])) continue;
+      for (const point of poly[0]) {
+        if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+        const lon = point[0], lat = point[1];
+        minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon);
+        minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+        seen = true;
+      }
+    }
+  }
+  return seen ? { lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2 } : null;
 }
 
 function refreshButtons() {
@@ -489,12 +562,15 @@ async function loadToronto() {
       if (!response.ok) throw new Error(`Toronto data service returned HTTP ${response.status}`);
       const data = await response.json();
       if (data.error) throw new Error(data.error.message || "Toronto data service reported an error");
-      const parsed = convertTorontoGeoJSON(data);
+      const sceneOrigin = geojsonBoundsCenter(data) || { lon: -79.3819, lat: 43.65165 };
+      setSatelliteOrigin(sceneOrigin);
+      const parsed = convertTorontoGeoJSON(data, sceneOrigin);
       if (parsed.buildings.length < 3) throw new Error("No usable building polygons in the Toronto response");
+      parsed.origin = sceneOrigin;
       torontoData = parsed;
       torontoCamera = cameraForBuildings(parsed.buildings);
       const stats = polygonSceneStats(parsed.buildings);
-      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nIllustrative windows, cladding, piers and podiums; actual facade materials are not surveyed. Camera movement never rebuilds geometry.`;
+      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nToronto footprints are georeferenced to the fetched dataset centre. Facades are simplified approximations with reduced window repetition; actual facade materials are not surveyed. Camera movement never rebuilds geometry.`;
       if (requestedMode === "toronto") showToronto();
       loadStreets();
     } catch (error) {
@@ -568,8 +644,9 @@ function draw() {
     const chosen = renderer.textures.get(base);
     gl.uniform3fv(renderer.color, palette[base]);
     gl.uniform3fv(renderer.tint, tint);
-    gl.uniform1i(renderer.useImage, Boolean(textureMode && chosen?.ok));
-    gl.uniform1i(renderer.useArchitecture, architectureMode && textureMode && Boolean(chosen?.ok));
+    const usePhotographicFacade = Boolean(textureMode && chosen?.ok && mode !== "toronto");
+    gl.uniform1i(renderer.useImage, usePhotographicFacade);
+    gl.uniform1i(renderer.useArchitecture, architectureMode);
     gl.uniform1i(renderer.wallStyle, wall.style);
     gl.uniform3fv(renderer.masonry, wall.masonry);
     gl.uniform3fv(renderer.frameColor, wall.frame);

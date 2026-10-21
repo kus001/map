@@ -412,6 +412,7 @@ def nearby_transit_vehicles():
     from helpers._transit.realtime import snapshot as grt_snapshot
     from helpers._transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
     from transit import live_vehicle_is_usable, nearby_scheduled_vehicles
+    from helpers._transit.agencies import label
     from math import radians, cos
 
 
@@ -442,7 +443,9 @@ def nearby_transit_vehicles():
             continue
         live["scheduled:" + ":".join(key)] = estimate
 
-    return jsonify({"success": True, "vehicles": list(live.values())[:90],
+    vehicles = [{**v, "agency_label": label(v.get("agency"))}
+                for v in list(live.values())[:90]]
+    return jsonify({"success": True, "vehicles": vehicles,
                     "live_count": len(unique_live),
                     "estimated_count": sum(bool(v.get("estimated")) for v in live.values())})
 

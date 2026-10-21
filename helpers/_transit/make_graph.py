@@ -240,9 +240,6 @@ def add_multiple_agencies_to_graph(
         calendar = getattr(loaded, "calendar", {})
         calendar_dates = getattr(loaded, "calendar_dates", {})
 
-
-
-
         if not is_compact(graph):
             compact_graph(graph)
             _write_graph(graph_path)
@@ -349,8 +346,8 @@ class Graph:
 
 
 def make_graph():
-    add_multiple_agencies_to_graph("grt_trains", "grt_busses", "go")
-    return Graph(graph, node_positions, trip_to_service, calendar, calendar_dates)
+    # No shared agencies any more: every agency lives in its own cache and is merged in by transit.py.
+    return Graph({}, {}, {}, {}, {})
 
 
 if __name__ == "__main__":

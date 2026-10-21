@@ -1,9 +1,9 @@
 Flask
-requests
 geopy
-python-dotenv
-pyproj
-aioconsole
-gtfs-realtime-bindings
-tzdata
 httpx
+tzdata
+pyproj
+requests
+aioconsole
+python-dotenv
+gtfs-realtime-bindings

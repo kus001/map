@@ -480,7 +480,7 @@ function scenePopup(gl, map, coordinates, content, options = {}) {
 }
 function stopPopupContent(props) {
   const agency = String(props.agency || "grt").toLowerCase();
-  const label = agency === "go" ? "GO Transit" : agency === "ttc" ? "TTC" : "GRT";
+  const label = props.agency_label || agency.toUpperCase();
   const body = popupElement(props.name || "Transit stop", `${label} · Departures`);
   const board = document.createElement("div");
   board.className = "km-3d-board";
@@ -1196,7 +1196,7 @@ export default function Scene3D({
           if (controller.signal.aborted || !map.getSource("km-stops")) return;
           const stops = (result.stops || []).filter(s => validCoord(s.coordinates)).slice(0, 150).map(stop => ({
             type: "Feature", geometry: { type: "Point", coordinates: [stop.coordinates[1], stop.coordinates[0]] },
-            properties: { stop_id: stop.id, name: stop.name, agency: stop.agency || "grt" },
+            properties: { stop_id: stop.id, name: stop.name, agency: stop.agency || "grt", agency_label: stop.agency_label },
           }));
           map.__kmNearbyStops = stops;
           setData(map, "km-stops", stops);

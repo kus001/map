@@ -18,6 +18,29 @@ export const buildings = [
   { x: 83, z: 34, w: 22, d: 24, h: 17, material: "plaster" },
 ];
 
+// Keep each building's look stable. None of this depends on camera or frame time.
+function hashId(value) {
+  let hash = 2166136261;
+  for (const char of String(value)) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+const MATERIAL_WEIGHTS = [
+  [65, ["glass", "glass", "glass", "metal", "metal", "concrete", "stone"]],
+  [30, ["glass", "glass", "metal", "concrete", "concrete", "stone", "stone", "brick"]],
+  [15, ["glass", "concrete", "concrete", "stone", "stone", "brick", "brick", "plaster"]],
+  [0, ["brick", "brick", "stone", "concrete", "plaster", "plaster", "wood", "default"]],
+];
+
+export function chooseBuildingAppearance(identity, height) {
+  const hash = hashId(identity);
+  const pool = MATERIAL_WEIGHTS.find(([minimum]) => height >= minimum)[1];
+  return { material: pool[hash % pool.length], variant: (hash >>> 8) % 5 };
+}
+
 const addTriangle = (vertices, a, b, c, uva, uvb, uvc, normal) => {
   for (const [position, uv] of [[a, uva], [b, uvb], [c, uvc]]) {
     vertices.push(...position, ...uv, ...normal);
@@ -148,6 +171,7 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
   let recordedHeights = 0;
   let estimatedHeights = 0;
   let skippedHoles = 0;
+  const sharedLooks = new Map();
   for (const feature of geojson.features) {
     const geom = feature.geometry;
     if (!geom || !["Polygon", "MultiPolygon"].includes(geom.type)) continue;
@@ -162,9 +186,13 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
       const footprint = cleanRing(rings[0].map(point => toLocalMetres(point, origin)));
       if (footprint.length < 3 || footprint.length > 1000 || Math.abs(polygonArea(footprint)) < 18) continue;
       if (rings.length > 1) skippedHoles++;
-      const area = polygonArea(footprint);
-      const material = height >= 65 ? "glass" : height >= 30 ? "concrete" : area >= 800 ? "stone" : area >= 250 ? "brick" : "plaster";
-      result.push({ id: `${properties.OBJECTID ?? feature.id ?? result.length}:${p}`, points: footprint, h: height, material, measuredHeight: heightKnown });
+      const id = properties.OBJECTID ?? feature.id ?? result.length;
+      const buildingId = properties.BUILDINGID ?? properties.buildingid ?? id;
+      const identity = String(buildingId).trim() || String(id);
+      if (!sharedLooks.has(identity)) sharedLooks.set(identity, chooseBuildingAppearance(identity, height));
+      const look = sharedLooks.get(identity);
+      result.push({ id: `${id}:${p}`, points: footprint, h: height, material: look.material,
+        variant: look.variant, measuredHeight: heightKnown });
       if (heightKnown) recordedHeights++; else estimatedHeights++;
     }
   }
@@ -359,7 +387,11 @@ export function createPolygonBuildingMesh(items) {
     const item = items[index];
     const height = item.h;
     if (!item.points || item.points.length < 3 || !Number.isFinite(height) || height <= 0) continue;
-    const group = surfaces.get(item.material) || surfaces.get("default");
+    const material = facades.includes(item.material) ? item.material : "default";
+    const variant = Number.isInteger(item.variant) ? Math.max(0, Math.min(4, item.variant)) : 0;
+    const groupName = Number.isInteger(item.variant) ? `${material}:${variant}` : material;
+    if (!surfaces.has(groupName)) surfaces.set(groupName, { walls: [], roofs: [] });
+    const group = surfaces.get(groupName);
     for (const segment of wallSegments(item, index, items, neighbours)) {
       const { a, b, normal, base, top, u0, u1 } = segment;
       const lowerA = [a[0], base, a[1]], lowerB = [b[0], base, b[1]];
@@ -381,6 +413,6 @@ export function polygonSceneStats(items) {
     buildings: items.length,
     wallTriangles: [...mesh.values()].reduce((sum, part) => sum + part.walls.length / 24, 0),
     roofTriangles: [...mesh.values()].reduce((sum, part) => sum + part.roofs.length / 24, 0),
-    materials: [...mesh.entries()].filter(([, part]) => part.walls.length).map(([name]) => name),
+    materials: [...new Set([...mesh.entries()].filter(([, part]) => part.walls.length).map(([name]) => name.split(":")[0]))],
   };
 }

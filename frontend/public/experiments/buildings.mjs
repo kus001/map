@@ -273,6 +273,10 @@ function replaceGround() {
   const uv = gl.getAttribLocation(renderer.program, "uv");
   const normal = gl.getAttribLocation(renderer.program, "normal");
   for (const [name, vertices] of ground) {
+    // Toronto: no giant flat base plane. Even a tiny depth overlap between the
+    // old slab and overlapping satellite imagery can create large pale patches.
+    // Retain the sample-scene ground and independent OSM streets/park geometry.
+    if (mode === "toronto" && name === "ground") continue;
     if (vertices.length) renderer.groundParts.set(name,
       makeBuffer(vertices, position, uv, normal));
   }
@@ -355,13 +359,22 @@ function drawSatelliteTiles() {
   gl.uniform3fv(renderer.color, [1,1,1]);
   gl.activeTexture(gl.TEXTURE0);
   gl.uniform1i(renderer.facade, 0);
-  // Coarse imagery first, detailed tiles second; nearby roads remain on top.
+  // Satellite imagery is a composited background, not a depth-writing 3D
+  // object. z16/z18/z19 rectangles intentionally overlap. At city scale their
+  // millimetre Y offsets cannot reliably separate in the depth buffer, so
+  // drawing them with depth testing produces jagged pale seams (z-fighting).
+  // Composite coarse to detailed with depth testing/writing off; restore both
+  // before street geometry and 3D buildings so they still occlude correctly.
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
   for (const z of [16,18,19]) for (const [key, entry] of satelliteTiles) {
     if (entry.state !== "ready" || entry.tile.zoom !== z || !satelliteActive.has(key)) continue;
     gl.bindTexture(gl.TEXTURE_2D, entry.texture);
     gl.bindVertexArray(entry.buffer.vao);
     gl.drawArrays(gl.TRIANGLES, 0, entry.buffer.count);
   }
+  gl.depthMask(true);
+  gl.enable(gl.DEPTH_TEST);
 }
 
 function installScene(mesh, stats, camera, buildings = []) {
@@ -536,9 +549,13 @@ function draw() {
       gl.bindVertexArray(entry.vao);
       gl.drawArrays(gl.TRIANGLES, 0, entry.count);
     }
-    drawSatelliteTiles();
+  }
+  // Ground is optional, but satellite must still draw with no base mesh.
+  drawSatelliteTiles();
+  if (renderer.groundParts) {
     gl.uniform1i(renderer.useImage, false);
     gl.uniform1i(renderer.useArchitecture, false);
+    gl.uniform3fv(renderer.tint, [1,1,1]);
     for (const [type, entry] of renderer.groundParts) {
       if (type === "ground") continue;
       gl.uniform3fv(renderer.color, groundColors[type] || groundColors.ground);

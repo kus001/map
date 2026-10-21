@@ -14,24 +14,30 @@ const vertexShader = `#version 300 es
   in vec3 normal;
   uniform mat4 viewProjection;
   out vec2 sampleUV;
-  out float brightness;
+  out vec3 lighting;
   void main() {
     sampleUV = uv;
-    brightness = 0.76 + 0.24 * max(dot(normalize(normal), normalize(vec3(0.35, 0.95, 0.5))), 0.0);
+    vec3 n = normalize(normal);
+    vec3 sun = normalize(vec3(-0.52, 0.82, 0.39));
+    vec3 skylight = vec3(0.64, 0.68, 0.73);
+    vec3 sunlight = vec3(0.39, 0.35, 0.28) * max(dot(n, sun), 0.0);
+    vec3 skyBounce = vec3(0.07, 0.09, 0.12) * max(n.y, 0.0);
+    lighting = skylight + sunlight + skyBounce;
     gl_Position = viewProjection * vec4(position, 1.0);
   }
 `;
 const fragmentShader = `#version 300 es
   precision highp float;
   in vec2 sampleUV;
-  in float brightness;
+  in vec3 lighting;
   uniform sampler2D facade;
   uniform vec3 color;
+  uniform vec3 tint;
   uniform bool useImage;
   out vec4 outputColor;
   void main() {
-    vec3 shade = useImage ? texture(facade, sampleUV).rgb : color;
-    outputColor = vec4(shade * brightness, 1.0);
+    vec3 surface = (useImage ? texture(facade, sampleUV).rgb : color) * tint;
+    outputColor = vec4(clamp(surface * lighting, 0.0, 1.0), 1.0);
   }
 `;
 
@@ -149,6 +155,23 @@ const palette = {
   plaster: [0.85, 0.83, 0.78], default: [0.77, 0.76, 0.73],
 };
 
+// No new PNGs or per-frame randomness. The same building always has the same tint.
+const facadeTints = [
+  [1, 1, 1], [0.92, 0.97, 1.04], [1.06, 1.01, 0.94],
+  [0.90, 0.93, 0.97], [1.04, 1.04, 1.02],
+];
+const roofPalette = {
+  glass: [0.57, 0.62, 0.65], brick: [0.61, 0.55, 0.48], concrete: [0.68, 0.67, 0.63],
+  stone: [0.70, 0.66, 0.59], metal: [0.48, 0.54, 0.57], wood: [0.58, 0.56, 0.49],
+  plaster: [0.72, 0.69, 0.62], default: [0.66, 0.65, 0.62],
+};
+const roofTints = [1, 0.92, 1.07, 0.97, 1.04];
+function appearance(name) {
+  const [base, raw] = name.split(":");
+  const variant = Math.max(0, Math.min(4, Number(raw) || 0));
+  return { base, tint: facadeTints[variant], roof: roofPalette[base].map(v => v * roofTints[variant]) };
+}
+
 let yaw = -0.62;
 let tilt = 0.65;
 let distance = 260;
@@ -257,7 +280,7 @@ async function loadToronto() {
       torontoData = parsed;
       torontoCamera = cameraForBuildings(parsed.buildings);
       const stats = polygonSceneStats(parsed.buildings);
-      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nMaterials are illustrative, not verified façade types. Camera movement does not rebuild the geometry.`;
+      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nIllustrative façade mixes, stable per-building tints, and roof colours. Materials are not surveyed. Camera movement never rebuilds geometry.`;
       if (requestedMode === "toronto") showToronto();
     } catch (error) {
       torontoStatus = `Couldn't fetch Toronto buildings (${error.message}). Sample blocks are still available.`;
@@ -300,9 +323,10 @@ function draw() {
   gl.depthMask(true);
   gl.disable(gl.BLEND);
   for (const [name, part] of renderer.parts) {
-    const chosen = renderer.textures.get(name);
-    const color = palette[name];
-    gl.uniform3fv(renderer.color, color);
+    const { base, tint, roof } = appearance(name);
+    const chosen = renderer.textures.get(base);
+    gl.uniform3fv(renderer.color, palette[base]);
+    gl.uniform3fv(renderer.tint, tint);
     gl.uniform1i(renderer.useImage, Boolean(textureMode && chosen?.ok));
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, chosen?.texture || renderer.blank);
@@ -310,7 +334,8 @@ function draw() {
     gl.bindVertexArray(part.walls.vao);
     gl.drawArrays(gl.TRIANGLES, 0, part.walls.count);
     gl.uniform1i(renderer.useImage, false);
-    gl.uniform3fv(renderer.color, [0.75, 0.72, 0.66]);
+    gl.uniform3fv(renderer.color, roof);
+    gl.uniform3fv(renderer.tint, [1, 1, 1]);
     gl.bindVertexArray(part.roofs.vao);
     gl.drawArrays(gl.TRIANGLES, 0, part.roofs.count);
   }
@@ -388,6 +413,7 @@ async function start() {
     program, parts, blank, textures: new Map(),
     viewProjection: gl.getUniformLocation(program, "viewProjection"),
     color: gl.getUniformLocation(program, "color"),
+    tint: gl.getUniformLocation(program, "tint"),
     useImage: gl.getUniformLocation(program, "useImage"),
     facade: gl.getUniformLocation(program, "facade"),
   };

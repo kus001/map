@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>kmaps — Building Renderer Experiment</title>
   <style>
     * { box-sizing: border-box; }
@@ -12,24 +12,43 @@
     aside { position: absolute; top: 18px; left: 18px; background: #ffffffec; border: 1px solid #d4ddd7; border-radius: 12px; padding: 16px; width: 285px; box-shadow: 0 8px 25px #18312218; }
     h1 { font-size: 16px; margin: 0 0 9px; }
     p { font-size: 12px; line-height: 1.5; color: #50665b; margin: 8px 0; }
-    .controls { display: flex; gap: 8px; margin-top: 12px; }
+    .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     button { border: 1px solid #bfcec3; background: white; color: #244b34; border-radius: 7px; padding: 8px 11px; font: inherit; font-size: 12px; cursor: pointer; }
     button[aria-pressed="true"] { background: #236744; color: white; border-color: #236744; }
     #status { font-size: 12px; margin-top: 12px; line-height: 1.5; white-space: pre-line; }
-    @media (max-width: 620px) { aside { width: min(285px, calc(100vw - 24px)); top: 12px; left: 12px; padding: 12px; } }
+    aside { max-height: calc(100dvh - 36px); overflow-y: auto; }
+    #panel-toggle { display: none; }
+    @media (max-width: 620px) {
+      aside { width: min(290px, calc(100vw - 24px)); top: 12px; left: 12px; padding: 12px; max-height: calc(100dvh - 24px); }
+      #panel-toggle { display: inline-block; margin-top: 5px; }
+      aside:not(.expanded) { width: auto; }
+      aside:not(.expanded) .panel-content { display: none; }
+    }
   </style>
 </head>
 <body>
   <canvas id="scene" aria-label="Experimental textured 3D buildings"></canvas>
   <aside>
     <h1>kmaps — building renderer test</h1>
-    <p>Separate test scene. Doesnt touch the actual map. Drag to orbit, scroll to zoom.</p>
+    <button id="panel-toggle" aria-expanded="false" aria-controls="panel-content">Controls</button>
+    <div id="panel-content" class="panel-content">
+    <p>Separate test scene. Doesnt touch the actual map. Mouse: drag to orbit, Shift/right-drag to pan, wheel to zoom, double-click to focus. Touch: one finger to orbit, two fingers to pan/pinch zoom, double-tap a building to focus.</p>
+    <div class="controls">
+      <button id="toronto" aria-pressed="false">Toronto</button>
+      <button id="samples" aria-pressed="true">Samples</button>
+    </div>
     <div class="controls">
       <button id="textures" aria-pressed="true">Textures on</button>
+      <button id="details" aria-pressed="true">Architecture on</button>
+      <button id="streets" aria-pressed="true">Streets on</button>
+      <button id="satellite" aria-pressed="true">Satellite on</button>
+      <button id="zoom-in" title="Zoom toward the centre">Zoom +</button>
+      <button id="zoom-out" title="Zoom out">Zoom −</button>
       <button id="reset">Reset view</button>
     </div>
     <div id="status">Loading renderer...</div>
-    <p>The test blocks are samples, not real buildings or live map data.</p>
+    <p>Toronto mode fetches one fixed area near downtown Toronto from the city's building-outline dataset. It isn't live tile streaming. Reported City heights and OSM tagged building parts are used where possible; giant uncertain footprints are conservatively lowered rather than drawing invented towers. Missing heights use a 12 m placeholder. Facades use consistent floor/bay patterns, not surveyed materials. Streets, parks, and height-tagged building sections load from OpenStreetMap when available. Satellite ground uses Esri World Imagery tiles (subject to imagery service access); Toronto mode has no neutral base plate: if imagery is unavailable, the backdrop stays clear rather than covering the map. Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community. Map data © City of Toronto; street data © OpenStreetMap contributors.</p>
+    </div>
   </aside>
   <script type="module" src="./buildings.mjs"></script>
 </body>

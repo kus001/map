@@ -171,25 +171,203 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
   return { buildings: result, recordedHeights, estimatedHeights, skippedHoles };
 }
 
-export function createPolygonBuildingMesh(buildings) {
-  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [] }]));
-  for (const item of buildings) {
-    const points = item.points;
-    const height = item.h;
-    if (!points || points.length < 3 || !Number.isFinite(height) || height <= 0) continue;
-    const group = surfaces.get(item.material) || surfaces.get("default");
-    for (let i = 0; i < points.length; i++) {
-      const [ax, az] = points[i], [bx, bz] = points[(i + 1) % points.length];
-      const len = Math.hypot(bx - ax, bz - az);
-      if (len <= 0.07) continue;
-      const normal = [(bz - az) / len, 0, -(bx - ax) / len];
-      const a = [ax, 0, az], b = [bx, 0, bz], ta = [ax, height, az], tb = [bx, height, bz];
-      const u = len / 9, v = height / 9;
-      addTriangle(group.walls, a, b, tb, [0, 0], [u, 0], [u, v], normal);
-      addTriangle(group.walls, a, tb, ta, [0, 0], [u, v], [0, v], normal);
+// One footprint can overlap several sections of the same building. Resolve the
+// hidden walls and roofs before sending anything to WebGL.
+const GEO_EPS = 0.00001;
+const NEAR_EDGE = 0.08;
+
+function bounds(points) {
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const [x, z] of points) {
+    minX = Math.min(minX, x); minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x); maxZ = Math.max(maxZ, z);
+  }
+  return { minX, minZ, maxX, maxZ };
+}
+
+function boundsTouch(a, b, gap = 0) {
+  return a.minX <= b.maxX + gap && a.maxX >= b.minX - gap &&
+    a.minZ <= b.maxZ + gap && a.maxZ >= b.minZ - gap;
+}
+
+function cross2(a, b, c) {
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+function onEdge(p, a, b, tolerance = NEAR_EDGE) {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const length2 = dx * dx + dz * dz;
+  if (!length2) return false;
+  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / length2;
+  if (t < -0.0001 || t > 1.0001) return false;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz) <= tolerance;
+}
+
+function insideFootprint(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[j], b = polygon[i];
+    if (onEdge(point, a, b, 0.0001)) return true;
+    if ((a[1] > point[1]) !== (b[1] > point[1]) &&
+      point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+function overlapCandidates(items) {
+  const boxes = items.map(item => bounds(item.points));
+  const neighbours = items.map(() => []);
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (!boundsTouch(boxes[i], boxes[j], 0.25)) continue;
+      neighbours[i].push(j);
+      neighbours[j].push(i);
     }
-    for (const [i, j, k] of triangulateRoof(points)) {
-      const a = points[i], b = points[j], c = points[k];
+  }
+  return { boxes, neighbours };
+}
+
+function edgeBreaks(a, b, polygon) {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const length2 = dx * dx + dz * dz;
+  const breaks = [];
+  for (let i = 0; i < polygon.length; i++) {
+    const c = polygon[i], d = polygon[(i + 1) % polygon.length];
+    const ex = d[0] - c[0], ez = d[1] - c[1];
+    const denominator = dx * ez - dz * ex;
+    const ax = c[0] - a[0], az = c[1] - a[1];
+    if (Math.abs(denominator) < GEO_EPS) {
+      if (Math.abs(dx * az - dz * ax) > GEO_EPS * Math.sqrt(length2)) continue;
+      const t0 = (ax * dx + az * dz) / length2;
+      const t1 = ((d[0] - a[0]) * dx + (d[1] - a[1]) * dz) / length2;
+      if (t0 > 0 && t0 < 1) breaks.push(t0);
+      if (t1 > 0 && t1 < 1) breaks.push(t1);
+      continue;
+    }
+    const t = (ax * ez - az * ex) / denominator;
+    const u = (ax * dz - az * dx) / denominator;
+    if (t > 0 && t < 1 && u >= 0 && u <= 1) breaks.push(t);
+  }
+  return breaks;
+}
+
+function wallSegments(item, index, items, neighbours) {
+  const result = [];
+  const points = item.points;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    const dx = b[0] - a[0], dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (len < 0.08) continue;
+    const normal = [dz / len, 0, -dx / len];
+    const portions = [0, 1];
+    for (const j of neighbours[index]) portions.push(...edgeBreaks(a, b, items[j].points));
+    portions.sort((x, y) => x - y);
+    const stops = portions.filter((t, n) => n === 0 || t - portions[n - 1] > 0.0000001);
+    for (let s = 0; s < stops.length - 1; s++) {
+      const t0 = stops[s], t1 = stops[s + 1];
+      if ((t1 - t0) * len < 0.06) continue;
+      const midpoint = [a[0] + dx * (t0 + t1) / 2, a[1] + dz * (t0 + t1) / 2];
+      const outside = [midpoint[0] + normal[0] * 0.06, midpoint[1] + normal[2] * 0.06];
+      const inside = [midpoint[0] - normal[0] * 0.06, midpoint[1] - normal[2] * 0.06];
+      let base = 0;
+      let hidden = false;
+      for (const j of neighbours[index]) {
+        const other = items[j];
+        if (insideFootprint(outside, other.points)) {
+          // The other building occupies the front of this wall.
+          base = Math.max(base, other.h);
+        } else if (insideFootprint(inside, other.points)) {
+          // Same-facing, coplanar walls: only the taller building draws it.
+          const sameLine = other.points.some((c, k) => onEdge(midpoint, c, other.points[(k + 1) % other.points.length]));
+          if (sameLine && (other.h > item.h + 0.01 || (Math.abs(other.h - item.h) <= 0.01 && j < index))) {
+            hidden = true;
+            break;
+          }
+        }
+      }
+      if (hidden || base >= item.h - 0.01) continue;
+      result.push({
+        a: [a[0] + dx * t0, a[1] + dz * t0],
+        b: [a[0] + dx * t1, a[1] + dz * t1],
+        normal, base, top: item.h, u0: (t0 * len) / 9, u1: (t1 * len) / 9,
+      });
+    }
+  }
+  return result;
+}
+
+function clipHalfPlane(polygon, a, b, keepLeft) {
+  const result = [];
+  for (let i = 0; i < polygon.length; i++) {
+    const current = polygon[i], next = polygon[(i + 1) % polygon.length];
+    const d0 = cross2(a, b, current), d1 = cross2(a, b, next);
+    const in0 = keepLeft ? d0 >= -GEO_EPS : d0 <= GEO_EPS;
+    const in1 = keepLeft ? d1 >= -GEO_EPS : d1 <= GEO_EPS;
+    if (in0) result.push(current);
+    if (in0 !== in1) {
+      const t = d0 / (d0 - d1);
+      result.push([current[0] + (next[0] - current[0]) * t, current[1] + (next[1] - current[1]) * t]);
+    }
+  }
+  return result;
+}
+
+function subtractTriangle(polygon, clip) {
+  const remain = [];
+  let inside = polygon;
+  for (let i = 0; i < 3 && inside.length >= 3; i++) {
+    const a = clip[i], b = clip[(i + 1) % 3];
+    const outside = clipHalfPlane(inside, a, b, false);
+    if (outside.length >= 3 && polygonArea(outside) > 0.005) remain.push(outside);
+    inside = clipHalfPlane(inside, a, b, true);
+  }
+  return remain;
+}
+
+function roofTriangles(item, index, items, neighbours, trianglesByItem) {
+  const points = item.points;
+  const result = [];
+  const clips = [];
+  for (const j of neighbours[index]) {
+    const other = items[j];
+    if (other.h + 0.01 < item.h) continue;
+    if (Math.abs(other.h - item.h) <= 0.01 && j > index) continue;
+    for (const [ia, ib, ic] of trianglesByItem[j]) clips.push([other.points[ia], other.points[ib], other.points[ic]]);
+  }
+  for (const [ia, ib, ic] of trianglesByItem[index]) {
+    let visible = [[points[ia], points[ib], points[ic]]];
+    for (const clip of clips) {
+      const clipBox = bounds(clip);
+      visible = visible.flatMap(poly => boundsTouch(bounds(poly), clipBox) ? subtractTriangle(poly, clip) : [poly]);
+      if (!visible.length) break;
+    }
+    for (const poly of visible) {
+      for (let k = 1; k < poly.length - 1; k++) {
+        if (triangleArea(poly[0], poly[k], poly[k + 1]) > 0.005) result.push([poly[0], poly[k], poly[k + 1]]);
+      }
+    }
+  }
+  return result;
+}
+
+export function createPolygonBuildingMesh(items) {
+  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [] }]));
+  const { neighbours } = overlapCandidates(items);
+  const trianglesByItem = items.map(item => triangulateRoof(item.points || []));
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    const height = item.h;
+    if (!item.points || item.points.length < 3 || !Number.isFinite(height) || height <= 0) continue;
+    const group = surfaces.get(item.material) || surfaces.get("default");
+    for (const segment of wallSegments(item, index, items, neighbours)) {
+      const { a, b, normal, base, top, u0, u1 } = segment;
+      const lowerA = [a[0], base, a[1]], lowerB = [b[0], base, b[1]];
+      const upperA = [a[0], top, a[1]], upperB = [b[0], top, b[1]];
+      addTriangle(group.walls, lowerA, lowerB, upperB, [u0, base / 9], [u1, base / 9], [u1, top / 9], normal);
+      addTriangle(group.walls, lowerA, upperB, upperA, [u0, base / 9], [u1, top / 9], [u0, top / 9], normal);
+    }
+    for (const [a, b, c] of roofTriangles(item, index, items, neighbours, trianglesByItem)) {
       addTriangle(group.roofs, [a[0], height, a[1]], [c[0], height, c[1]], [b[0], height, b[1]],
         [0, 0], [1, 1], [1, 0], [0, 1, 0]);
     }

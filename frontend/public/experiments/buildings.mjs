@@ -1,9 +1,12 @@
-import { createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
+import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
+import { FOV, clamp, cameraEye, screenRay, hitBuildings, zoomAt, panOnPlane, clippingPlanes, cameraInsideBuildings } from "./cameraMath.mjs";
 
 const canvas = document.querySelector("#scene");
 const status = document.querySelector("#status");
 const texturesButton = document.querySelector("#textures");
 const resetButton = document.querySelector("#reset");
+const zoomInButton = document.querySelector("#zoom-in");
+const zoomOutButton = document.querySelector("#zoom-out");
 const torontoButton = document.querySelector("#toronto");
 const samplesButton = document.querySelector("#samples");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true, alpha: false });
@@ -177,6 +180,8 @@ let tilt = 0.65;
 let distance = 260;
 let textureMode = true;
 let pointer;
+let activeBuildings = [];
+let sceneRadius = 750;
 let pendingFrame = false;
 let renderer;
 let mode = "samples";
@@ -206,7 +211,7 @@ function refreshButtons() {
   samplesButton.setAttribute("aria-pressed", String(mode === "samples"));
 }
 
-function installScene(mesh, stats, camera) {
+function installScene(mesh, stats, camera, buildings = []) {
   const position = gl.getAttribLocation(renderer.program, "position");
   const uv = gl.getAttribLocation(renderer.program, "uv");
   const normal = gl.getAttribLocation(renderer.program, "normal");
@@ -216,17 +221,20 @@ function installScene(mesh, stats, camera) {
     nextParts.set(name, {
       walls: makeBuffer(entry.walls, position, uv, normal),
       roofs: makeBuffer(entry.roofs, position, uv, normal),
+      details: makeBuffer(entry.details || [], position, uv, normal),
     });
   }
   const previous = renderer.parts;
   renderer.parts = nextParts;
   renderer.stats = stats;
+  activeBuildings = buildings;
+  sceneRadius = radiusForBuildings(buildings);
   yaw = camera.yaw;
   tilt = camera.tilt;
   distance = camera.distance;
   cameraTarget = camera.target;
   for (const entry of previous.values()) {
-    for (const part of [entry.walls, entry.roofs]) {
+    for (const part of [entry.walls, entry.roofs, entry.details].filter(Boolean)) {
       gl.deleteVertexArray(part.vao);
       gl.deleteBuffer(part.buffer);
     }
@@ -234,6 +242,18 @@ function installScene(mesh, stats, camera) {
   requestDraw();
 }
 
+function radiusForBuildings(items) {
+  if (!items.length) return 750;
+  let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity,maxH=0;
+  for (const item of items) {
+    for(const [x,z] of item.points){ minX=Math.min(minX,x); maxX=Math.max(maxX,x); minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z); }
+    maxH=Math.max(maxH,item.h);
+  }
+  return Math.hypot(maxX-minX,maxZ-minZ,maxH);
+}
+function sampleFootprints() {
+  return sampleBuildings.map(({ x,z,w,d,h }) => ({ h,points:[[x,z],[x+w,z],[x+w,z+d],[x,z+d]] }));
+}
 function cameraForBuildings(items) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const item of items) for (const [x, z] of item.points) {
@@ -247,7 +267,7 @@ function cameraForBuildings(items) {
 
 function showSamples(reason = "") {
   mode = "samples";
-  installScene(createBuildingMesh(), sceneStats(), sampleCamera);
+  installScene(createBuildingMesh(), sceneStats(), sampleCamera, sampleFootprints());
   refreshButtons();
   status.textContent = `${sampleStatus}${reason ? `\n${reason}` : ""}`;
 }
@@ -255,7 +275,7 @@ function showSamples(reason = "") {
 function showToronto() {
   if (!torontoData) return;
   mode = "toronto";
-  installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera);
+  installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera, torontoData.buildings);
   refreshButtons();
   status.textContent = torontoStatus;
 }
@@ -311,12 +331,9 @@ function draw() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.useProgram(renderer.program);
   const target = cameraTarget;
-  const horizontal = Math.cos(tilt) * distance;
-  const eye = [target[0] + horizontal * Math.sin(yaw), target[1] + distance * Math.sin(tilt), target[2] + horizontal * Math.cos(yaw)];
-  // A 0.5m near plane makes kilometre-scale roof and wall depths fight.
-  const near = Math.max(2, distance * 0.06);
-  const far = Math.max(4000, distance * 5);
-  const matrix = multiply(perspective(Math.PI / 3, canvas.width / canvas.height, near, far), lookAt(eye, target));
+  const eye = cameraEye(target, yaw, tilt, distance);
+  const { near, far } = clippingPlanes(distance, sceneRadius + Math.hypot(target[0],target[2]));
+  const matrix = multiply(perspective(FOV, canvas.width / canvas.height, near, far), lookAt(eye, target));
   gl.uniformMatrix4fv(renderer.viewProjection, false, matrix);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LESS);
@@ -338,6 +355,11 @@ function draw() {
     gl.uniform3fv(renderer.tint, [1, 1, 1]);
     gl.bindVertexArray(part.roofs.vao);
     gl.drawArrays(gl.TRIANGLES, 0, part.roofs.count);
+    if (part.details?.count) {
+      gl.uniform3fv(renderer.color, roof.map(v => v * 0.73));
+      gl.bindVertexArray(part.details.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, part.details.count);
+    }
   }
   gl.bindVertexArray(null);
 }
@@ -349,25 +371,81 @@ function requestDraw() {
   }
 }
 
+const zoomLimits = () => mode === "toronto" ? [2.5, 13000] : [2.5, 1000];
+function localPointer(event) {
+  const r = canvas.getBoundingClientRect();
+  return { x: event.clientX - r.left, y: event.clientY - r.top,
+    width: r.width, height: r.height };
+}
+function zoom(factor, x = canvas.clientWidth / 2, y = canvas.clientHeight / 2) {
+  const [minimum, maximum] = zoomLimits();
+  let nextDistance = clamp(distance * factor, minimum, maximum);
+  if (nextDistance === distance) return;
+  const before = cameraTarget;
+  const nextTargetAt = d => zoomAt(before, yaw, tilt, distance, d,
+    x, y, canvas.clientWidth, canvas.clientHeight, activeBuildings);
+  let nextTarget = nextTargetAt(nextDistance);
+  // Don't wheel straight through a facade when inspecting from the outside.
+  if (nextDistance < distance &&
+      !cameraInsideBuildings(cameraEye(before, yaw, tilt, distance), activeBuildings) &&
+      cameraInsideBuildings(cameraEye(nextTarget, yaw, tilt, nextDistance), activeBuildings)) {
+    let unsafe = nextDistance, safe = distance;
+    for (let i = 0; i < 12; i++) {
+      const mid = (safe + unsafe) / 2;
+      const midTarget = nextTargetAt(mid);
+      if (cameraInsideBuildings(cameraEye(midTarget, yaw, tilt, mid), activeBuildings)) unsafe = mid;
+      else safe = mid;
+    }
+    nextDistance = safe;
+    nextTarget = nextTargetAt(nextDistance);
+  }
+  cameraTarget = nextTarget;
+  distance = nextDistance;
+  requestDraw();
+}
+canvas.addEventListener("contextmenu", event => event.preventDefault());
 canvas.addEventListener("pointerdown", event => {
-  pointer = { x: event.clientX, y: event.clientY, id: event.pointerId };
+  if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+  const pos = localPointer(event);
+  pointer = { x: pos.x, y: pos.y, id: event.pointerId,
+    pan: event.button === 2 || event.button === 1 || event.shiftKey };
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener("pointermove", event => {
   if (!pointer || pointer.id !== event.pointerId) return;
-  yaw += (event.clientX - pointer.x) * 0.008;
-  tilt = Math.max(0.12, Math.min(1.48, tilt + (event.clientY - pointer.y) * 0.007));
-  pointer.x = event.clientX;
-  pointer.y = event.clientY;
+  const pos = localPointer(event);
+  if (pointer.pan) {
+    cameraTarget = panOnPlane(cameraTarget, yaw, tilt, distance,
+      pointer.x, pointer.y, pos.x, pos.y, pos.width, pos.height);
+  } else {
+    yaw += (pos.x - pointer.x) * 0.008;
+    tilt = clamp(tilt + (pos.y - pointer.y) * 0.007, 0.16, 1.48);
+  }
+  pointer.x = pos.x;
+  pointer.y = pos.y;
   requestDraw();
 });
 canvas.addEventListener("pointerup", () => { pointer = null; });
 canvas.addEventListener("pointercancel", () => { pointer = null; });
+canvas.addEventListener("dblclick", event => {
+  event.preventDefault();
+  const { x, y, width, height } = localPointer(event);
+  const hit = hitBuildings(screenRay(x, y, width, height, cameraTarget, yaw, tilt, distance), activeBuildings);
+  if (!hit) return;
+  cameraTarget = hit;
+  distance = Math.max(12, Math.min(distance * 0.38, 80));
+  requestDraw();
+});
 canvas.addEventListener("wheel", event => {
   event.preventDefault();
-  distance = Math.max(mode === "toronto" ? 100 : 90, Math.min(mode === "toronto" ? 5000 : 700, distance * Math.exp(event.deltaY * 0.001)));
-  requestDraw();
+  const pos = localPointer(event);
+  // Trackpad and mouse wheel both zoom toward the selected roof, wall or ground.
+  const scroll = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * canvas.clientHeight : event.deltaY;
+  zoom(Math.exp(clamp(scroll * 0.001, -0.9, 0.9)), pos.x, pos.y);
 }, { passive: false });
+zoomInButton.addEventListener("click", () => zoom(0.65));
+zoomOutButton.addEventListener("click", () => zoom(1.55));
+
 texturesButton.addEventListener("click", () => {
   textureMode = !textureMode;
   texturesButton.textContent = textureMode ? "Textures on" : "Textures off";
@@ -403,12 +481,16 @@ async function start() {
   const parts = new Map();
   for (const [name, entry] of mesh) {
     if (entry.walls.length === 0) continue;
-    parts.set(name, { walls: makeBuffer(entry.walls, position, uv, normal), roofs: makeBuffer(entry.roofs, position, uv, normal) });
+    parts.set(name, { walls: makeBuffer(entry.walls, position, uv, normal),
+      roofs: makeBuffer(entry.roofs, position, uv, normal),
+      details: makeBuffer(entry.details || [], position, uv, normal) });
   }
   const blank = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, blank);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
   const names = [...parts.keys()];
+  activeBuildings = sampleFootprints();
+  sceneRadius = radiusForBuildings(activeBuildings);
   renderer = {
     program, parts, blank, textures: new Map(),
     viewProjection: gl.getUniformLocation(program, "viewProjection"),
@@ -429,6 +511,13 @@ async function start() {
     getCamera: () => ({ yaw, tilt, distance, target: cameraTarget, mode }),
     getBuildingStats: () => renderer.stats,
     getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode }),
+    zoom, setCamera: (next) => {
+      if (Number.isFinite(next?.yaw)) yaw = next.yaw;
+      if (Number.isFinite(next?.tilt)) tilt = clamp(next.tilt, .16, 1.48);
+      if (Number.isFinite(next?.distance)) distance = clamp(next.distance, ...zoomLimits());
+      if (Array.isArray(next?.target) && next.target.length === 3 && next.target.every(Number.isFinite)) cameraTarget = next.target.slice();
+      requestDraw();
+    },
   };
   loadToronto();
 }

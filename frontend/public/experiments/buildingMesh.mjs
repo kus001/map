@@ -47,8 +47,43 @@ const addTriangle = (vertices, a, b, c, uva, uvb, uvc, normal) => {
   }
 };
 
+// One small HVAC unit on a sufficiently wide, exposed roof triangle.
+// It sits inside the triangle rather than outside concave Toronto footprints.
+function addRoofUnit(group, triangles, height) {
+  if (height < 12 || !triangles.length) return;
+  let best = null;
+  for (const [a, b, c] of triangles) {
+    const ab = Math.hypot(a[0]-b[0], a[1]-b[1]);
+    const bc = Math.hypot(b[0]-c[0], b[1]-c[1]);
+    const ca = Math.hypot(c[0]-a[0], c[1]-a[1]);
+    const area = Math.abs((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]))/2;
+    const perimeter = ab+bc+ca;
+    const radius = perimeter > 0 ? 2*area/perimeter : 0;
+    if (!best || radius > best.radius) {
+      const cx=(bc*a[0]+ca*b[0]+ab*c[0])/perimeter;
+      const cz=(bc*a[1]+ca*b[1]+ab*c[1])/perimeter;
+      best={cx,cz,radius};
+    }
+  }
+  if (!best || best.radius < 2.2) return;
+  const half = Math.min(2.25, best.radius*0.38);
+  const x=best.cx, z=best.cz, y=height+0.035, top=y+Math.min(1.25,half*0.8);
+  const corners=[[x-half,z-half*0.65],[x+half,z-half*0.65],[x+half,z+half*0.65],[x-half,z+half*0.65]];
+  for(let i=0;i<4;i++){
+    const a=corners[i],b=corners[(i+1)%4];
+    const edge=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    const normal=[(b[1]-a[1])/edge,0,-(b[0]-a[0])/edge];
+    const loA=[a[0],y,a[1]],loB=[b[0],y,b[1]],hiA=[a[0],top,a[1]],hiB=[b[0],top,b[1]];
+    addTriangle(group.details,loA,loB,hiB,[0,0],[1,0],[1,1],normal);
+    addTriangle(group.details,loA,hiB,hiA,[0,0],[1,1],[0,1],normal);
+  }
+  const v=corners.map(([a,b])=>[a,top,b]);
+  addTriangle(group.details,v[0],v[2],v[1],[0,0],[1,1],[1,0],[0,1,0]);
+  addTriangle(group.details,v[0],v[3],v[2],[0,0],[0,1],[1,1],[0,1,0]);
+}
+
 export function createBuildingMesh(items = buildings) {
-  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [] }]));
+  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [], details: [] }]));
   for (const item of items) {
     const x = item.x;
     const z = item.z;
@@ -72,6 +107,7 @@ export function createBuildingMesh(items = buildings) {
     const corners = [[x, h, z], [x2, h, z], [x2, h, z2], [x, h, z2]];
     addTriangle(group.roofs, corners[0], corners[2], corners[1], [0, 0], [1, 1], [1, 0], [0, 1, 0]);
     addTriangle(group.roofs, corners[0], corners[3], corners[2], [0, 0], [0, 1], [1, 1], [0, 1, 0]);
+    addRoofUnit(group, [[points[0],points[1],points[2]], [points[0],points[2],points[3]]], h);
   }
   return surfaces;
 }
@@ -380,7 +416,7 @@ function roofTriangles(item, index, items, neighbours, trianglesByItem) {
 }
 
 export function createPolygonBuildingMesh(items) {
-  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [] }]));
+  const surfaces = new Map(facades.map(name => [name, { walls: [], roofs: [], details: [] }]));
   const { neighbours } = overlapCandidates(items);
   const trianglesByItem = items.map(item => triangulateRoof(item.points || []));
   for (let index = 0; index < items.length; index++) {
@@ -390,7 +426,7 @@ export function createPolygonBuildingMesh(items) {
     const material = facades.includes(item.material) ? item.material : "default";
     const variant = Number.isInteger(item.variant) ? Math.max(0, Math.min(4, item.variant)) : 0;
     const groupName = Number.isInteger(item.variant) ? `${material}:${variant}` : material;
-    if (!surfaces.has(groupName)) surfaces.set(groupName, { walls: [], roofs: [] });
+    if (!surfaces.has(groupName)) surfaces.set(groupName, { walls: [], roofs: [], details: [] });
     const group = surfaces.get(groupName);
     for (const segment of wallSegments(item, index, items, neighbours)) {
       const { a, b, normal, base, top, u0, u1 } = segment;
@@ -399,10 +435,12 @@ export function createPolygonBuildingMesh(items) {
       addTriangle(group.walls, lowerA, lowerB, upperB, [u0, base / 9], [u1, base / 9], [u1, top / 9], normal);
       addTriangle(group.walls, lowerA, upperB, upperA, [u0, base / 9], [u1, top / 9], [u0, top / 9], normal);
     }
-    for (const [a, b, c] of roofTriangles(item, index, items, neighbours, trianglesByItem)) {
+    const visibleRoof = roofTriangles(item, index, items, neighbours, trianglesByItem);
+    for (const [a, b, c] of visibleRoof) {
       addTriangle(group.roofs, [a[0], height, a[1]], [c[0], height, c[1]], [b[0], height, b[1]],
         [0, 0], [1, 1], [1, 0], [0, 1, 0]);
     }
+    addRoofUnit(group, visibleRoof, height);
   }
   return surfaces;
 }

@@ -35,14 +35,14 @@ function area(points) {
   }
   return sum*0.5;
 }
-export function parseOSMStreets(json) {
+export function parseOSMStreets(json, origin = TORONTO_ORIGIN) {
   if (!Array.isArray(json?.elements)) throw new Error("Invalid OSM street data");
   const roads=[],parks=[];
   for (const way of json.elements) {
     if (way.type!=="way" || !Array.isArray(way.geometry)) continue;
     const points=cleanPoints(way.geometry
       .filter(({lat,lon})=>Number.isFinite(lat)&&Number.isFinite(lon))
-      .map(({lat,lon})=>toLocalMetres([lon,lat],TORONTO_ORIGIN)));
+      .map(({lat,lon})=>toLocalMetres([lon,lat], origin)));
     const tags=way.tags||{};
     if (tags.highway && points.length>=2) roads.push({id:way.id,points,type:tags.highway});
     if (tags.leisure==="park" && points.length>=3) parks.push({id:way.id,points});

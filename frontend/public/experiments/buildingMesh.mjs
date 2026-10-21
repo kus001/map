@@ -1,4 +1,4 @@
-const facades = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "default"];
+const facades = ["glass", "brick", "concrete", "stone", "metal", "wood", "plaster", "plain", "default"];
 
 export const buildings = [
   { x: -62, z: -50, w: 23, d: 21, h: 24, material: "brick" },
@@ -135,6 +135,88 @@ export function toLocalMetres(point, origin = TORONTO_ORIGIN) {
   ];
 }
 
+function ringLonLatBounds(raw) {
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const point of raw || []) {
+    if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+    minLon = Math.min(minLon, point[0]); maxLon = Math.max(maxLon, point[0]);
+    minLat = Math.min(minLat, point[1]); maxLat = Math.max(maxLat, point[1]);
+  }
+  if (!Number.isFinite(minLon)) return null;
+  return { minLon, maxLon, minLat, maxLat, lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2 };
+}
+
+function insideGeoBox(point, box) {
+  return point && point.lon >= box.minLon && point.lon <= box.maxLon && point.lat >= box.minLat && point.lat <= box.maxLat;
+}
+
+function rectPoints(minX, minZ, maxX, maxZ) {
+  return [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
+}
+
+function insetBoundsRect(box, fx0, fz0, fx1, fz1) {
+  const x0 = box.minX + (box.maxX - box.minX) * fx0;
+  const x1 = box.minX + (box.maxX - box.minX) * fx1;
+  const z0 = box.minZ + (box.maxZ - box.minZ) * fz0;
+  const z1 = box.minZ + (box.maxZ - box.minZ) * fz1;
+  return rectPoints(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1));
+}
+
+function footprintMetrics(points) {
+  const box = bounds(points);
+  return { box, width: box.maxX - box.minX, depth: box.maxZ - box.minZ, area: Math.abs(polygonArea(points)) };
+}
+
+const LANDMARK_ZONES = {
+  eaton: { minLon: -79.3826, maxLon: -79.3781, minLat: 43.6512, maxLat: 43.6549 },
+  sheraton: { minLon: -79.3847, maxLon: -79.3810, minLat: 43.6496, maxLat: 43.6525 },
+  nathanPhillips: { minLon: -79.3852, maxLon: -79.3822, minLat: 43.6515, maxLat: 43.6535 },
+};
+
+function createRefinedLandmarkParts(footprint, height, look, centroid, identity, measuredHeight) {
+  const { box, width, depth, area } = footprintMetrics(footprint);
+  const tallEnough = height > 32;
+  const pieces = [];
+
+  // Decorative arches at Nathan Phillips Square are not facade-bearing buildings.
+  if (insideGeoBox(centroid, LANDMARK_ZONES.nathanPhillips) && area < 240 && Math.min(width, depth) < 5.5 && Math.max(width, depth) > 20) {
+    pieces.push({ id: `${identity}:arch`, points: footprint, h: Math.min(height, 11), material: 'plain', variant: 0,
+      measuredHeight, skipRoofUnit: true });
+    return pieces;
+  }
+
+  // Large Eaton Centre / Sheraton footprints look wrong when the whole footprint inherits the tallest height.
+  // Split them into a lower podium and a smaller taller mass.
+  if (insideGeoBox(centroid, LANDMARK_ZONES.eaton) && area > 3000 && tallEnough) {
+    const podium = Math.max(18, Math.min(30, height * 0.34));
+    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false });
+    // Smaller tall portion toward the Yonge / Dundas edge, intentionally much smaller than the whole block.
+    const tower = insetBoundsRect(box, 0.58, 0.08, 0.88, 0.48);
+    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: 'glass', variant: (look.variant + 1) % 5, measuredHeight, skipRoofUnit: false });
+    return pieces;
+  }
+
+  if (insideGeoBox(centroid, LANDMARK_ZONES.sheraton) && area > 2500 && tallEnough) {
+    const podium = Math.max(16, Math.min(26, height * 0.30));
+    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false });
+    // Sheraton: broad podium with one dominant hotel tower along the east side.
+    const tower = insetBoundsRect(box, 0.62, 0.06, 0.90, 0.58);
+    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: 'concrete', variant: look.variant, measuredHeight, skipRoofUnit: false });
+    return pieces;
+  }
+
+  // Generic massing refinement for unusually huge downtown slabs.
+  if (area > 5200 && height > 48 && Math.max(width, depth) > 70) {
+    const podium = Math.max(18, Math.min(28, height * 0.38));
+    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: look.material, variant: look.variant, measuredHeight, skipRoofUnit: false });
+    const tower = insetBoundsRect(box, 0.25, 0.18, 0.70, 0.62);
+    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: look.material, variant: look.variant, measuredHeight, skipRoofUnit: false });
+    return pieces;
+  }
+
+  return null;
+}
+
 function polygonArea(points) {
   let sum = 0;
   for (let i = 0; i < points.length; i++) {
@@ -219,7 +301,8 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
     for (let p = 0; p < polygons.length; p++) {
       const rings = polygons[p];
       if (!Array.isArray(rings) || !rings.length) continue;
-      const footprint = cleanRing(rings[0].map(point => toLocalMetres(point, origin)));
+      const outerRing = rings[0];
+      const footprint = cleanRing(outerRing.map(point => toLocalMetres(point, origin)));
       if (footprint.length < 3 || footprint.length > 1000 || Math.abs(polygonArea(footprint)) < 18) continue;
       if (rings.length > 1) skippedHoles++;
       const id = properties.OBJECTID ?? feature.id ?? result.length;
@@ -227,8 +310,14 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
       const identity = String(buildingId).trim() || String(id);
       if (!sharedLooks.has(identity)) sharedLooks.set(identity, chooseBuildingAppearance(identity, height));
       const look = sharedLooks.get(identity);
-      result.push({ id: `${id}:${p}`, points: footprint, h: height, material: look.material,
-        variant: look.variant, measuredHeight: heightKnown });
+      const centroid = ringLonLatBounds(outerRing);
+      const refined = createRefinedLandmarkParts(footprint, height, look, centroid, `${id}:${p}`, heightKnown);
+      if (refined?.length) {
+        for (const piece of refined) result.push(piece);
+      } else {
+        result.push({ id: `${id}:${p}`, points: footprint, h: height, material: look.material,
+          variant: look.variant, measuredHeight: heightKnown, skipRoofUnit: false });
+      }
       if (heightKnown) recordedHeights++; else estimatedHeights++;
     }
   }
@@ -440,7 +529,7 @@ export function createPolygonBuildingMesh(items) {
       addTriangle(group.roofs, [a[0], height, a[1]], [c[0], height, c[1]], [b[0], height, b[1]],
         [0, 0], [1, 1], [1, 0], [0, 1, 0]);
     }
-    addRoofUnit(group, visibleRoof, height);
+    if (!item.skipRoofUnit) addRoofUnit(group, visibleRoof, height);
   }
   return surfaces;
 }

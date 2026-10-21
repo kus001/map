@@ -68,7 +68,7 @@ AGENCIES = {agency.id: agency for agency in (
             trip_updates_url="https://bustime.ttc.ca/gtfsrt/trips",
             vehicles_url="https://bustime.ttc.ca/gtfsrt/vehicles",
             alerts_url="https://bustime.ttc.ca/gtfsrt/alerts",
-            cache="dttc.pkl", fallback_mode="TTC"),
+            cache="dttc.pkl", match_live_by_time=True, fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore
            cache="dhsr.pkl", fallback_mode="bus"),

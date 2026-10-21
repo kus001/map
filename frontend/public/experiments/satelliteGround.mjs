@@ -1,10 +1,17 @@
 import { TORONTO_ORIGIN, toLocalMetres } from "./buildingMesh.mjs";
 
-// Only imagery has geographic tiles. The building meshes keep their fixed local coordinates.
+// Imagery is georeferenced with the same origin as the fetched Toronto buildings.
 const EARTH = 6378137;
 const DEG = Math.PI / 180;
 const GROUND_HALF_SIZE = 1250;
 const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+let satelliteOrigin = { ...TORONTO_ORIGIN };
+
+export function setSatelliteOrigin(origin) {
+  if (origin && Number.isFinite(origin.lon) && Number.isFinite(origin.lat)) {
+    satelliteOrigin = { lon: origin.lon, lat: origin.lat };
+  }
+}
 
 export function satelliteTileURL(z, x, y, template = SATELLITE_URL) {
   return template.replaceAll("{z}", String(z)).replaceAll("{x}", String(x)).replaceAll("{y}", String(y));
@@ -22,8 +29,8 @@ export function tileCorner(x, y, z) {
   return [x / n * 360 - 180, Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) / DEG];
 }
 export function sceneToLonLat(x, z) {
-  return [TORONTO_ORIGIN.lon + x / (EARTH * DEG * Math.cos(TORONTO_ORIGIN.lat * DEG)),
-    TORONTO_ORIGIN.lat - z / (EARTH * DEG)];
+  return [satelliteOrigin.lon + x / (EARTH * DEG * Math.cos(satelliteOrigin.lat * DEG)),
+    satelliteOrigin.lat - z / (EARTH * DEG)];
 }
 export function tilesForSquare(centerX, centerZ, halfSize, zoom) {
   const [west, north] = sceneToLonLat(centerX - halfSize, centerZ - halfSize);
@@ -35,8 +42,8 @@ export function tilesForSquare(centerX, centerZ, halfSize, zoom) {
     for (let x = Math.floor(xMin); x <= Math.floor(xMax); x++) {
       const [lon0, lat0] = tileCorner(x, y, zoom);
       const [lon1, lat1] = tileCorner(x + 1, y + 1, zoom);
-      const nw = toLocalMetres([lon0, lat0], TORONTO_ORIGIN);
-      const se = toLocalMetres([lon1, lat1], TORONTO_ORIGIN);
+      const nw = toLocalMetres([lon0, lat0], satelliteOrigin);
+      const se = toLocalMetres([lon1, lat1], satelliteOrigin);
       // Don't render imagery outside our finite sample area.
       if (nw[0] > GROUND_HALF_SIZE || se[0] < -GROUND_HALF_SIZE || nw[1] > GROUND_HALF_SIZE || se[1] < -GROUND_HALF_SIZE) continue;
       tiles.push({ key: `${zoom}/${x}/${y}`, zoom, x, y, west: nw[0], north: nw[1], east: se[0], south: se[1] });

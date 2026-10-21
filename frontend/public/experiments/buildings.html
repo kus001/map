@@ -23,13 +23,15 @@
   <canvas id="scene" aria-label="Experimental textured 3D buildings"></canvas>
   <aside>
     <h1>kmaps — building renderer test</h1>
-    <p>Separate test scene. Doesnt touch the actual map. Drag to orbit, scroll to zoom.</p>
+    <p>Separate test scene. Doesnt touch the actual map. Drag to orbit, Shift/right-drag to pan, scroll toward your cursor to zoom, double-click a building to focus.</p>
     <div class="controls">
       <button id="toronto" aria-pressed="false">Toronto</button>
       <button id="samples" aria-pressed="true">Samples</button>
     </div>
     <div class="controls">
       <button id="textures" aria-pressed="true">Textures on</button>
+      <button id="zoom-in" title="Zoom toward the centre">Zoom +</button>
+      <button id="zoom-out" title="Zoom out">Zoom −</button>
       <button id="reset">Reset view</button>
     </div>
     <div id="status">Loading renderer...</div>

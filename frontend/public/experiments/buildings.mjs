@@ -1,4 +1,4 @@
-import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
+import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, convertOSMBuildingParts, refineBuildingMassing, polygonSceneStats } from "./buildingMesh.mjs";
 import { createGroundMesh, parseOSMStreets } from "./cityGround.mjs";
 import { satelliteTileURL, satelliteTileVertices, desiredSatelliteTiles, setSatelliteOrigin } from "./satelliteGround.mjs";
 import { FOV, clamp, cameraEye, screenRay, hitBuildings, zoomAt, panOnPlane, clippingPlanes, cameraInsideBuildings } from "./cameraMath.mjs";
@@ -50,77 +50,37 @@ const fragmentShader = `#version 300 es
   uniform vec2 moduleSize;
   out vec4 outputColor;
 
-  float rectMask(vec2 uv, vec2 minUV, vec2 maxUV, float feather) {
-    float x = smoothstep(minUV.x, minUV.x + feather, uv.x) * (1.0 - smoothstep(maxUV.x - feather, maxUV.x, uv.x));
-    float y = smoothstep(minUV.y, minUV.y + feather, uv.y) * (1.0 - smoothstep(maxUV.y - feather, maxUV.y, uv.y));
-    return x * y;
+  float band(float t, float a, float b) {
+    return smoothstep(a, a + 0.013, t) * (1.0 - smoothstep(b - 0.013, b, t));
   }
-
-  float hash12(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-  }
-
   void main() {
-    vec3 sampled = useImage ? texture(facade, sampleUV).rgb : color;
-    vec3 surface = sampled;
-
+    vec3 surface = useImage ? texture(facade, sampleUV).rgb : color;
     if (useArchitecture) {
+      // Architectural rhythm in metres, not random per-window hashes:
+      // one real-world floor height and one bay size per facade class.
       vec2 metres = sampleUV * 9.0;
-      float bay = max(moduleSize.x, 2.3);
-      float floorHeight = max(moduleSize.y, 3.0);
-      vec2 cell = vec2(metres.x / bay, metres.y / floorHeight);
-      vec2 grid = fract(cell);
-      vec2 cellId = floor(cell);
-      float glassTower = float(wallStyle == 0);
-      float heavyTower = float(wallStyle == 2);
-      float softTower = float(wallStyle == 3);
-      float plainObject = float(wallStyle == 4);
+      vec2 grid = fract(metres / max(moduleSize, vec2(1.0)));
+      float hotel = float(wallStyle == 1);
+      float masonryBuilding = float(wallStyle == 2 || wallStyle == 3);
+      float glass = float(wallStyle == 0);
+      float plain = float(wallStyle == 4);
 
-      // Toronto buildings looked too busy with photo-sheet windows.
-      // Keep the photo only as a gentle colour cue; build the actual facade
-      // rhythm procedurally with larger modules and stronger wall masses.
-      vec3 cue = mix(vec3(dot(sampled, vec3(0.299, 0.587, 0.114))), sampled, 0.38);
-      vec3 baseFacade = mix(masonry, cue, 0.18 + 0.32 * glassTower);
-      surface = mix(baseFacade, sampled, 0.10 * glassTower);
-      if (plainObject > 0.5) {
-        float broadStripe = 0.5 + 0.5 * cos(sampleUV.y * 6.28318);
-        surface = mix(masonry, frameColor, 0.08 + 0.10 * broadStripe);
-      }
-
-      float pierWidth = mix(0.18, 0.11, glassTower);
-      float sill = mix(0.20, 0.14, glassTower);
-      float head = mix(0.82, 0.90, glassTower);
-      float windowWidth = mix(0.34, 0.68, glassTower);
-      float windowMinX = 0.5 - windowWidth * 0.5;
-      float windowMaxX = 0.5 + windowWidth * 0.5;
-      float windowMask = rectMask(grid, vec2(windowMinX, sill), vec2(windowMaxX, head), 0.035);
-
-      // Some bays stay solid to break up endless hotel-like repetition.
-      float bayVariant = hash12(vec2(cellId.x, floor(cellId.y * 0.35)) + float(wallStyle) * 1.37);
-      float bayActive = glassTower > 0.5 ? 1.0 : step(0.18, bayVariant);
-      windowMask *= bayActive * (1.0 - plainObject);
-
-      float verticalJoint = rectMask(grid, vec2(0.5 - pierWidth, 0.0), vec2(0.5 + pierWidth, 1.0), 0.04);
-      float horizontalBand = rectMask(grid, vec2(0.0, 0.0), vec2(1.0, 0.08 + 0.05 * heavyTower), 0.03);
-      float spandrel = rectMask(grid, vec2(windowMinX, head - 0.02), vec2(windowMaxX, 0.97), 0.03) * (0.45 + 0.55 * glassTower);
-      float podium = 1.0 - smoothstep(1.8, 5.0, metres.y / floorHeight);
-
-      vec3 shadowGlass = mix(vec3(0.10, 0.12, 0.15), vec3(0.18, 0.23, 0.29), glassTower);
-      shadowGlass = mix(shadowGlass, vec3(0.23, 0.28, 0.34), 0.16 * hash12(cellId));
-
-      surface = mix(surface, frameColor, verticalJoint * (0.10 + 0.10 * heavyTower));
-      surface = mix(surface, masonry * 0.82, horizontalBand * (0.10 + 0.10 * softTower));
-      surface = mix(surface, shadowGlass, windowMask);
-      surface = mix(surface, mix(surface, masonry * 0.86, 0.38), podium * (0.35 + 0.18 * heavyTower));
-      surface = mix(surface, frameColor, spandrel * 0.18);
-
-      // Slight corner softening for rounded towers without painting extra window grids.
-      float broadStripe = 0.5 + 0.5 * cos(sampleUV.x * 3.14159 * 0.55);
-      surface = mix(surface, mix(surface, frameColor, 0.12), broadStripe * 0.10 * glassTower);
+      // Curtain wall: broad glazed spans + substantial horizontal spandrels.
+      // Hotel/concrete: regular punched windows with larger blank piers.
+      float pane = band(grid.x, mix(0.26, 0.10, glass), mix(0.74, 0.90, glass));
+      float floorWindow = band(grid.y, mix(0.29, 0.24, glass), mix(0.77, 0.79, glass));
+      float windowMask = pane * floorWindow * (1.0 - plain);
+      vec3 backing = mix(masonry, surface, 0.20 + glass * 0.18);
+      vec3 glazing = mix(vec3(0.15, 0.20, 0.25), vec3(0.23, 0.32, 0.38), glass);
+      surface = mix(backing, glazing, windowMask);
+      float sill = band(grid.y, 0.06, 0.17) * (glass + 0.42 * hotel);
+      surface = mix(surface, frameColor, sill * 0.37);
+      // Opaque material dominates masonry/hotel walls; no artificial
+      // checkerboard, missing random windows, or painted fake arches.
+      surface = mix(surface, masonry, masonryBuilding * (1.0 - windowMask) * 0.12);
+      if (plain > 0.5) surface = masonry;
     }
-
-    surface *= tint;
-    outputColor = vec4(clamp(surface * lighting, 0.0, 1.0), 1.0);
+    outputColor = vec4(clamp(surface * tint * lighting, 0.0, 1.0), 1.0);
   }
 `;
 
@@ -235,7 +195,7 @@ function loadTexture(name, fallback) {
 const palette = {
   glass: [0.55, 0.7, 0.78], brick: [0.67, 0.42, 0.32], concrete: [0.74, 0.73, 0.71],
   stone: [0.78, 0.73, 0.63], metal: [0.65, 0.7, 0.72], wood: [0.67, 0.51, 0.39],
-  plaster: [0.85, 0.83, 0.78], plain: [0.79, 0.80, 0.79], default: [0.77, 0.76, 0.73],
+  plaster: [0.85, 0.83, 0.78], default: [0.77, 0.76, 0.73],
 };
 
 // No new PNGs or per-frame randomness. The same building always has the same tint.
@@ -246,27 +206,25 @@ const facadeTints = [
 const roofPalette = {
   glass: [0.57, 0.62, 0.65], brick: [0.61, 0.55, 0.48], concrete: [0.68, 0.67, 0.63],
   stone: [0.70, 0.66, 0.59], metal: [0.48, 0.54, 0.57], wood: [0.58, 0.56, 0.49],
-  plaster: [0.72, 0.69, 0.62], plain: [0.77, 0.77, 0.76], default: [0.66, 0.65, 0.62],
+  plaster: [0.72, 0.69, 0.62], default: [0.66, 0.65, 0.62],
 };
 const roofTints = [1, 0.92, 1.07, 0.97, 1.04];
 // Approximate facade styles, not surveyed architectural details.
 const wallProfiles = {
-  glass:    { style: 0, masonry: [0.47,0.53,0.57], frame: [0.28,0.35,0.38], bay: 2.9, floor: 3.7 },
-  metal:    { style: 0, masonry: [0.57,0.61,0.62], frame: [0.33,0.37,0.40], bay: 3.2, floor: 3.9 },
-  concrete: { style: 1, masonry: [0.72,0.69,0.65], frame: [0.51,0.50,0.49], bay: 3.0, floor: 3.4 },
-  stone:    { style: 2, masonry: [0.76,0.68,0.55], frame: [0.55,0.50,0.45], bay: 2.7, floor: 3.5 },
-  brick:    { style: 2, masonry: [0.66,0.36,0.28], frame: [0.46,0.29,0.25], bay: 2.55, floor: 3.3 },
-  wood:     { style: 3, masonry: [0.65,0.48,0.34], frame: [0.39,0.32,0.26], bay: 2.6, floor: 3.2 },
-  plaster:  { style: 3, masonry: [0.82,0.77,0.66], frame: [0.55,0.53,0.48], bay: 3.15, floor: 3.45 },
-  plain:    { style: 4, masonry: [0.79,0.80,0.79], frame: [0.63,0.64,0.64], bay: 100.0, floor: 6.0 },
-  default:  { style: 1, masonry: [0.72,0.70,0.65], frame: [0.50,0.52,0.54], bay: 3.0, floor: 3.5 },
+  glass:    { style: 0, masonry: [0.47,0.53,0.57], frame: [0.28,0.35,0.38], bay: 6.0, floor: 3.9 },
+  metal:    { style: 0, masonry: [0.57,0.61,0.62], frame: [0.33,0.37,0.40], bay: 6.0, floor: 3.9 },
+  concrete: { style: 1, masonry: [0.72,0.69,0.65], frame: [0.51,0.50,0.49], bay: 4.8, floor: 3.65 },
+  stone:    { style: 2, masonry: [0.76,0.68,0.55], frame: [0.55,0.50,0.45], bay: 5.1, floor: 3.65 },
+  brick:    { style: 2, masonry: [0.66,0.36,0.28], frame: [0.46,0.29,0.25], bay: 4.9, floor: 3.55 },
+  wood:     { style: 3, masonry: [0.65,0.48,0.34], frame: [0.39,0.32,0.26], bay: 5.0, floor: 3.5 },
+  plaster:  { style: 3, masonry: [0.82,0.77,0.66], frame: [0.55,0.53,0.48], bay: 5.0, floor: 3.6 },
+  default:  { style: 1, masonry: [0.72,0.70,0.65], frame: [0.50,0.52,0.54], bay: 5.0, floor: 3.7 },
 };
 function appearance(name) {
   const [base, raw] = name.split(":");
   const variant = Math.max(0, Math.min(4, Number(raw) || 0));
-  const wall = { ...(wallProfiles[base] || wallProfiles.default) };
-  return { base, tint: facadeTints[variant], roof: (roofPalette[base] || roofPalette.default).map(v => v * roofTints[variant]),
-    wall, variant };
+  return { base, tint: facadeTints[variant], roof: roofPalette[base].map(v => v * roofTints[variant]),
+    wall: wallProfiles[base] || wallProfiles.default, variant };
 }
 
 let yaw = -0.62;
@@ -286,6 +244,8 @@ let satelliteActive = new Set();
 let satelliteLoading = 0;
 const MAX_SATELLITE_DOWNLOADS = 6;
 let groundGeometry = null;
+let osmPartsStatus = "";
+let streetRequestStarted = false;
 let streetStatus = "";
 let activeBuildings = [];
 let sceneRadius = 750;
@@ -519,19 +479,21 @@ function showSamples(reason = "") {
   status.textContent = `${sampleStatus}${reason ? `\n${reason}` : ""}`;
 }
 
-function showToronto() {
+function showToronto(preserveCamera = false) {
   if (!torontoData) return;
   mode = "toronto";
-  installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera, torontoData.buildings);
+  const camera = preserveCamera && mode === "toronto" ? { yaw, tilt, distance, target: cameraTarget.slice() } : torontoCamera;
+  installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), camera, torontoData.buildings);
   refreshButtons();
   updateTorontoStatus();
   if (satelliteMode) updateSatelliteTiles();
 }
 
 // Streets come from a separate OSM snapshot, never from a simulated road grid.
-const OSM_STREETS_QUERY = `[out:json][timeout:18];(way["highway"](43.6480,-79.3865,43.6553,-79.3773);way["leisure"="park"](43.6480,-79.3865,43.6553,-79.3773););out geom;`;
+const OSM_STREETS_QUERY = `[out:json][timeout:18];(way["highway"](43.6480,-79.3865,43.6553,-79.3773);way["leisure"="park"](43.6480,-79.3865,43.6553,-79.3773);way["building:part"](43.6480,-79.3865,43.6553,-79.3773););out geom;`;
 async function loadStreets() {
-  if (groundGeometry || !streetsMode) return;
+  if (streetRequestStarted) return;
+  streetRequestStarted = true;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 22000);
@@ -542,16 +504,24 @@ async function loadStreets() {
     } finally { clearTimeout(timer); }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    groundGeometry = parseOSMStreets(data);
+    groundGeometry = parseOSMStreets(data, torontoData?.origin);
     streetStatus = `${groundGeometry.roads.length} OSM street segments · ${groundGeometry.parks.length} park outlines`;
+    if (torontoData) {
+      const parts = convertOSMBuildingParts(data, torontoData.origin);
+      const refined = refineBuildingMassing(torontoData.originalBuildings, parts);
+      torontoData.buildings = refined.buildings;
+      torontoData.massing = refined;
+      osmPartsStatus = `${refined.parts} OSM height-tagged building sections used · ${refined.capped} oversized outlines simplified`;
+      if (mode === "toronto") showToronto(true);
+    }
     if (mode === "toronto") replaceGround();
   } catch (error) {
-    streetStatus = `Street data unavailable (${error.message}); neutral ground retained`;
+    streetStatus = `OSM streets/parts unavailable (${error.message}); City geometry retained`;
   }
   if (mode === "toronto") updateTorontoStatus();
 }
 function updateTorontoStatus() {
-  if (mode === "toronto") status.textContent = `${torontoStatus}${streetStatus ? `\n${streetStatus}` : ""}${satelliteMode ? `\n${satelliteStatus}` : ""}`;
+  if (mode === "toronto") status.textContent = `${torontoStatus}${streetStatus ? `\n${streetStatus}` : ""}${osmPartsStatus ? `\n${osmPartsStatus}` : ""}${satelliteMode ? `\n${satelliteStatus}` : ""}`;
 }
 
 async function loadToronto() {
@@ -574,10 +544,14 @@ async function loadToronto() {
       const parsed = convertTorontoGeoJSON(data, sceneOrigin);
       if (parsed.buildings.length < 3) throw new Error("No usable building polygons in the Toronto response");
       parsed.origin = sceneOrigin;
+      parsed.originalBuildings = parsed.buildings;
+      const massing = refineBuildingMassing(parsed.originalBuildings);
+      parsed.buildings = massing.buildings;
+      parsed.massing = massing;
       torontoData = parsed;
       torontoCamera = cameraForBuildings(parsed.buildings);
       const stats = polygonSceneStats(parsed.buildings);
-      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nToronto footprints are georeferenced to the fetched dataset centre. Facades are simplified approximations with reduced window repetition; actual facade materials are not surveyed. Camera movement never rebuilds geometry.`;
+      torontoStatus = `${stats.buildings} Toronto building sections · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} reported heights · ${parsed.estimatedHeights} estimated at 12 m · ${massing.capped} suspect giant footprints shown as low-rise until better heights are found${parsed.skippedInvalidRoofs ? ` · ${parsed.skippedInvalidRoofs} invalid polygon roofs excluded` : ""}\nConsistent facade modules; exact exteriors are not surveyed. Camera movement never rebuilds geometry.`;
       if (requestedMode === "toronto") showToronto();
       loadStreets();
     } catch (error) {
@@ -653,7 +627,7 @@ function draw() {
     gl.uniform3fv(renderer.tint, tint);
     const usePhotographicFacade = Boolean(textureMode && chosen?.ok && mode !== "toronto");
     gl.uniform1i(renderer.useImage, usePhotographicFacade);
-    gl.uniform1i(renderer.useArchitecture, architectureMode && !wall.plain);
+    gl.uniform1i(renderer.useArchitecture, architectureMode && (mode !== "toronto" || textureMode));
     gl.uniform1i(renderer.wallStyle, wall.style);
     gl.uniform3fv(renderer.masonry, wall.masonry);
     gl.uniform3fv(renderer.frameColor, wall.frame);

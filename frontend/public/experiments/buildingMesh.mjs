@@ -35,10 +35,17 @@ const MATERIAL_WEIGHTS = [
   [0, ["brick", "brick", "stone", "concrete", "plaster", "plaster", "wood", "default"]],
 ];
 
-export function chooseBuildingAppearance(identity, height) {
-  const hash = hashId(identity);
-  const pool = MATERIAL_WEIGHTS.find(([minimum]) => height >= minimum)[1];
-  return { material: pool[hash % pool.length], variant: (hash >>> 8) % 5 };
+export function chooseBuildingAppearance(identity, height, subtype = "") {
+  // Height and City building class determine the *kind* of facade. Not a random
+  // per-building material draw. Exact cladding is not available in this dataset.
+  const label = String(subtype || "").toLowerCase();
+  if (/residential|apartment|condominium/.test(label)) return { material: height > 50 ? "glass" : "concrete", variant: 0 };
+  if (/industrial|warehouse|garage/.test(label)) return { material: "metal", variant: 0 };
+  if (/hotel|office|commercial/.test(label)) return { material: height > 55 ? "glass" : "stone", variant: 0 };
+  if (/heritage|historic|institutional/.test(label)) return { material: "stone", variant: 0 };
+  if (height >= 72) return { material: "glass", variant: 0 };
+  if (height >= 28) return { material: "concrete", variant: 0 };
+  return { material: "stone", variant: 0 };
 }
 
 const addTriangle = (vertices, a, b, c, uva, uvb, uvc, normal) => {
@@ -135,107 +142,6 @@ export function toLocalMetres(point, origin = TORONTO_ORIGIN) {
   ];
 }
 
-function ringLonLatBounds(raw) {
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const point of raw || []) {
-    if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
-    minLon = Math.min(minLon, point[0]); maxLon = Math.max(maxLon, point[0]);
-    minLat = Math.min(minLat, point[1]); maxLat = Math.max(maxLat, point[1]);
-  }
-  if (!Number.isFinite(minLon)) return null;
-  return { minLon, maxLon, minLat, maxLat, lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2 };
-}
-
-function insideGeoBox(point, box) {
-  return point && point.lon >= box.minLon && point.lon <= box.maxLon && point.lat >= box.minLat && point.lat <= box.maxLat;
-}
-
-function rectPoints(minX, minZ, maxX, maxZ) {
-  return [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
-}
-
-function insetBoundsRect(box, fx0, fz0, fx1, fz1) {
-  const x0 = box.minX + (box.maxX - box.minX) * fx0;
-  const x1 = box.minX + (box.maxX - box.minX) * fx1;
-  const z0 = box.minZ + (box.maxZ - box.minZ) * fz0;
-  const z1 = box.minZ + (box.maxZ - box.minZ) * fz1;
-  return rectPoints(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1));
-}
-
-function clamp01(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-function surroundInnerRect(box, inner, minSpan = 4.0) {
-  const pieces = [];
-  const add = (x0, z0, x1, z1) => {
-    const width = Math.abs(x1 - x0), depth = Math.abs(z1 - z0);
-    if (width < minSpan || depth < minSpan) return;
-    pieces.push(rectPoints(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1)));
-  };
-  add(box.minX, box.minZ, box.maxX, inner.minZ);
-  add(box.minX, inner.maxZ, box.maxX, box.maxZ);
-  add(box.minX, inner.minZ, inner.minX, inner.maxZ);
-  add(inner.maxX, inner.minZ, box.maxX, inner.maxZ);
-  return pieces;
-}
-
-function innerRectFromFractions(box, fx0, fz0, fx1, fz1, margin = 2.0) {
-  const minX = box.minX + (box.maxX - box.minX) * clamp01(fx0) + margin;
-  const maxX = box.minX + (box.maxX - box.minX) * clamp01(fx1) - margin;
-  const minZ = box.minZ + (box.maxZ - box.minZ) * clamp01(fz0) + margin;
-  const maxZ = box.minZ + (box.maxZ - box.minZ) * clamp01(fz1) - margin;
-  return { minX: Math.min(minX, maxX), minZ: Math.min(minZ, maxZ), maxX: Math.max(minX, maxX), maxZ: Math.max(minZ, maxZ) };
-}
-
-function footprintMetrics(points) {
-  const box = bounds(points);
-  return { box, width: box.maxX - box.minX, depth: box.maxZ - box.minZ, area: Math.abs(polygonArea(points)) };
-}
-
-const LANDMARK_ZONES = {
-  eaton: { minLon: -79.3826, maxLon: -79.3781, minLat: 43.6512, maxLat: 43.6549 },
-  sheraton: { minLon: -79.3847, maxLon: -79.3810, minLat: 43.6496, maxLat: 43.6525 },
-  nathanPhillips: { minLon: -79.3852, maxLon: -79.3822, minLat: 43.6515, maxLat: 43.6535 },
-};
-
-function createRefinedLandmarkParts(footprint, height, look, centroid, identity, measuredHeight) {
-  const { box, width, depth, area } = footprintMetrics(footprint);
-  const tallEnough = height > 32;
-
-  // Decorative arches at Nathan Phillips Square are not facade-bearing buildings.
-  if (insideGeoBox(centroid, LANDMARK_ZONES.nathanPhillips) && area < 240 && Math.min(width, depth) < 5.5 && Math.max(width, depth) > 20) {
-    return [{ id: `${identity}:arch`, points: footprint, h: Math.min(height, 11), material: "plain", variant: 0, measuredHeight, skipRoofUnit: true }];
-  }
-
-  // The previous patch broke roofs by stacking overlapping masses.
-  // Use only conservative, non-overlapping box pieces for the biggest known offenders.
-
-  if (insideGeoBox(centroid, LANDMARK_ZONES.eaton) && area > 7000 && width > 80 && depth > 45 && tallEnough) {
-    const podiumHeight = Math.max(18, Math.min(28, height * 0.32));
-    const towerBox = innerRectFromFractions(box, 0.58, 0.10, 0.86, 0.44, 1.8);
-    const podiumPieces = surroundInnerRect(box, towerBox, 6.0);
-    const pieces = podiumPieces.map((points, index) => ({
-      id: `${identity}:podium:${index}`, points, h: podiumHeight, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false
-    }));
-    pieces.push({ id: `${identity}:tower`, points: rectPoints(towerBox.minX, towerBox.minZ, towerBox.maxX, towerBox.maxZ), h: height, material: 'glass', variant: (look.variant + 1) % 5, measuredHeight, skipRoofUnit: false });
-    return pieces;
-  }
-
-  if (insideGeoBox(centroid, LANDMARK_ZONES.sheraton) && area > 4500 && width > 55 && depth > 35 && tallEnough) {
-    const podiumHeight = Math.max(16, Math.min(24, height * 0.30));
-    const towerBox = innerRectFromFractions(box, 0.63, 0.08, 0.89, 0.58, 1.8);
-    const podiumPieces = surroundInnerRect(box, towerBox, 5.5);
-    const pieces = podiumPieces.map((points, index) => ({
-      id: `${identity}:podium:${index}`, points, h: podiumHeight, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false
-    }));
-    pieces.push({ id: `${identity}:tower`, points: rectPoints(towerBox.minX, towerBox.minZ, towerBox.maxX, towerBox.maxZ), h: height, material: 'concrete', variant: look.variant, measuredHeight, skipRoofUnit: false });
-    return pieces;
-  }
-
-  return null;
-}
-
 function polygonArea(points) {
   let sum = 0;
   for (let i = 0; i < points.length; i++) {
@@ -274,7 +180,7 @@ function cleanRing(raw) {
 
 function insideTriangle(p, a, b, c) {
   const t1 = triangleArea(a, b, p), t2 = triangleArea(b, c, p), t3 = triangleArea(c, a, p);
-  return t1 >= -0.0001 && t2 >= -0.0001 && t3 >= -0.0001;
+  return t1 > 0.00001 && t2 > 0.00001 && t3 > 0.00001;
 }
 
 // Ear clipping works for concave roof outlines too. Courtyard holes are a later milestone.
@@ -296,7 +202,19 @@ export function triangulateRoof(points) {
       clipped = true;
       break;
     }
-    if (!clipped) return [];
+    if (!clipped) {
+      // Degenerate collinear points can otherwise make a whole roof disappear.
+      let removed = false;
+      for (let i = 0; i < order.length; i++) {
+        const ia = order[(i - 1 + order.length) % order.length];
+        const ib = order[i];
+        const ic = order[(i + 1) % order.length];
+        if (Math.abs(triangleArea(points[ia], points[ib], points[ic])) < 0.001) {
+          order.splice(i, 1); removed = true; break;
+        }
+      }
+      if (!removed) return [];
+    }
   }
   if (order.length === 3) triangles.push(order);
   return triangles;
@@ -308,6 +226,7 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
   let recordedHeights = 0;
   let estimatedHeights = 0;
   let skippedHoles = 0;
+  let skippedInvalidRoofs = 0;
   const sharedLooks = new Map();
   for (const feature of geojson.features) {
     const geom = feature.geometry;
@@ -320,27 +239,37 @@ export function convertTorontoGeoJSON(geojson, origin = TORONTO_ORIGIN) {
     for (let p = 0; p < polygons.length; p++) {
       const rings = polygons[p];
       if (!Array.isArray(rings) || !rings.length) continue;
-      const outerRing = rings[0];
-      const footprint = cleanRing(outerRing.map(point => toLocalMetres(point, origin)));
+      const footprint = cleanRing(rings[0].map(point => toLocalMetres(point, origin)));
       if (footprint.length < 3 || footprint.length > 1000 || Math.abs(polygonArea(footprint)) < 18) continue;
+      const roofIndices = triangulateRoof(footprint);
+      const coveredArea = roofIndices.reduce((sum, [ia, ib, ic]) =>
+        sum + Math.abs(triangleArea(footprint[ia], footprint[ib], footprint[ic])) * 0.5, 0);
+      const targetArea = Math.abs(polygonArea(footprint));
+      // Never emit tall walls with a missing or partly missing roof.
+      if (!roofIndices.length || Math.abs(coveredArea - targetArea) > Math.max(0.1, targetArea * 0.005)) {
+        skippedInvalidRoofs++; continue;
+      }
       if (rings.length > 1) skippedHoles++;
       const id = properties.OBJECTID ?? feature.id ?? result.length;
       const buildingId = properties.BUILDINGID ?? properties.buildingid ?? id;
       const identity = String(buildingId).trim() || String(id);
-      if (!sharedLooks.has(identity)) sharedLooks.set(identity, chooseBuildingAppearance(identity, height));
+      // Elevated plaza arcs are not extruded office towers. Omit suspicious
+      // slender records until we have true arch centerline geometry.
+      const area = Math.abs(polygonArea(footprint));
+      const geoCenter = rings[0].reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]).map(v => v / rings[0].length);
+      const bb = bounds(footprint);
+      if (geoCenter[0] > -79.3852 && geoCenter[0] < -79.3822 &&
+          geoCenter[1] > 43.6515 && geoCenter[1] < 43.6535 &&
+          area < 240 && Math.min(bb.maxX - bb.minX, bb.maxZ - bb.minZ) < 5.5 &&
+          Math.max(bb.maxX - bb.minX, bb.maxZ - bb.minZ) > 20) continue;
+      if (!sharedLooks.has(identity)) sharedLooks.set(identity, chooseBuildingAppearance(identity, height, properties.SUBTYPE_DESC ?? properties.subtype_desc ?? ""));
       const look = sharedLooks.get(identity);
-      const centroid = ringLonLatBounds(outerRing);
-      const refined = createRefinedLandmarkParts(footprint, height, look, centroid, `${id}:${p}`, heightKnown);
-      if (refined?.length) {
-        for (const piece of refined) result.push(piece);
-      } else {
-        result.push({ id: `${id}:${p}`, points: footprint, h: height, material: look.material,
-          variant: look.variant, measuredHeight: heightKnown, skipRoofUnit: false });
-      }
+      result.push({ id: `${id}:${p}`, points: footprint, h: height, material: look.material,
+        variant: look.variant, measuredHeight: heightKnown, source: "city" });
       if (heightKnown) recordedHeights++; else estimatedHeights++;
     }
   }
-  return { buildings: result, recordedHeights, estimatedHeights, skippedHoles };
+  return { buildings: result, recordedHeights, estimatedHeights, skippedHoles, skippedInvalidRoofs };
 }
 
 // One footprint can overlap several sections of the same building. Resolve the
@@ -384,6 +313,73 @@ function insideFootprint(point, polygon) {
       point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
   }
   return inside;
+}
+
+// OSM building:part records are used only when they actually describe a
+// building section with a usable height. Never create invented towers.
+export function convertOSMBuildingParts(overpassData, origin = TORONTO_ORIGIN) {
+  const result = [];
+  const seen = new Set();
+  for (const element of overpassData?.elements || []) {
+    if (element.type !== "way" || !Array.isArray(element.geometry) ||
+        !element.tags?.["building:part"] || element.tags["building:part"] === "no") continue;
+    const raw = element.tags.height || element.tags["building:height"];
+    let height = NaN;
+    if (typeof raw === "string" || typeof raw === "number") {
+      const value = String(raw).trim().toLowerCase().replace(",", ".");
+      const match = value.match(/^([0-9]+(?:\.[0-9]+)?)\s*(m|metres?|meters?|ft|feet|')?$/);
+      if (match) height = Number(match[1]) * (/^(ft|feet|')$/.test(match[2] || "") ? 0.3048 : 1);
+    }
+    const levels = Number(element.tags["building:levels"]);
+    if (!Number.isFinite(height) && Number.isFinite(levels) && levels >= 1 && levels <= 130) height = levels * 3.45;
+    if (!Number.isFinite(height) || height < 3 || height > 400) continue;
+    const rawPoints = element.geometry.map(p => [p.lon, p.lat]);
+    const points = cleanRing(rawPoints.map(p => toLocalMetres(p, origin)));
+    if (points.length < 3 || Math.abs(polygonArea(points)) < 18 || !triangulateRoof(points).length) continue;
+    if (seen.has(element.id)) continue;
+    seen.add(element.id);
+    const minHeight = Math.max(0, Number(element.tags.min_height) || 0);
+    result.push({ id: `osm:${element.id}`, points, h: height, base: Math.min(minHeight, height - 1),
+      material: height > 70 ? "glass" : "concrete", variant: 0,
+      measuredHeight: true, source: "osm-part" });
+  }
+  return result;
+}
+
+export function refineBuildingMassing(cityBuildings, osmParts = []) {
+  const refined = cityBuildings.map(b => ({ ...b }));
+  const coveredParts = [];
+  let capped = 0, matched = 0;
+  for (const city of refined) {
+    const area = Math.abs(polygonArea(city.points));
+    const bb = bounds(city.points);
+    const width = bb.maxX - bb.minX, depth = bb.maxZ - bb.minZ;
+    // A single giant footprint carrying tower height is unreliable: it might
+    // describe a shopping mall, hotel complex, or several conjoined sections.
+    // Keep the real footprint and a low mass rather than inventing rectangles.
+    if (area < 3200 || city.h < 58 || Math.min(width, depth) < 31) continue;
+    const matches = osmParts.filter(part => {
+      const pbb = bounds(part.points);
+      const centre = [(pbb.minX + pbb.maxX) / 2, (pbb.minZ + pbb.maxZ) / 2];
+      return insideFootprint(centre, city.points);
+    });
+    if (matches.length) {
+      const unique = matches.filter(p => !coveredParts.some(q => q.id === p.id));
+      coveredParts.push(...unique);
+      matched += unique.length;
+    }
+    // Never fabricate a tower. Downgrade the unsupported full-height slab,
+    // leaving other independently sourced city footprints at their real heights.
+    city.h = Math.min(city.h, 25);
+    city.heightCapped = true;
+    capped++;
+  }
+  const safeParts = coveredParts.filter(part => {
+    const pb = bounds(part.points);
+    const cx = (pb.minX + pb.maxX) / 2, cz = (pb.minZ + pb.maxZ) / 2;
+    return refined.some(city => city.heightCapped && insideFootprint([cx, cz], city.points));
+  });
+  return { buildings: [...refined, ...safeParts], capped, matched, parts: safeParts.length };
 }
 
 function overlapCandidates(items) {
@@ -442,7 +438,7 @@ function wallSegments(item, index, items, neighbours) {
       const midpoint = [a[0] + dx * (t0 + t1) / 2, a[1] + dz * (t0 + t1) / 2];
       const outside = [midpoint[0] + normal[0] * 0.06, midpoint[1] + normal[2] * 0.06];
       const inside = [midpoint[0] - normal[0] * 0.06, midpoint[1] - normal[2] * 0.06];
-      let base = 0;
+      let base = item.base || 0;
       let hidden = false;
       for (const j of neighbours[index]) {
         const other = items[j];
@@ -543,12 +539,16 @@ export function createPolygonBuildingMesh(items) {
       addTriangle(group.walls, lowerA, lowerB, upperB, [u0, base / 9], [u1, base / 9], [u1, top / 9], normal);
       addTriangle(group.walls, lowerA, upperB, upperA, [u0, base / 9], [u1, top / 9], [u0, top / 9], normal);
     }
-    const visibleRoof = roofTriangles(item, index, items, neighbours, trianglesByItem);
+    // Never Boolean-subtract roofs using approximate neighbouring heights:
+    // that created missing triangles and giant "holes" at shared complexes.
+    // Let the GPU depth test hide roofs behind taller building sections.
+    const visibleRoof = trianglesByItem[index].map(([ia, ib, ic]) => [item.points[ia], item.points[ib], item.points[ic]]);
     for (const [a, b, c] of visibleRoof) {
       addTriangle(group.roofs, [a[0], height, a[1]], [c[0], height, c[1]], [b[0], height, b[1]],
         [0, 0], [1, 1], [1, 0], [0, 1, 0]);
     }
-    if (!item.skipRoofUnit) addRoofUnit(group, visibleRoof, height);
+    if (item.source !== "osm-part" && !item.heightCapped && !item.noWindows &&
+        Math.abs(polygonArea(item.points)) < 1800) addRoofUnit(group, visibleRoof, height);
   }
   return surfaces;
 }

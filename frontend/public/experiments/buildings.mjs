@@ -1,5 +1,6 @@
 import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
 import { createGroundMesh, parseOSMStreets } from "./cityGround.mjs";
+import { satelliteTileURL, satelliteTileVertices, desiredSatelliteTiles } from "./satelliteGround.mjs";
 import { FOV, clamp, cameraEye, screenRay, hitBuildings, zoomAt, panOnPlane, clippingPlanes, cameraInsideBuildings } from "./cameraMath.mjs";
 
 const canvas = document.querySelector("#scene");
@@ -12,6 +13,7 @@ const torontoButton = document.querySelector("#toronto");
 const samplesButton = document.querySelector("#samples");
 const detailsButton = document.querySelector("#details");
 const streetsButton = document.querySelector("#streets");
+const satelliteButton = document.querySelector("#satellite");
 const panelToggle = document.querySelector("#panel-toggle");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true, alpha: false });
 
@@ -50,32 +52,16 @@ const fragmentShader = `#version 300 es
   void main() {
     vec3 surface = useImage ? texture(facade, sampleUV).rgb : color;
     if (useImage && useArchitecture) {
-      // The images supply glazing detail; the facade itself isn't all glass.
-      vec2 metres = sampleUV * 9.0;
-      vec2 unit = fract(metres / moduleSize);
+      // Keep the photograph's windows intact. A second independent window grid
+      // doesn't line up with the image and produces the beige crosshatching.
+      float brightness = dot(surface, vec3(0.2126, 0.7152, 0.0722));
+      float solid = smoothstep(0.38, 0.78, brightness);
       float glassTower = float(wallStyle == 0);
-      float wideWindow = wallStyle == 1 ? 0.68 : (wallStyle == 2 ? 0.57 : 0.73);
-      float lowWindow = wallStyle == 1 ? 0.26 : (wallStyle == 2 ? 0.30 : 0.23);
-      float xWidth = fwidth(unit.x) * 0.6;
-      float yWidth = fwidth(unit.y) * 0.6;
-      float windowX = smoothstep((1.0-wideWindow)*0.5-xWidth, (1.0-wideWindow)*0.5+xWidth, unit.x)
-          * (1.0-smoothstep((1.0+wideWindow)*0.5-xWidth, (1.0+wideWindow)*0.5+xWidth, unit.x));
-      float windowY = smoothstep(lowWindow-yWidth, lowWindow+yWidth, unit.y)
-          * (1.0-smoothstep(0.94-yWidth, 0.94+yWidth, unit.y));
-      float windowMask = windowX * windowY;
-      vec3 siding = mix(masonry, surface * 0.40 + masonry * 0.60, glassTower * 0.22);
-      surface = mix(siding, surface * (glassTower > 0.5 ? 0.94 : 0.89), windowMask);
-      float pier = 1.0 - windowX;
-      float spandrel = 1.0 - windowY;
-      // Mullions, lintels, piers and horizontal floor bands.
-      surface = mix(surface, frameColor, clamp(pier*0.22 + spandrel*0.13, 0.0, 0.36));
-      if (metres.y < 5.2) {
-        // Ground floors have masonry piers and larger storefront openings.
-        float entrance = smoothstep(0.18-xWidth, 0.18+xWidth, unit.x)
-            * (1.0-smoothstep(0.82-xWidth, 0.82+xWidth, unit.x));
-        float groundGlazing = entrance * step(0.45, metres.y);
-        surface = mix(masonry * 0.80, mix(surface, vec3(0.22,0.31,0.34), 0.31), groundGlazing * 0.75);
-      }
+      vec3 cladding = mix(surface, masonry, (1.0 - glassTower) * 0.09 * solid);
+      surface = cladding;
+      // A quiet podium treatment, not floor bands painted across windows.
+      float lowLevel = 1.0 - smoothstep(3.5, 5.2, sampleUV.y * 9.0);
+      surface = mix(surface, mix(surface, masonry * 0.85, 0.22), lowLevel * (1.0-glassTower));
     }
     surface *= tint;
     outputColor = vec4(clamp(surface * lighting, 0.0, 1.0), 1.0);
@@ -234,6 +220,13 @@ let lastTouchGesture = null;
 let lastTap = null;
 let architectureMode = true;
 let streetsMode = true;
+let satelliteMode = true;
+let satelliteStatus = "Satellite waiting for Toronto scene";
+const satelliteTiles = new Map();
+let satelliteQueue = [];
+let satelliteActive = new Set();
+let satelliteLoading = 0;
+const MAX_SATELLITE_DOWNLOADS = 6;
 let groundGeometry = null;
 let streetStatus = "";
 let activeBuildings = [];
@@ -284,6 +277,91 @@ function replaceGround() {
       makeBuffer(vertices, position, uv, normal));
   }
   requestDraw();
+}
+
+// Satellite is a ground-only raster layer; it never alters building geometry.
+function updateSatelliteTiles() {
+  if (!renderer || mode !== "toronto" || !satelliteMode) return;
+  const required = desiredSatelliteTiles(distance, cameraTarget);
+  satelliteActive = new Set(required.map(tile => tile.key));
+  for (const tile of required) {
+    if (!satelliteTiles.has(tile.key)) satelliteTiles.set(tile.key, { tile, state: "queued" });
+  }
+  satelliteQueue = required.filter(tile => satelliteTiles.get(tile.key).state === "queued");
+  const countReady = required.filter(tile => satelliteTiles.get(tile.key).state === "ready").length;
+  const countFailed = required.filter(tile => satelliteTiles.get(tile.key).state === "failed").length;
+  const nextStatus = `Satellite: ${countReady}/${required.length} tiles loaded${countFailed ? ` · ${countFailed} failed (imagery service/CORS)` : ""}`;
+  if (nextStatus !== satelliteStatus) { satelliteStatus = nextStatus; updateTorontoStatus(); }
+  // Limit resident GPU textures if the camera travels a long distance.
+  if (satelliteTiles.size > 180) {
+    for (const [key, entry] of satelliteTiles) {
+      if (satelliteTiles.size <= 145) break;
+      if (satelliteActive.has(key) || entry.state === "loading") continue;
+      if (entry.texture) gl.deleteTexture(entry.texture);
+      if (entry.buffer) { gl.deleteVertexArray(entry.buffer.vao); gl.deleteBuffer(entry.buffer.buffer); }
+      satelliteTiles.delete(key);
+    }
+  }
+  pumpSatelliteQueue();
+}
+function pumpSatelliteQueue() {
+  while (satelliteLoading < MAX_SATELLITE_DOWNLOADS && satelliteQueue.length && mode === "toronto" && satelliteMode) {
+    const tile = satelliteQueue.shift();
+    const entry = satelliteTiles.get(tile.key);
+    if (!entry || entry.state !== "queued") continue;
+    entry.state = "loading";
+    satelliteLoading++;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        if (!renderer || !satelliteTiles.has(tile.key)) return;
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        const pos = gl.getAttribLocation(renderer.program, "position");
+        const uv = gl.getAttribLocation(renderer.program, "uv");
+        const normal = gl.getAttribLocation(renderer.program, "normal");
+        entry.texture = texture;
+        entry.buffer = makeBuffer(satelliteTileVertices(tile), pos, uv, normal);
+        entry.state = "ready";
+      } catch (error) { entry.state = "failed"; console.warn("Satellite tile upload failed:", error); }
+      finally { finishSatelliteTile(); }
+    };
+    image.onerror = () => { entry.state = "failed"; finishSatelliteTile(); };
+    image.src = satelliteTileURL(tile.zoom, tile.x, tile.y);
+  }
+}
+function finishSatelliteTile() {
+  satelliteLoading--;
+  const tiles = [...satelliteTiles.values()].filter(entry => satelliteActive.has(entry.tile.key));
+  const ready = tiles.filter(entry => entry.state === "ready").length;
+  const failed = tiles.filter(entry => entry.state === "failed").length;
+  satelliteStatus = `Satellite: ${ready}/${tiles.length} tiles loaded${failed ? ` · ${failed} failed (imagery service/CORS)` : ""}`;
+  if (mode === "toronto") updateTorontoStatus();
+  requestDraw();
+  pumpSatelliteQueue();
+}
+function drawSatelliteTiles() {
+  if (!satelliteMode || mode !== "toronto") return;
+  gl.uniform1i(renderer.useImage, true);
+  gl.uniform1i(renderer.useArchitecture, false);
+  gl.uniform3fv(renderer.tint, [1,1,1]);
+  gl.uniform3fv(renderer.color, [1,1,1]);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(renderer.facade, 0);
+  // Coarse imagery first, detailed tiles second; nearby roads remain on top.
+  for (const z of [16,18,19]) for (const [key, entry] of satelliteTiles) {
+    if (entry.state !== "ready" || entry.tile.zoom !== z || !satelliteActive.has(key)) continue;
+    gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+    gl.bindVertexArray(entry.buffer.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, entry.buffer.count);
+  }
 }
 
 function installScene(mesh, stats, camera, buildings = []) {
@@ -354,6 +432,7 @@ function showToronto() {
   installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera, torontoData.buildings);
   refreshButtons();
   updateTorontoStatus();
+  if (satelliteMode) updateSatelliteTiles();
 }
 
 // Streets come from a separate OSM snapshot, never from a simulated road grid.
@@ -379,7 +458,7 @@ async function loadStreets() {
   if (mode === "toronto") updateTorontoStatus();
 }
 function updateTorontoStatus() {
-  if (mode === "toronto") status.textContent = `${torontoStatus}${streetStatus ? `\n${streetStatus}` : ""}`;
+  if (mode === "toronto") status.textContent = `${torontoStatus}${streetStatus ? `\n${streetStatus}` : ""}${satelliteMode ? `\n${satelliteStatus}` : ""}`;
 }
 
 async function loadToronto() {
@@ -433,6 +512,7 @@ function draw() {
   gl.clearColor(0.92, 0.95, 0.96, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.useProgram(renderer.program);
+  if (mode === "toronto" && satelliteMode) updateSatelliteTiles();
   const target = cameraTarget;
   const eye = cameraEye(target, yaw, tilt, distance);
   const { near, far } = clippingPlanes(distance, sceneRadius + Math.hypot(target[0],target[2]));
@@ -451,6 +531,16 @@ function draw() {
     gl.uniform1i(renderer.useArchitecture, false);
     gl.uniform3fv(renderer.tint, [1,1,1]);
     for (const [type, entry] of renderer.groundParts) {
+      if (type !== "ground") continue;
+      gl.uniform3fv(renderer.color, groundColors[type]);
+      gl.bindVertexArray(entry.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, entry.count);
+    }
+    drawSatelliteTiles();
+    gl.uniform1i(renderer.useImage, false);
+    gl.uniform1i(renderer.useArchitecture, false);
+    for (const [type, entry] of renderer.groundParts) {
+      if (type === "ground") continue;
       gl.uniform3fv(renderer.color, groundColors[type] || groundColors.ground);
       gl.bindVertexArray(entry.vao);
       gl.drawArrays(gl.TRIANGLES, 0, entry.count);
@@ -628,6 +718,18 @@ detailsButton.addEventListener("click", () => {
   detailsButton.setAttribute("aria-pressed", String(architectureMode));
   requestDraw();
 });
+satelliteButton.addEventListener("click", () => {
+  satelliteMode = !satelliteMode;
+  satelliteButton.textContent = satelliteMode ? "Satellite on" : "Satellite off";
+  satelliteButton.setAttribute("aria-pressed", String(satelliteMode));
+  if (satelliteMode && mode === "toronto") {
+    // Re-enabling satellite also retries tiles that previously failed.
+    for (const entry of satelliteTiles.values()) if (entry.state === "failed") entry.state = "queued";
+    updateSatelliteTiles();
+  }
+  updateTorontoStatus();
+  requestDraw();
+});
 streetsButton.addEventListener("click", () => {
   streetsMode = !streetsMode;
   streetsButton.textContent = streetsMode ? "Streets on" : "Streets off";
@@ -699,7 +801,7 @@ async function start() {
   window.__kmBuildingDemo = { gl, renderer, sceneStats, draw,
     getCamera: () => ({ yaw, tilt, distance, target: cameraTarget, mode }),
     getBuildingStats: () => renderer.stats,
-    getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode, streets: streetStatus, architectureMode }),
+    getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode, streets: streetStatus, satellite: satelliteStatus, satelliteMode, architectureMode }),
     zoom, setCamera: (next) => {
       if (Number.isFinite(next?.yaw)) yaw = next.yaw;
       if (Number.isFinite(next?.tilt)) tilt = clamp(next.tilt, .16, 1.48);

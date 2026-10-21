@@ -17,7 +17,7 @@ const vertexShader = `#version 300 es
   out float brightness;
   void main() {
     sampleUV = uv;
-    brightness = 0.65 + 0.35 * max(dot(normalize(normal), normalize(vec3(0.35, 0.95, 0.5))), 0.0);
+    brightness = 0.76 + 0.24 * max(dot(normalize(normal), normalize(vec3(0.35, 0.95, 0.5))), 0.0);
     gl_Position = viewProjection * vec4(position, 1.0);
   }
 `;
@@ -131,6 +131,11 @@ function loadTexture(name, fallback) {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.generateMipmap(gl.TEXTURE_2D);
+      const anisotropy = gl.getExtension("EXT_texture_filter_anisotropic");
+      if (anisotropy) {
+        const max = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+        gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
+      }
       resolve({ name, texture, ok: true });
     };
     image.onerror = () => resolve({ name, texture: fallback, ok: false });
@@ -285,10 +290,13 @@ function draw() {
   const target = cameraTarget;
   const horizontal = Math.cos(tilt) * distance;
   const eye = [target[0] + horizontal * Math.sin(yaw), target[1] + distance * Math.sin(tilt), target[2] + horizontal * Math.cos(yaw)];
-  const matrix = multiply(perspective(Math.PI / 3, canvas.width / canvas.height, 0.5, 8000), lookAt(eye, target));
+  // A 0.5m near plane makes kilometre-scale roof and wall depths fight.
+  const near = Math.max(2, distance * 0.06);
+  const far = Math.max(4000, distance * 5);
+  const matrix = multiply(perspective(Math.PI / 3, canvas.width / canvas.height, near, far), lookAt(eye, target));
   gl.uniformMatrix4fv(renderer.viewProjection, false, matrix);
   gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
+  gl.depthFunc(gl.LESS);
   gl.depthMask(true);
   gl.disable(gl.BLEND);
   for (const [name, part] of renderer.parts) {

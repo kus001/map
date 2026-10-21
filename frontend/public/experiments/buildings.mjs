@@ -74,6 +74,7 @@ const fragmentShader = `#version 300 es
       float glassTower = float(wallStyle == 0);
       float heavyTower = float(wallStyle == 2);
       float softTower = float(wallStyle == 3);
+      float plainObject = float(wallStyle == 4);
 
       // Toronto buildings looked too busy with photo-sheet windows.
       // Keep the photo only as a gentle colour cue; build the actual facade
@@ -81,6 +82,10 @@ const fragmentShader = `#version 300 es
       vec3 cue = mix(vec3(dot(sampled, vec3(0.299, 0.587, 0.114))), sampled, 0.38);
       vec3 baseFacade = mix(masonry, cue, 0.18 + 0.32 * glassTower);
       surface = mix(baseFacade, sampled, 0.10 * glassTower);
+      if (plainObject > 0.5) {
+        float broadStripe = 0.5 + 0.5 * cos(sampleUV.y * 6.28318);
+        surface = mix(masonry, frameColor, 0.08 + 0.10 * broadStripe);
+      }
 
       float pierWidth = mix(0.18, 0.11, glassTower);
       float sill = mix(0.20, 0.14, glassTower);
@@ -93,7 +98,7 @@ const fragmentShader = `#version 300 es
       // Some bays stay solid to break up endless hotel-like repetition.
       float bayVariant = hash12(vec2(cellId.x, floor(cellId.y * 0.35)) + float(wallStyle) * 1.37);
       float bayActive = glassTower > 0.5 ? 1.0 : step(0.18, bayVariant);
-      windowMask *= bayActive;
+      windowMask *= bayActive * (1.0 - plainObject);
 
       float verticalJoint = rectMask(grid, vec2(0.5 - pierWidth, 0.0), vec2(0.5 + pierWidth, 1.0), 0.04);
       float horizontalBand = rectMask(grid, vec2(0.0, 0.0), vec2(1.0, 0.08 + 0.05 * heavyTower), 0.03);
@@ -230,7 +235,7 @@ function loadTexture(name, fallback) {
 const palette = {
   glass: [0.55, 0.7, 0.78], brick: [0.67, 0.42, 0.32], concrete: [0.74, 0.73, 0.71],
   stone: [0.78, 0.73, 0.63], metal: [0.65, 0.7, 0.72], wood: [0.67, 0.51, 0.39],
-  plaster: [0.85, 0.83, 0.78], default: [0.77, 0.76, 0.73],
+  plaster: [0.85, 0.83, 0.78], plain: [0.79, 0.80, 0.79], default: [0.77, 0.76, 0.73],
 };
 
 // No new PNGs or per-frame randomness. The same building always has the same tint.
@@ -241,7 +246,7 @@ const facadeTints = [
 const roofPalette = {
   glass: [0.57, 0.62, 0.65], brick: [0.61, 0.55, 0.48], concrete: [0.68, 0.67, 0.63],
   stone: [0.70, 0.66, 0.59], metal: [0.48, 0.54, 0.57], wood: [0.58, 0.56, 0.49],
-  plaster: [0.72, 0.69, 0.62], default: [0.66, 0.65, 0.62],
+  plaster: [0.72, 0.69, 0.62], plain: [0.77, 0.77, 0.76], default: [0.66, 0.65, 0.62],
 };
 const roofTints = [1, 0.92, 1.07, 0.97, 1.04];
 // Approximate facade styles, not surveyed architectural details.
@@ -253,13 +258,15 @@ const wallProfiles = {
   brick:    { style: 2, masonry: [0.66,0.36,0.28], frame: [0.46,0.29,0.25], bay: 2.55, floor: 3.3 },
   wood:     { style: 3, masonry: [0.65,0.48,0.34], frame: [0.39,0.32,0.26], bay: 2.6, floor: 3.2 },
   plaster:  { style: 3, masonry: [0.82,0.77,0.66], frame: [0.55,0.53,0.48], bay: 3.15, floor: 3.45 },
+  plain:    { style: 4, masonry: [0.79,0.80,0.79], frame: [0.63,0.64,0.64], bay: 100.0, floor: 6.0 },
   default:  { style: 1, masonry: [0.72,0.70,0.65], frame: [0.50,0.52,0.54], bay: 3.0, floor: 3.5 },
 };
 function appearance(name) {
   const [base, raw] = name.split(":");
   const variant = Math.max(0, Math.min(4, Number(raw) || 0));
-  return { base, tint: facadeTints[variant], roof: roofPalette[base].map(v => v * roofTints[variant]),
-    wall: wallProfiles[base] || wallProfiles.default, variant };
+  const wall = { ...(wallProfiles[base] || wallProfiles.default) };
+  return { base, tint: facadeTints[variant], roof: (roofPalette[base] || roofPalette.default).map(v => v * roofTints[variant]),
+    wall, variant };
 }
 
 let yaw = -0.62;
@@ -646,7 +653,7 @@ function draw() {
     gl.uniform3fv(renderer.tint, tint);
     const usePhotographicFacade = Boolean(textureMode && chosen?.ok && mode !== "toronto");
     gl.uniform1i(renderer.useImage, usePhotographicFacade);
-    gl.uniform1i(renderer.useArchitecture, architectureMode);
+    gl.uniform1i(renderer.useArchitecture, architectureMode && !wall.plain);
     gl.uniform1i(renderer.wallStyle, wall.style);
     gl.uniform3fv(renderer.masonry, wall.masonry);
     gl.uniform3fv(renderer.frameColor, wall.frame);

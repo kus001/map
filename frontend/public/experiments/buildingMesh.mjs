@@ -162,6 +162,32 @@ function insetBoundsRect(box, fx0, fz0, fx1, fz1) {
   return rectPoints(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1));
 }
 
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function surroundInnerRect(box, inner, minSpan = 4.0) {
+  const pieces = [];
+  const add = (x0, z0, x1, z1) => {
+    const width = Math.abs(x1 - x0), depth = Math.abs(z1 - z0);
+    if (width < minSpan || depth < minSpan) return;
+    pieces.push(rectPoints(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1)));
+  };
+  add(box.minX, box.minZ, box.maxX, inner.minZ);
+  add(box.minX, inner.maxZ, box.maxX, box.maxZ);
+  add(box.minX, inner.minZ, inner.minX, inner.maxZ);
+  add(inner.maxX, inner.minZ, box.maxX, inner.maxZ);
+  return pieces;
+}
+
+function innerRectFromFractions(box, fx0, fz0, fx1, fz1, margin = 2.0) {
+  const minX = box.minX + (box.maxX - box.minX) * clamp01(fx0) + margin;
+  const maxX = box.minX + (box.maxX - box.minX) * clamp01(fx1) - margin;
+  const minZ = box.minZ + (box.maxZ - box.minZ) * clamp01(fz0) + margin;
+  const maxZ = box.minZ + (box.maxZ - box.minZ) * clamp01(fz1) - margin;
+  return { minX: Math.min(minX, maxX), minZ: Math.min(minZ, maxZ), maxX: Math.max(minX, maxX), maxZ: Math.max(minZ, maxZ) };
+}
+
 function footprintMetrics(points) {
   const box = bounds(points);
   return { box, width: box.maxX - box.minX, depth: box.maxZ - box.minZ, area: Math.abs(polygonArea(points)) };
@@ -176,41 +202,34 @@ const LANDMARK_ZONES = {
 function createRefinedLandmarkParts(footprint, height, look, centroid, identity, measuredHeight) {
   const { box, width, depth, area } = footprintMetrics(footprint);
   const tallEnough = height > 32;
-  const pieces = [];
 
   // Decorative arches at Nathan Phillips Square are not facade-bearing buildings.
   if (insideGeoBox(centroid, LANDMARK_ZONES.nathanPhillips) && area < 240 && Math.min(width, depth) < 5.5 && Math.max(width, depth) > 20) {
-    pieces.push({ id: `${identity}:arch`, points: footprint, h: Math.min(height, 11), material: 'plain', variant: 0,
-      measuredHeight, skipRoofUnit: true });
+    return [{ id: `${identity}:arch`, points: footprint, h: Math.min(height, 11), material: "plain", variant: 0, measuredHeight, skipRoofUnit: true }];
+  }
+
+  // The previous patch broke roofs by stacking overlapping masses.
+  // Use only conservative, non-overlapping box pieces for the biggest known offenders.
+
+  if (insideGeoBox(centroid, LANDMARK_ZONES.eaton) && area > 7000 && width > 80 && depth > 45 && tallEnough) {
+    const podiumHeight = Math.max(18, Math.min(28, height * 0.32));
+    const towerBox = innerRectFromFractions(box, 0.58, 0.10, 0.86, 0.44, 1.8);
+    const podiumPieces = surroundInnerRect(box, towerBox, 6.0);
+    const pieces = podiumPieces.map((points, index) => ({
+      id: `${identity}:podium:${index}`, points, h: podiumHeight, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false
+    }));
+    pieces.push({ id: `${identity}:tower`, points: rectPoints(towerBox.minX, towerBox.minZ, towerBox.maxX, towerBox.maxZ), h: height, material: 'glass', variant: (look.variant + 1) % 5, measuredHeight, skipRoofUnit: false });
     return pieces;
   }
 
-  // Large Eaton Centre / Sheraton footprints look wrong when the whole footprint inherits the tallest height.
-  // Split them into a lower podium and a smaller taller mass.
-  if (insideGeoBox(centroid, LANDMARK_ZONES.eaton) && area > 3000 && tallEnough) {
-    const podium = Math.max(18, Math.min(30, height * 0.34));
-    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false });
-    // Smaller tall portion toward the Yonge / Dundas edge, intentionally much smaller than the whole block.
-    const tower = insetBoundsRect(box, 0.58, 0.08, 0.88, 0.48);
-    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: 'glass', variant: (look.variant + 1) % 5, measuredHeight, skipRoofUnit: false });
-    return pieces;
-  }
-
-  if (insideGeoBox(centroid, LANDMARK_ZONES.sheraton) && area > 2500 && tallEnough) {
-    const podium = Math.max(16, Math.min(26, height * 0.30));
-    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false });
-    // Sheraton: broad podium with one dominant hotel tower along the east side.
-    const tower = insetBoundsRect(box, 0.62, 0.06, 0.90, 0.58);
-    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: 'concrete', variant: look.variant, measuredHeight, skipRoofUnit: false });
-    return pieces;
-  }
-
-  // Generic massing refinement for unusually huge downtown slabs.
-  if (area > 5200 && height > 48 && Math.max(width, depth) > 70) {
-    const podium = Math.max(18, Math.min(28, height * 0.38));
-    pieces.push({ id: `${identity}:podium`, points: footprint, h: podium, material: look.material, variant: look.variant, measuredHeight, skipRoofUnit: false });
-    const tower = insetBoundsRect(box, 0.25, 0.18, 0.70, 0.62);
-    pieces.push({ id: `${identity}:tower`, points: tower, h: height, material: look.material, variant: look.variant, measuredHeight, skipRoofUnit: false });
+  if (insideGeoBox(centroid, LANDMARK_ZONES.sheraton) && area > 4500 && width > 55 && depth > 35 && tallEnough) {
+    const podiumHeight = Math.max(16, Math.min(24, height * 0.30));
+    const towerBox = innerRectFromFractions(box, 0.63, 0.08, 0.89, 0.58, 1.8);
+    const podiumPieces = surroundInnerRect(box, towerBox, 5.5);
+    const pieces = podiumPieces.map((points, index) => ({
+      id: `${identity}:podium:${index}`, points, h: podiumHeight, material: 'stone', variant: look.variant, measuredHeight, skipRoofUnit: false
+    }));
+    pieces.push({ id: `${identity}:tower`, points: rectPoints(towerBox.minX, towerBox.minZ, towerBox.maxX, towerBox.maxZ), h: height, material: 'concrete', variant: look.variant, measuredHeight, skipRoofUnit: false });
     return pieces;
   }
 

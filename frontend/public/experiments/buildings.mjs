@@ -1,4 +1,5 @@
 import { buildings as sampleBuildings, createBuildingMesh, sceneStats, createPolygonBuildingMesh, convertTorontoGeoJSON, polygonSceneStats } from "./buildingMesh.mjs";
+import { createGroundMesh, parseOSMStreets } from "./cityGround.mjs";
 import { FOV, clamp, cameraEye, screenRay, hitBuildings, zoomAt, panOnPlane, clippingPlanes, cameraInsideBuildings } from "./cameraMath.mjs";
 
 const canvas = document.querySelector("#scene");
@@ -9,6 +10,9 @@ const zoomInButton = document.querySelector("#zoom-in");
 const zoomOutButton = document.querySelector("#zoom-out");
 const torontoButton = document.querySelector("#toronto");
 const samplesButton = document.querySelector("#samples");
+const detailsButton = document.querySelector("#details");
+const streetsButton = document.querySelector("#streets");
+const panelToggle = document.querySelector("#panel-toggle");
 const gl = canvas.getContext("webgl2", { antialias: true, depth: true, alpha: false });
 
 const vertexShader = `#version 300 es
@@ -37,9 +41,43 @@ const fragmentShader = `#version 300 es
   uniform vec3 color;
   uniform vec3 tint;
   uniform bool useImage;
+  uniform bool useArchitecture;
+  uniform int wallStyle;
+  uniform vec3 masonry;
+  uniform vec3 frameColor;
+  uniform vec2 moduleSize;
   out vec4 outputColor;
   void main() {
-    vec3 surface = (useImage ? texture(facade, sampleUV).rgb : color) * tint;
+    vec3 surface = useImage ? texture(facade, sampleUV).rgb : color;
+    if (useImage && useArchitecture) {
+      // The images supply glazing detail; the facade itself isn't all glass.
+      vec2 metres = sampleUV * 9.0;
+      vec2 unit = fract(metres / moduleSize);
+      float glassTower = float(wallStyle == 0);
+      float wideWindow = wallStyle == 1 ? 0.68 : (wallStyle == 2 ? 0.57 : 0.73);
+      float lowWindow = wallStyle == 1 ? 0.26 : (wallStyle == 2 ? 0.30 : 0.23);
+      float xWidth = fwidth(unit.x) * 0.6;
+      float yWidth = fwidth(unit.y) * 0.6;
+      float windowX = smoothstep((1.0-wideWindow)*0.5-xWidth, (1.0-wideWindow)*0.5+xWidth, unit.x)
+          * (1.0-smoothstep((1.0+wideWindow)*0.5-xWidth, (1.0+wideWindow)*0.5+xWidth, unit.x));
+      float windowY = smoothstep(lowWindow-yWidth, lowWindow+yWidth, unit.y)
+          * (1.0-smoothstep(0.94-yWidth, 0.94+yWidth, unit.y));
+      float windowMask = windowX * windowY;
+      vec3 siding = mix(masonry, surface * 0.40 + masonry * 0.60, glassTower * 0.22);
+      surface = mix(siding, surface * (glassTower > 0.5 ? 0.94 : 0.89), windowMask);
+      float pier = 1.0 - windowX;
+      float spandrel = 1.0 - windowY;
+      // Mullions, lintels, piers and horizontal floor bands.
+      surface = mix(surface, frameColor, clamp(pier*0.22 + spandrel*0.13, 0.0, 0.36));
+      if (metres.y < 5.2) {
+        // Ground floors have masonry piers and larger storefront openings.
+        float entrance = smoothstep(0.18-xWidth, 0.18+xWidth, unit.x)
+            * (1.0-smoothstep(0.82-xWidth, 0.82+xWidth, unit.x));
+        float groundGlazing = entrance * step(0.45, metres.y);
+        surface = mix(masonry * 0.80, mix(surface, vec3(0.22,0.31,0.34), 0.31), groundGlazing * 0.75);
+      }
+    }
+    surface *= tint;
     outputColor = vec4(clamp(surface * lighting, 0.0, 1.0), 1.0);
   }
 `;
@@ -169,17 +207,35 @@ const roofPalette = {
   plaster: [0.72, 0.69, 0.62], default: [0.66, 0.65, 0.62],
 };
 const roofTints = [1, 0.92, 1.07, 0.97, 1.04];
+// Approximate facade styles, not surveyed architectural details.
+const wallProfiles = {
+  glass:    { style: 0, masonry: [0.47,0.53,0.57], frame: [0.28,0.35,0.38], bay: 2.9, floor: 3.7 },
+  metal:    { style: 0, masonry: [0.57,0.61,0.62], frame: [0.33,0.37,0.40], bay: 3.2, floor: 3.9 },
+  concrete: { style: 1, masonry: [0.72,0.69,0.65], frame: [0.51,0.50,0.49], bay: 3.0, floor: 3.4 },
+  stone:    { style: 2, masonry: [0.76,0.68,0.55], frame: [0.55,0.50,0.45], bay: 2.7, floor: 3.5 },
+  brick:    { style: 2, masonry: [0.66,0.36,0.28], frame: [0.46,0.29,0.25], bay: 2.55, floor: 3.3 },
+  wood:     { style: 3, masonry: [0.65,0.48,0.34], frame: [0.39,0.32,0.26], bay: 2.6, floor: 3.2 },
+  plaster:  { style: 3, masonry: [0.82,0.77,0.66], frame: [0.55,0.53,0.48], bay: 3.15, floor: 3.45 },
+  default:  { style: 1, masonry: [0.72,0.70,0.65], frame: [0.50,0.52,0.54], bay: 3.0, floor: 3.5 },
+};
 function appearance(name) {
   const [base, raw] = name.split(":");
   const variant = Math.max(0, Math.min(4, Number(raw) || 0));
-  return { base, tint: facadeTints[variant], roof: roofPalette[base].map(v => v * roofTints[variant]) };
+  return { base, tint: facadeTints[variant], roof: roofPalette[base].map(v => v * roofTints[variant]),
+    wall: wallProfiles[base] || wallProfiles.default, variant };
 }
 
 let yaw = -0.62;
 let tilt = 0.65;
 let distance = 260;
 let textureMode = true;
-let pointer;
+let activePointers = new Map();
+let lastTouchGesture = null;
+let lastTap = null;
+let architectureMode = true;
+let streetsMode = true;
+let groundGeometry = null;
+let streetStatus = "";
 let activeBuildings = [];
 let sceneRadius = 750;
 let pendingFrame = false;
@@ -211,6 +267,25 @@ function refreshButtons() {
   samplesButton.setAttribute("aria-pressed", String(mode === "samples"));
 }
 
+function replaceGround() {
+  if (!renderer) return;
+  if (renderer.groundParts) for (const entry of renderer.groundParts.values()) {
+    gl.deleteVertexArray(entry.vao);
+    gl.deleteBuffer(entry.buffer);
+  }
+  renderer.groundParts = new Map();
+  const ground = createGroundMesh(mode === "toronto" ? "toronto" : "samples",
+    mode === "toronto" && streetsMode ? groundGeometry : null);
+  const position = gl.getAttribLocation(renderer.program, "position");
+  const uv = gl.getAttribLocation(renderer.program, "uv");
+  const normal = gl.getAttribLocation(renderer.program, "normal");
+  for (const [name, vertices] of ground) {
+    if (vertices.length) renderer.groundParts.set(name,
+      makeBuffer(vertices, position, uv, normal));
+  }
+  requestDraw();
+}
+
 function installScene(mesh, stats, camera, buildings = []) {
   const position = gl.getAttribLocation(renderer.program, "position");
   const uv = gl.getAttribLocation(renderer.program, "uv");
@@ -239,6 +314,7 @@ function installScene(mesh, stats, camera, buildings = []) {
       gl.deleteBuffer(part.buffer);
     }
   }
+  replaceGround();
   requestDraw();
 }
 
@@ -277,7 +353,33 @@ function showToronto() {
   mode = "toronto";
   installScene(createPolygonBuildingMesh(torontoData.buildings), polygonSceneStats(torontoData.buildings), torontoCamera, torontoData.buildings);
   refreshButtons();
-  status.textContent = torontoStatus;
+  updateTorontoStatus();
+}
+
+// Streets come from a separate OSM snapshot, never from a simulated road grid.
+const OSM_STREETS_QUERY = `[out:json][timeout:18];(way["highway"](43.6480,-79.3865,43.6553,-79.3773);way["leisure"="park"](43.6480,-79.3865,43.6553,-79.3773););out geom;`;
+async function loadStreets() {
+  if (groundGeometry || !streetsMode) return;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 22000);
+    let response;
+    try {
+      response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(OSM_STREETS_QUERY)}`,
+        { signal: controller.signal });
+    } finally { clearTimeout(timer); }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    groundGeometry = parseOSMStreets(data);
+    streetStatus = `${groundGeometry.roads.length} OSM street segments · ${groundGeometry.parks.length} park outlines`;
+    if (mode === "toronto") replaceGround();
+  } catch (error) {
+    streetStatus = `Street data unavailable (${error.message}); neutral ground retained`;
+  }
+  if (mode === "toronto") updateTorontoStatus();
+}
+function updateTorontoStatus() {
+  if (mode === "toronto") status.textContent = `${torontoStatus}${streetStatus ? `\n${streetStatus}` : ""}`;
 }
 
 async function loadToronto() {
@@ -300,8 +402,9 @@ async function loadToronto() {
       torontoData = parsed;
       torontoCamera = cameraForBuildings(parsed.buildings);
       const stats = polygonSceneStats(parsed.buildings);
-      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nIllustrative façade mixes, stable per-building tints, and roof colours. Materials are not surveyed. Camera movement never rebuilds geometry.`;
+      torontoStatus = `${stats.buildings} Toronto building polygons · ${stats.wallTriangles} wall triangles · ${stats.roofTriangles} roof triangles\n${parsed.recordedHeights} recorded heights · ${parsed.estimatedHeights} estimated at 12 m${parsed.skippedHoles ? ` · ${parsed.skippedHoles} courtyard footprints simplified` : ""}\nIllustrative windows, cladding, piers and podiums; actual facade materials are not surveyed. Camera movement never rebuilds geometry.`;
       if (requestedMode === "toronto") showToronto();
+      loadStreets();
     } catch (error) {
       torontoStatus = `Couldn't fetch Toronto buildings (${error.message}). Sample blocks are still available.`;
       if (requestedMode === "toronto") showSamples(torontoStatus);
@@ -339,18 +442,39 @@ function draw() {
   gl.depthFunc(gl.LESS);
   gl.depthMask(true);
   gl.disable(gl.BLEND);
+  if (renderer.groundParts) {
+    const groundColors = {
+      ground: [0.77,0.80,0.75], park: [0.43,0.58,0.41], sidewalk: [0.71,0.71,0.67],
+      road: [0.27,0.30,0.31], path: [0.60,0.57,0.50],
+    };
+    gl.uniform1i(renderer.useImage, false);
+    gl.uniform1i(renderer.useArchitecture, false);
+    gl.uniform3fv(renderer.tint, [1,1,1]);
+    for (const [type, entry] of renderer.groundParts) {
+      gl.uniform3fv(renderer.color, groundColors[type] || groundColors.ground);
+      gl.bindVertexArray(entry.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, entry.count);
+    }
+  }
   for (const [name, part] of renderer.parts) {
-    const { base, tint, roof } = appearance(name);
+    const { base, tint, roof, wall } = appearance(name);
     const chosen = renderer.textures.get(base);
     gl.uniform3fv(renderer.color, palette[base]);
     gl.uniform3fv(renderer.tint, tint);
     gl.uniform1i(renderer.useImage, Boolean(textureMode && chosen?.ok));
+    gl.uniform1i(renderer.useArchitecture, architectureMode && textureMode && Boolean(chosen?.ok));
+    gl.uniform1i(renderer.wallStyle, wall.style);
+    gl.uniform3fv(renderer.masonry, wall.masonry);
+    gl.uniform3fv(renderer.frameColor, wall.frame);
+    const variant = appearance(name).variant;
+    gl.uniform2fv(renderer.moduleSize, [wall.bay * (1 + 0.035 * (variant - 2)), wall.floor]);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, chosen?.texture || renderer.blank);
     gl.uniform1i(renderer.facade, 0);
     gl.bindVertexArray(part.walls.vao);
     gl.drawArrays(gl.TRIANGLES, 0, part.walls.count);
     gl.uniform1i(renderer.useImage, false);
+    gl.uniform1i(renderer.useArchitecture, false);
     gl.uniform3fv(renderer.color, roof);
     gl.uniform3fv(renderer.tint, [1, 1, 1]);
     gl.bindVertexArray(part.roofs.vao);
@@ -403,38 +527,79 @@ function zoom(factor, x = canvas.clientWidth / 2, y = canvas.clientHeight / 2) {
   distance = nextDistance;
   requestDraw();
 }
-canvas.addEventListener("contextmenu", event => event.preventDefault());
-canvas.addEventListener("pointerdown", event => {
-  if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
-  const pos = localPointer(event);
-  pointer = { x: pos.x, y: pos.y, id: event.pointerId,
-    pan: event.button === 2 || event.button === 1 || event.shiftKey };
-  canvas.setPointerCapture(event.pointerId);
-});
-canvas.addEventListener("pointermove", event => {
-  if (!pointer || pointer.id !== event.pointerId) return;
-  const pos = localPointer(event);
-  if (pointer.pan) {
-    cameraTarget = panOnPlane(cameraTarget, yaw, tilt, distance,
-      pointer.x, pointer.y, pos.x, pos.y, pos.width, pos.height);
-  } else {
-    yaw += (pos.x - pointer.x) * 0.008;
-    tilt = clamp(tilt + (pos.y - pointer.y) * 0.007, 0.16, 1.48);
-  }
-  pointer.x = pos.x;
-  pointer.y = pos.y;
-  requestDraw();
-});
-canvas.addEventListener("pointerup", () => { pointer = null; });
-canvas.addEventListener("pointercancel", () => { pointer = null; });
-canvas.addEventListener("dblclick", event => {
-  event.preventDefault();
-  const { x, y, width, height } = localPointer(event);
-  const hit = hitBuildings(screenRay(x, y, width, height, cameraTarget, yaw, tilt, distance), activeBuildings);
+// Pointer Events give touch, pen and mouse the same canvas coordinates.
+function focusAt(x, y) {
+  const hit = hitBuildings(screenRay(x, y, canvas.clientWidth, canvas.clientHeight,
+    cameraTarget, yaw, tilt, distance), activeBuildings);
   if (!hit) return;
   cameraTarget = hit;
   distance = Math.max(12, Math.min(distance * 0.38, 80));
   requestDraw();
+}
+function twoFingerState() {
+  const pair = [...activePointers.values()].slice(0, 2);
+  const x = (pair[0].x + pair[1].x) * 0.5, y = (pair[0].y + pair[1].y) * 0.5;
+  return { x, y, span: Math.hypot(pair[1].x-pair[0].x, pair[1].y-pair[0].y) };
+}
+canvas.addEventListener("contextmenu", event => event.preventDefault());
+canvas.addEventListener("pointerdown", event => {
+  if (event.pointerType !== "touch" && ![0,1,2].includes(event.button)) return;
+  const pos = localPointer(event);
+  activePointers.set(event.pointerId, { ...pos, type: event.pointerType,
+    pan: event.pointerType !== "touch" && (event.button === 2 || event.button === 1 || event.shiftKey),
+    moved: false, downX: pos.x, downY: pos.y });
+  canvas.setPointerCapture(event.pointerId);
+  lastTouchGesture = activePointers.size === 2 ? twoFingerState() : null;
+});
+canvas.addEventListener("pointermove", event => {
+  const p = activePointers.get(event.pointerId);
+  if (!p) return;
+  const next = localPointer(event);
+  if (Math.hypot(next.x-p.downX, next.y-p.downY) > 8) p.moved = true;
+  if (activePointers.size >= 2) {
+    p.x = next.x; p.y = next.y;
+    const gesture = twoFingerState();
+    if (lastTouchGesture) {
+      cameraTarget = panOnPlane(cameraTarget, yaw, tilt, distance,
+        lastTouchGesture.x, lastTouchGesture.y, gesture.x, gesture.y, next.width, next.height);
+      if (gesture.span > 3 && lastTouchGesture.span > 3)
+        zoom(lastTouchGesture.span / gesture.span, gesture.x, gesture.y);
+      requestDraw();
+    }
+    lastTouchGesture = gesture;
+    return;
+  }
+  if (p.pan) {
+    cameraTarget = panOnPlane(cameraTarget, yaw, tilt, distance,
+      p.x, p.y, next.x, next.y, next.width, next.height);
+  } else {
+    yaw += (next.x-p.x)*0.008;
+    tilt = clamp(tilt + (next.y-p.y)*0.007, 0.16, 1.48);
+  }
+  p.x = next.x; p.y = next.y;
+  requestDraw();
+});
+function finishPointer(event, cancelled = false) {
+  const p = activePointers.get(event.pointerId);
+  if (!p) return;
+  const wasSingle = activePointers.size === 1;
+  activePointers.delete(event.pointerId);
+  lastTouchGesture = activePointers.size === 2 ? twoFingerState() : null;
+  if (!cancelled && event.pointerType === "touch" && wasSingle && !p.moved) {
+    const now = performance.now();
+    const pos = localPointer(event);
+    if (lastTap && now-lastTap.time < 320 && Math.hypot(pos.x-lastTap.x,pos.y-lastTap.y) < 30) {
+      focusAt(pos.x,pos.y);
+      lastTap = null;
+    } else lastTap = { time: now, x: pos.x, y: pos.y };
+  }
+}
+canvas.addEventListener("pointerup", event => finishPointer(event));
+canvas.addEventListener("pointercancel", event => finishPointer(event,true));
+canvas.addEventListener("dblclick", event => {
+  event.preventDefault();
+  const {x,y} = localPointer(event);
+  focusAt(x,y);
 });
 canvas.addEventListener("wheel", event => {
   event.preventDefault();
@@ -451,6 +616,24 @@ texturesButton.addEventListener("click", () => {
   texturesButton.textContent = textureMode ? "Textures on" : "Textures off";
   texturesButton.setAttribute("aria-pressed", String(textureMode));
   requestDraw();
+});
+panelToggle.addEventListener("click", () => {
+  const expanded = panelToggle.closest("aside").classList.toggle("expanded");
+  panelToggle.setAttribute("aria-expanded", String(expanded));
+  panelToggle.textContent = expanded ? "Hide controls" : "Controls";
+});
+detailsButton.addEventListener("click", () => {
+  architectureMode = !architectureMode;
+  detailsButton.textContent = architectureMode ? "Architecture on" : "Architecture off";
+  detailsButton.setAttribute("aria-pressed", String(architectureMode));
+  requestDraw();
+});
+streetsButton.addEventListener("click", () => {
+  streetsMode = !streetsMode;
+  streetsButton.textContent = streetsMode ? "Streets on" : "Streets off";
+  streetsButton.setAttribute("aria-pressed", String(streetsMode));
+  replaceGround();
+  if (streetsMode && mode === "toronto") loadStreets();
 });
 resetButton.addEventListener("click", () => {
   const camera = mode === "toronto" ? torontoCamera : sampleCamera;
@@ -498,7 +681,13 @@ async function start() {
     tint: gl.getUniformLocation(program, "tint"),
     useImage: gl.getUniformLocation(program, "useImage"),
     facade: gl.getUniformLocation(program, "facade"),
+    useArchitecture: gl.getUniformLocation(program, "useArchitecture"),
+    wallStyle: gl.getUniformLocation(program, "wallStyle"),
+    masonry: gl.getUniformLocation(program, "masonry"),
+    frameColor: gl.getUniformLocation(program, "frameColor"),
+    moduleSize: gl.getUniformLocation(program, "moduleSize"),
   };
+  replaceGround();
   requestDraw();
   const loaded = await Promise.all(names.map(name => loadTexture(name, blank)));
   renderer.textures = new Map(loaded.map(value => [value.name, value]));
@@ -510,7 +699,7 @@ async function start() {
   window.__kmBuildingDemo = { gl, renderer, sceneStats, draw,
     getCamera: () => ({ yaw, tilt, distance, target: cameraTarget, mode }),
     getBuildingStats: () => renderer.stats,
-    getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode }),
+    getDataStatus: () => ({ mode, toronto: Boolean(torontoData), requestedMode, streets: streetStatus, architectureMode }),
     zoom, setCamera: (next) => {
       if (Number.isFinite(next?.yaw)) yaw = next.yaw;
       if (Number.isFinite(next?.tilt)) tilt = clamp(next.tilt, .16, 1.48);

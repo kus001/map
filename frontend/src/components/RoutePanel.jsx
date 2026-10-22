@@ -558,19 +558,22 @@ export default function RoutePanel({
             >
               <div className="flex flex-col gap-2.5">
                 {labels.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {labels.map(label => (
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-bold uppercase leading-4 tracking-wide">
+                    {labels.map((label, index) => (
                       <span
                         key={label}
-                        className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold leading-4 tracking-wide ${
-                          label.includes("TRANSFER")
-                            ? "bg-amber-500/15 text-amber-500"
+                        className={`whitespace-nowrap ${
+                          label.includes("TRANSFER") && !label.includes("LEAST")
+                            ? "text-amber-500"
                             : darkMode
-                              ? "bg-hybrid-purple/15 text-hybrid-purple-light"
-                              : "bg-green/10 text-green"
+                              ? "text-hybrid-purple-light"
+                              : "text-green"
                         }`}
                       >
                         {label}
+                        {index < labels.length - 1 && (
+                          <span className="ml-2 opacity-50" aria-hidden="true">•</span>
+                        )}
                       </span>
                     ))}
                   </div>

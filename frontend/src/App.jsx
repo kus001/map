@@ -11,6 +11,7 @@ import LayersPanel from "./components/LayersPanel.jsx";
 import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
+import { liveDelayInfo } from "./utils/format.js";
 
                                                                 
 // same walk might show up twice when transit options get rebuilt
@@ -915,20 +916,15 @@ export default function App() {
           const scheduledDeparture =
             step.scheduled_departure_time || step.departure_time;
           const scheduledArrival = step.scheduled_arrival_time || step.arrival_time;
-          return {
+          const liveStep = {
             ...step,
             realtime: hasRealtime,
             delay_min: hasRealtime ? delayMin : 0,
             cancelled: hasRealtime ? Boolean(state.cancelled) : false,
-            live_status: hasRealtime
-              ? state.cancelled
-                ? "Cancelled"
-                : delayMin >= 1
-                  ? "Delayed"
-                  : delayMin <= -1
-                    ? "Early"
-                    : "On time"
-              : null,
+          };
+          return {
+            ...liveStep,
+            live_status: liveDelayInfo(liveStep)?.label ?? null,
             departure_time: hasRealtime
               ? shiftClockTime(scheduledDeparture, delayMin)
               : scheduledDeparture,
@@ -944,6 +940,11 @@ export default function App() {
         }
         if (live.sources?.go?.trip_updates || live.sources?.go?.vehicles) {
           liveSources.push("GO Transit");
+        }
+        for (const [key, source] of Object.entries(live.sources || {})) {
+          if (key !== "grt" && key !== "go" && (source?.trip_updates || source?.vehicles)) {
+            liveSources.push(source.label || key.toUpperCase());
+          }
         }
 
         setData(previous => {

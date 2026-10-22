@@ -285,6 +285,7 @@ def live_transit_state():
     route_ids = set()
     stop_ids = set()
     trip_ids = set()
+    used_agencies = set()
     trip_states = []
     vehicles = []
     seen_vehicles = set()
@@ -307,6 +308,7 @@ def live_transit_state():
             if step.get(key) is not None:
                 stop_ids.add(str(step[key]))
         trip_ids.add(trip_id)
+        used_agencies.add(agency)
 
         update = realtime.get("trip_updates", {}).get((agency, trip_id))
         delay_seconds = 0.0
@@ -369,7 +371,21 @@ def live_transit_state():
         stop_ids,
         trip_ids=trip_ids,
         limit=8,
+        agency_ids=used_agencies,
     )
+
+    from helpers._transit import agencies as agency_registry
+    other_sources = {}
+    for agency in agency_registry.AGENCIES.values():
+        if agency.id in ("grt_busses", "grt_trains", "go") or not (agency.trip_updates_url or agency.vehicles_url):
+            continue
+        other_sources[agency.id] = {
+            "label": agency.label,
+            "trip_updates": any(key[0] == agency.id for key in realtime.get("trip_updates", {})),
+            "vehicles": any(key[0] == agency.id for key in realtime.get("vehicles", {})),
+            "alerts": bool(agency.alerts_url and grt.get("alerts_available")),
+            "feed_timestamp": grt.get("feed_timestamp"),
+        }
 
     return jsonify({
         "success": True,
@@ -393,6 +409,7 @@ def live_transit_state():
                 "alerts": bool(go.get("alerts_available")),
                 "feed_timestamp": go.get("feed_timestamp"),
             },
+            **other_sources,
         },
     })
 

@@ -118,3 +118,45 @@ export function directionText(step) {
 
   return text;
 }
+
+// How late a live transit leg is right now. Returns null when there is no live data for it.
+// tone: "late" | "early" | "ontime" | "cancelled"
+export function liveDelayInfo(step) {
+  if (!step || step.type === "walking") {
+    return null;
+  }
+
+  if (step.cancelled) {
+    return { label: "Cancelled", tone: "cancelled", minutes: 0 };
+  }
+
+  if (!step.realtime) {
+    return null;
+  }
+
+  const minutes = Math.round(Number(step.delay_min) || 0);
+  if (minutes >= 1) {
+    return { label: `${minutes} min late`, tone: "late", minutes };
+  }
+  if (minutes <= -1) {
+    return { label: `${-minutes} min early`, tone: "early", minutes };
+  }
+  return { label: "On time", tone: "ontime", minutes: 0 };
+}
+
+// One line for the whole route: the leg that is the most behind (or cancelled).
+export function routeLateness(steps) {
+  const live = (steps || [])
+    .filter(step => step?.type === "transit")
+    .map(liveDelayInfo)
+    .filter(Boolean);
+
+  if (!live.length) {
+    return null;
+  }
+
+  return (
+    live.find(info => info.tone === "cancelled") ||
+    live.reduce((worst, info) => (info.minutes > worst.minutes ? info : worst))
+  );
+}

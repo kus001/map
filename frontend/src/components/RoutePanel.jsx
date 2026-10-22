@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { BsPersonWalking } from "react-icons/bs";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline, IoTimeOutline } from "react-icons/io5";
@@ -13,7 +14,21 @@ import {
   directionText,
   formatDistance,
   formatDuration,
+  liveDelayInfo,
+  routeLateness,
 } from "../utils/format.js";
+import { passedTransitStops } from "../utils/navigation.js";
+
+const DELAY_TONE = {
+  late: ["text-red-600", "text-red-400"],
+  cancelled: ["text-red-600", "text-red-400"],
+  early: ["text-blue-600", "text-sky-300"],
+  ontime: ["text-green-700", "text-emerald-400"],
+};
+
+function delayToneClass(tone, darkMode) {
+  return (DELAY_TONE[tone] || DELAY_TONE.ontime)[darkMode ? 1 : 0];
+}
 
 const PAGE_CLOCK_MS = Date.now();
 
@@ -67,12 +82,13 @@ function StepIcon({ step }) {
 function TransitMeta({ step, darkMode }) {
   const pieces = [];
 
-  if (step.realtime) {
-    pieces.push(step.live_source === "GO Transit" ? "LIVE GO" : "LIVE");
-  }
+  const live = liveDelayInfo(step);
 
-  if (step.live_status && step.live_status !== "On time") {
-    pieces.push(step.live_status);
+  if (step.realtime) {
+    pieces.push(step.live_source ? `LIVE ${step.live_source}` : "LIVE");
+  } else if (!step.cancelled) {
+    const agencyName = step.agency_label || step.live_source;
+    pieces.push(agencyName ? `${agencyName}` : "Scheduled");
   }
 
   if (step.platform) {
@@ -91,30 +107,26 @@ function TransitMeta({ step, darkMode }) {
     pieces.push(`ride ${Math.round(step.ride_duration_min)} min`);
   }
 
-  if (Math.abs(step.delay_min || 0) >= 0.5) {
-    pieces.push(
-      `${step.delay_min > 0 ? "+" : ""}${Math.round(step.delay_min)} min`
-    );
-  }
-
   if (step.departure_time && step.arrival_time) {
     pieces.push(`${step.departure_time} → ${step.arrival_time}`);
   }
 
-  if (!pieces.length) {
+  if (!pieces.length && !live) {
     return null;
   }
 
   return (
     <div
       className={`mt-1 text-xs ${
-        step.cancelled
-          ? "font-semibold text-red-600"
-          : darkMode
-            ? "text-darkmode-gray"
-            : "text-button-darkest"
+        darkMode ? "text-darkmode-gray" : "text-button-darkest"
       }`}
     >
+      {live && (
+        <span className={`font-bold ${delayToneClass(live.tone, darkMode)}`}>
+          {live.label}
+        </span>
+      )}
+      {live && pieces.length > 0 && " • "}
       {pieces.join(" • ")}
     </div>
   );
@@ -273,6 +285,8 @@ export default function RoutePanel({
   darkMode,
   timingMode,
 }) {
+  // stops already crossed off per transit leg; only ever grows while navigating, so GPS jitter can't un-cross one
+  const passedLatch = useRef({});
   const mode = displayedMode || data?.mode || "driving";
 
   if (!data?.routes?.length) {
@@ -304,6 +318,26 @@ export default function RoutePanel({
     data.routes.find(route => route.route_number === selectedRouteNumber) ||
     data.routes[0];
   const steps = activeRoute?.steps || activeRoute?.stops || [];
+  if (!navigationActive) {
+    passedLatch.current = {};
+  }
+  const passedStopsFor = (step, index) => {
+    const total = step?.stop_list?.length || 0;
+    const currentIndex = navigationInfo?.current_step_index;
+    if (!navigationActive || !total || currentIndex == null) {
+      return 0;
+    }
+    let count = 0;
+    if (index < currentIndex) {
+      count = total;
+    } else if (index === currentIndex) {
+      count = passedTransitStops(activeRoute, step, navigationInfo.route_index);
+    }
+    const key = `${step.trip_id || "leg"}:${index}`;
+    const kept = Math.max(passedLatch.current[key] || 0, count);
+    passedLatch.current[key] = kept;
+    return kept;
+  };
   const alerts = data?.alerts ?? [];
   const arrivalLabel = route => {
     if (route.arrival_estimate_datetime) {
@@ -469,30 +503,40 @@ export default function RoutePanel({
          }
 
       {mode === "transit" && alerts.length > 0 && (
-        <div className="mb-3 space-y-2">
-          {alerts.map(alert => (
-            <div
-              key={alert.id}
-              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        <details className="group mb-3 rounded-xl border border-amber-300 bg-amber-50 text-xs text-amber-900">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-bold [&::-webkit-details-marker]:hidden">
+            <span>
+              {alerts.length === 1 ? "1 service alert" : `${alerts.length} service alerts`}
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-[10px] transition-transform duration-200 group-open:rotate-180"
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="font-bold">{alert.header}</div>
-                {alert.agency && (
-                  <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
-                    {alert.agency === "go" ? "GO" : "GRT"}
-                  </span>
+              ▾
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-amber-300/70 px-3 py-2">
+            {alerts.map(alert => (
+              <div key={`${alert.agency}:${alert.id}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold">{alert.header}</div>
+                  {alert.agency && (
+                    <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+                      {alert.agency_label || String(alert.agency).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {alert.description && (
+                  <div className="mt-1">{alert.description}</div>
                 )}
               </div>
-              {alert.description && (
-                <div className="mt-1 line-clamp-3">{alert.description}</div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {mode === "transit" && data.alternatives_loading && (
-        <div className="mb-2 text-xs opacity-80" role="status">Finding other transit options…</div>
+        <div className="mb-2 text-xs opacity-80" role="status"> <span className={`${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>Finding other transit options…</span></div>
       )}
       <div className="space-y-2">
         {data.routes.map(route => {
@@ -510,10 +554,7 @@ export default function RoutePanel({
           const transferRisk = route.transfer_reliability;
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
-
-                                                                                        
-                                                                                        
-                                                        
+      
           const arrivesEarliest = earliestArrival.has(route.route_number);
           if (arrivesEarliest) labels.push("ARRIVES EARLIEST");
           if (fastestRoutes.has(route.route_number) && !arrivesEarliest) labels.push("FASTEST");
@@ -529,7 +570,7 @@ export default function RoutePanel({
               onClick={() => onSelectRoute(route.route_number)}
               onMouseEnter={() => onRouteHover(route.route_number)}
               onMouseLeave={() => onRouteHover(null)}
-              className={`w-full rounded-xl border p-3.5 text-left transition-all ${
+              className={`w-full rounded-xl border p-4 text-left transition-all ${
                 selected
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -547,15 +588,41 @@ export default function RoutePanel({
                     : "border-button-light bg-white hover:border-green hover:shadow-sm"
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-2.5">
+                {labels.length > 0 && (
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-bold uppercase leading-4 tracking-wide">
+                    {labels.map((label, index) => (
+                      <span
+                        key={label}
+                        className={`whitespace-nowrap ${
+                          label.includes("TRANSFER") && !label.includes("LEAST")
+                            ? darkMode ? "text-amber-300" : "text-amber-700"
+                            : darkMode
+                              ? "text-hybrid-purple-light"
+                              : "text-green"
+                        }`}
+                      >
+                        {label}
+                        {index < labels.length - 1 && (
+                          <span className="ml-2 opacity-50" aria-hidden="true">•</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div>
                   <div
-                    className={`text-xl font-bold ${
+                    className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 ${
                       darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
-                    {formatDuration(route.duration_min)}{" • "}
-                    {arrivalLabel(route)                          }
+                    <span className="whitespace-nowrap text-xl font-bold">
+                      {formatDuration(route.duration_min)}
+                    </span>
+                    <span className="whitespace-nowrap text-base font-semibold opacity-80">
+                      {arrivalLabel(route)}
+                    </span>
                   </div>
 
                   <div
@@ -576,7 +643,7 @@ export default function RoutePanel({
                   {mode === "transit" && transferRisk?.status != "comfortable" && transferRisk.status !== "direct" && (
                     <div className={`mt-1 text-[11px] font-semibold ${
                       ["critical", "tight"].includes(transferRisk.status)
-                        ? "text-amber-500"
+                        ? darkMode ? "text-amber-300" : "text-amber-700"
                         : darkMode ? "text-darkmode-gray" : "text-button-darkest"
                     }`}>
                       {transferRisk.label}
@@ -585,7 +652,7 @@ export default function RoutePanel({
                   )}
                   {mode === "transit" && requiredLeaveTime(route) && (
                     <div
-                      className={`text-[14.5px] font-semibold ${
+                      className={`mt-2 text-[14.5px] font-semibold tabular-nums ${
                         darkMode ? "text-darkmode-gray" : "text-charcoal"
                       }`}
                     >
@@ -595,7 +662,7 @@ export default function RoutePanel({
                   )}
                   {mode === "transit" && transitSummary.length > 0 && (
                     <div
-                      className={`mt-1 line-clamp-1 text-xs font-semibold ${
+                      className={`mt-2 text-xs font-semibold leading-5 ${
                         darkMode ? "text-blue-light" : "text-green-dark"
                       }`}
                     >
@@ -607,9 +674,17 @@ export default function RoutePanel({
                           </span>
                         </span>
                       ))}
-                      {(route.steps || []).some(
-                        step => step?.type === "transit" && step?.realtime
-                      ) && " • LIVE"}
+                      {(() => {
+                        const lateness = routeLateness(route.steps);
+                        return lateness ? (
+                          <span>
+                            {" • "}
+                            <span className={delayToneClass(lateness.tone, darkMode)}>
+                              LIVE · {lateness.label}
+                            </span>
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   )}
 
@@ -625,12 +700,6 @@ export default function RoutePanel({
                     </div>
                   )}
                 </div>
-
-                {labels.length > 0 && (
-                  <div className={`text-right text-[10px] font-bold tracking-wide ${darkMode ? "text-hybrid-purple-light" : "text-green"}`}>
-                    {labels.join(" • ")}
-                  </div>
-                )}
               </div>
             </button>
           );
@@ -747,6 +816,12 @@ export default function RoutePanel({
             const directions = Array.isArray(step?.directions)
               ? step.directions.filter(item => directionText(item))
               : [];
+            const stopList = step?.type === "transit" && Array.isArray(step.stop_list)
+              ? step.stop_list
+              : [];
+            const passedStops = passedStopsFor(step, index);
+            const ridingThisLeg =
+              navigationActive && navigationInfo?.current_step_index === index;
 
             return (
               <div
@@ -854,6 +929,58 @@ export default function RoutePanel({
                             {direction.distance_m > 0 && (
                               <span className="shrink-0 opacity-70">
                                 {formatDistance(direction.distance_m)}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </details>
+              )}
+
+              {stopList.length > 0 && (
+                <details
+                  open={ridingThisLeg}
+                  className={`pb-3 pl-14 pr-3 text-xs ${
+                    darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                  }`}
+                >
+                  <summary className="cursor-pointer select-none font-semibold">
+                    Stops ({stopList.length})
+                  </summary>
+                  <ol className="mt-1.5 space-y-0.5">
+                    {stopList.map((stop, stopIndex) => {
+                      const crossedOff = stopIndex < passedStops;
+                      const isNext = ridingThisLeg && stopIndex === passedStops;
+                      const isLast = stopIndex === stopList.length - 1;
+                      const canFocusStop =
+                        Array.isArray(stop?.coordinates) && stop.coordinates.length >= 2;
+
+                      return (
+                        <li key={`${stop.stop_id || stopIndex}-${stopIndex}`}>
+                          <button
+                            type="button"
+                            onClick={() => canFocusStop && onStepSelect(stop, stopIndex)}
+                            disabled={!canFocusStop}
+                            className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left ${
+                              canFocusStop
+                                ? darkMode
+                                  ? mapStyle === "hybrid"
+                                    ? "hover:bg-hybrid-purple/10"
+                                    : mapStyle === "satellite"
+                                      ? "hover:bg-green/10"
+                                      : "hover:bg-blue/10"
+                                  : "hover:bg-green/10"
+                                : "cursor-default"
+                            } ${crossedOff ? "line-through opacity-50" : ""} ${
+                              isNext ? "font-bold" : ""
+                            }`}
+                          >
+                            <span>{stop.name}</span>
+                            {!crossedOff && (isLast || isNext) && (
+                              <span className="shrink-0 opacity-70">
+                                {isLast ? "Get off" : "Next"}
                               </span>
                             )}
                           </button>

@@ -57,9 +57,7 @@ def access_walk_cost(distance_m, soft_walk_m, walk_penalty):
     return real, access_walk_minutes(excess_m) * float(walk_penalty)
 
 
-def _candidate_trip_realtime_compact(
-    trips, agency, from_stop, to_stop, earliest, date, realtime
-):
+def _candidate_trip_realtime_compact(trips, agency, from_stop, to_stop, earliest, date, realtime):
     """Array-based twin of the realtime branch below (identical selection rules).
 
     Trips with no realtime update (the vast majority) are decided from the int
@@ -111,15 +109,7 @@ def _candidate_trip_realtime_compact(
     return (trips._edge(i), departure, arrival, dep_delay, live, arr_delay)
 
 
-def _candidate_trip(
-    schedule,
-    agency,
-    from_stop,
-    to_stop,
-    earliest,
-    date,
-    realtime,
-) -> tuple|None:
+def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realtime) -> tuple|None:
     """Find candidate trips"""
     times = schedule["times"]
 
@@ -492,14 +482,14 @@ def generate_alternative_paths(
 
     queue = deque()
 
-    def enqueue(variant, pref, shift=0, trips=(), routes=(), boarding_penalty=0.0):
+    def enqueue(variant, pref, shift=0, trips=(), routes=(), safety_buffer=0.0):
         queue.append({"variant": variant, "pref": pref, "shift": shift,
                       "trips": set(trips), "routes": set(routes),
-                      "boarding_penalty": boarding_penalty})
+                      "safety_buffer": safety_buffer})
 
     enqueue("fastest", "fastest")
     enqueue("less_walking", "less_walking")
-    enqueue("fewer_transfers", "balanced", boarding_penalty=15.0)
+    enqueue("fewer_transfers", "balanced", safety_buffer=15.0)
     for group in base_groups:
         enqueue("next_bus", "fastest", trips={str(group["trip_id"])})
     for key in route_keys_for_path(base_path):
@@ -524,7 +514,7 @@ def generate_alternative_paths(
             max_nearby_stops=profile["max_nearby_stops"],
             excluded_route_keys=base_excluded | job["routes"],
             excluded_trip_ids=job["trips"],
-            boarding_penalty=job["boarding_penalty"],
+            safety_buffer=job["safety_buffer"],
         )
         path, minutes = found[0], found[1]
         if not path or not any(is_transit_edge(item[2] or {}) for item in path[1:]):

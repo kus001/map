@@ -7,8 +7,6 @@
 <details>
 <summary>Street View</summary>
 
-#### Street view: 
-
 ![Street 2d dark](assets/darkmode.png)
 
 ↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
@@ -26,8 +24,6 @@
 
 <details>
 <summary>Satellite View</summary>
-
-#### Satellite: 
 
 ![Satellite 2d dark](assets/dark_sat.png)
 
@@ -47,8 +43,6 @@
 <details>
 <summary>Hybrid View</summary>
 
-#### Hybrid:
-
 ![Hybrid 2d dark](assets/hybrid_dark.png)
 
 ↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
@@ -66,9 +60,7 @@
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)
 
-<h4><strong> <a href=https://map.kmaps.ca> kmaps </a> is now hosted at <a href=https://map.kmaps.ca>this URL! </a></strong></h4>
-
-If you'd rather copy and paste it, it's [https://map.kmaps.ca/](https://map.kmaps.ca/)
+<h4><strong> <a href=https://map.kmaps.ca> kmaps </a> is now hosted at <a href=https://map.kmaps.ca> https://map.kmaps.ca </a></strong></h4>
 
 </div>
 

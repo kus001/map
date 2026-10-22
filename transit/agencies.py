@@ -17,9 +17,6 @@ This module must stay import-light (no project imports) so every other helper ca
 from dataclasses import dataclass
 from pathlib import Path
 
-from transit.realtime import TRIP_UPDATE_URLS, trip_update
-
-
 TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
 @dataclass(frozen=True)

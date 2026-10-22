@@ -611,7 +611,7 @@ export default function RoutePanel({
                   {mode === "transit" && transferRisk?.status != "comfortable" && transferRisk.status !== "direct" && (
                     <div className={`mt-1 text-[11px] font-semibold ${
                       ["critical", "tight"].includes(transferRisk.status)
-                        ? "text-amber-500"
+                        ? darkMode ? "text-amber-300" : "text-amber-700"
                         : darkMode ? "text-darkmode-gray" : "text-button-darkest"
                     }`}>
                       {transferRisk.label}

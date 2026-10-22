@@ -65,9 +65,9 @@ AGENCIES = {agency.id: agency for agency in (
 
     Agency("ttc", "TTC",
            "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e-e65a-4465-81fc-c36b9dfff169/resource/cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/TTC Routes and Schedules Data.zip",
-            trip_updates_url="https://bustime.ttc.ca/gtfsrt/trips",
-            vehicles_url="https://bustime.ttc.ca/gtfsrt/vehicles",
-            alerts_url="https://bustime.ttc.ca/gtfsrt/alerts",
+            trip_updates_url="https://gtfsrt.ttc.ca/trips/update?format=binary",
+            vehicles_url="https://gtfsrt.ttc.ca/vehicles/position?format=binary",
+            alerts_url="https://gtfsrt.ttc.ca/alerts/all?format=binary",
             cache="dttc.pkl", match_live_by_time=True, fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore

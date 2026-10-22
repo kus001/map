@@ -63,6 +63,8 @@ ALERTS_URL = os.getenv(
 
 # alert feeds by agency id; the GRT alerts feed covers both GRT agencies
 ALERT_URLS = {"grt": ALERTS_URL, **_declared("alerts_url")}
+# which agencies an alert feed speaks for (the GRT feed covers both GRT agencies)
+ALERT_AGENCIES = {"grt": ("grt_busses", "grt_trains")}
 
 _lock = threading.Lock()
 _worker_lock = threading.Lock()
@@ -255,6 +257,8 @@ def _parse_alerts(feed, agency="grt"):
             {
                 "id": str(entity.id),
                 "agency": agency,
+                "agency_ids": list(ALERT_AGENCIES.get(agency, (agency,))),
+                "agency_label": agencies.label(agency),
                 "header": header or f"{agencies.label(agency)} service alert",
                 "description": description,
                 "route_ids": route_ids,
@@ -283,7 +287,7 @@ def _translate_by_time(agency, updates):
     matched, stats = index.match(_live_trips(updates))
 
     translated, mapping = {}, {}
-    for live_id, (static_id, _delay, stop_mode) in matched.items():
+    for live_id, (static_id, delay, stop_mode) in matched.items():
         update = updates[(agency, live_id)]
         stops = {}
         for stop_id, info in update["stops"].items():
@@ -295,7 +299,7 @@ def _translate_by_time(agency, updates):
                 if "departure_time" in info:
                     info.setdefault("arrival_time", info["departure_time"])
                 stops[static_stop] = info
-        translated[(agency, static_id)] = {**update, "stops": stops}
+        translated[(agency, static_id)] = {**update, "stops": stops, "delay": float(delay)}
         mapping[live_id] = static_id
     return translated, mapping, stats
 
@@ -499,16 +503,26 @@ def vehicle_for_trip(realtime, agency, trip_id):
     return realtime.get("vehicles", {}).get(_trip_key(agency, trip_id))
 
 
-def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None):
+def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None, agency_ids=None):
+    """Alerts relevant to these routes/stops/trips. With ``agency_ids`` (the agencies actually used),
+    an alert only counts if it comes from one of them, so TTC's route 11 or a system-wide TTC notice
+    never shows up on a GRT trip."""
     if not realtime.get("alerts_available"):
         return []
 
     route_ids = {str(route) for route in route_ids if route is not None}
     stop_ids = {str(stop) for stop in (stop_ids or []) if stop is not None}
-    trip_ids = {str(trip) for trip in (trip_ids or []) if trip is not None}
+    # router trip ids are "<agency>:<id>"; alerts carry the raw id
+    trip_ids = {variant for trip in (trip_ids or []) if trip is not None
+                for variant in (str(trip), str(trip).split(":", 1)[-1])}
+    agency_ids = {str(agency) for agency in agency_ids} if agency_ids else None
     matches = []
 
     for alert in realtime.get("alerts", []):
+        if agency_ids is not None:
+            alert_agencies = set(alert.get("agency_ids") or [alert.get("agency")])
+            if not alert_agencies & agency_ids:
+                continue
         alert_routes = set(alert.get("route_ids", []))
         alert_stops = set(alert.get("stop_ids", []))
         alert_trips = set(alert.get("trip_ids", []))
@@ -519,7 +533,8 @@ def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None):
             or alert_stops & stop_ids
             or alert_trips & trip_ids
         ):
-            matches.append(alert)
+            matches.append({**alert, "agency_label": alert.get("agency_label")
+                            or agencies.label(alert.get("agency"))})
 
         if len(matches) >= limit:
             break

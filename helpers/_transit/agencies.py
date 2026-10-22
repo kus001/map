@@ -76,8 +76,8 @@ AGENCIES = {agency.id: agency for agency in (
     Agency("ltc", "London Transit", "https://www.londontransit.ca/gtfsfeed/google_transit.zip",                 # https://www.londontransit.ca/open-data/
            cache="dltc.pkl", fallback_mode="bus"),
 
-    # Agency("nrt", "Niagara Transit", "http://68.71.24.110/gtfs/GTFSExport.zip",                                 # http://68.71.24.110/gtfs/GTFSExport.zip
-    #        realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
+    Agency("nrt", "Niagara Transit", "https://files.mobilitydatabase.org/tld-859/tld-859-202610070040/tld-859-202610070040.zip", # https://mobilitydatabase.org/feeds/gtfs/tld-859
+           realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
 
     Agency("miway", "MiWay", "https://www.miapp.ca/GTFS/google_transit.zip",                                    # https://www.mississauga.ca/miway-transit/developer-download/
            cache="dmiway.pkl", fallback_mode="bus"),

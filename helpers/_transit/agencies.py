@@ -85,7 +85,7 @@ AGENCIES = {agency.id: agency for agency in (
            vehicles_url="https://www.miapp.ca/GTFS_RT/Vehicle/VehiclePositions.pb",
            alerts_url="https://www.miapp.ca/gtfs_rt/Alerts/Alerts.pb"),
 
-    Agency("bt", "BT", "https://www.arcgis.com/sharing/rest/content/items/a355aabd5a8c490186bdce559c9c75fb/data",
+    Agency("bt", "Brampton Transit", "https://www.arcgis.com/sharing/rest/content/items/a355aabd5a8c490186bdce559c9c75fb/data",
            cache="dbt.pkl", fallback_mode="bus"),
 
     Agency("yrt", "YRT", "https://www.yrt.ca/google/google_transit.zip",                                        # https://forms.yrt.ca/YRT-GTFS-Data?Id=db191ee1-cdb9-4909-aa49-b4e96679e142

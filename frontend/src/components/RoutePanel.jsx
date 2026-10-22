@@ -88,7 +88,7 @@ function TransitMeta({ step, darkMode }) {
     pieces.push(step.live_source ? `LIVE ${step.live_source}` : "LIVE");
   } else if (!step.cancelled) {
     const agencyName = step.agency_label || step.live_source;
-    pieces.push(agencyName ? `Scheduled ${agencyName}` : "Scheduled");
+    pieces.push(agencyName ? `${agencyName}` : "Scheduled");
   }
 
   if (step.platform) {
@@ -536,7 +536,7 @@ export default function RoutePanel({
       )}
 
       {mode === "transit" && data.alternatives_loading && (
-        <div className="mb-2 text-xs opacity-80" role="status">Finding other transit options…</div>
+        <div className="mb-2 text-xs opacity-80" role="status"> <span className={`${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>Finding other transit options…</span></div>
       )}
       <div className="space-y-2">
         {data.routes.map(route => {
@@ -554,10 +554,7 @@ export default function RoutePanel({
           const transferRisk = route.transfer_reliability;
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
-
-                                                                                        
-                                                                                        
-                                                        
+      
           const arrivesEarliest = earliestArrival.has(route.route_number);
           if (arrivesEarliest) labels.push("ARRIVES EARLIEST");
           if (fastestRoutes.has(route.route_number) && !arrivesEarliest) labels.push("FASTEST");

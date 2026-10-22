@@ -1,11 +1,11 @@
 """Every transit agency the map knows about, described in one place.
 
 To add an agency, add one ``Agency(...)`` entry to ``AGENCIES`` below with ``own_cache=True``,
-then run ``python -m helpers._transit.agency_setup <id>`` to download and index its GTFS feed.
+then run ``python -m transit.agency_setup <id>`` to download and index its GTFS feed.
 
 For live delays / vehicles / alerts, add the agency's GTFS-RT links to the same entry:
     trip_updates_url="...", vehicles_url="...", alerts_url="..."   (all optional)
-then run ``python -m helpers._transit.realtime <id>`` to check the feed and its trip ids.
+then run ``python -m transit.realtime <id>`` to check the feed and its trip ids.
 If the live trip ids don't exist in the static feed (the check says so), add match_live_by_time=True.
 
 Two ways an agency's schedule is stored
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-TRANSIT_DATA = Path(__file__).resolve().parents[2] / "transit_data"
+TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
 @dataclass(frozen=True)
 class Agency:

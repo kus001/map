@@ -4,9 +4,9 @@ from functools import lru_cache
 from heapq import nsmallest
 from pathlib import Path
 
-from helpers._transit import agencies, shape_index
+from . import agencies, shape_index
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GTFS_ROOT = PROJECT_ROOT / "transit_data" / "GTFS_Files"
 
 

@@ -7,10 +7,10 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from helpers._transit.agencies import AGENCIES
+from .agencies import AGENCIES
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 GTFS_ROOT = (
     PROJECT_ROOT

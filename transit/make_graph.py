@@ -4,12 +4,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from helpers._transit.compact import compact_graph, is_compact
-from helpers._transit.download_gtfs import download_gtfs
 from helpers.distance import find_dist
 from helpers.time_management import delta_time_in_minutes, time_to_seconds
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from .compact import compact_graph, is_compact
+from .download_gtfs import download_gtfs
+from .pickle_compat import load_cache
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRANSIT_DATA = PROJECT_ROOT / "transit_data"
 GTFS_ROOT = TRANSIT_DATA / "GTFS_Files"
 
@@ -232,7 +234,7 @@ def add_multiple_agencies_to_graph(
 
     if graph_path.exists():
         with graph_path.open("rb") as file:
-            loaded = pickle.load(file)
+            loaded = load_cache(file)
 
         graph = loaded.graph
         node_positions = loaded.node_positions

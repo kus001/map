@@ -91,7 +91,7 @@ def _stop_grid():
     return f"{len(transit.stops):,} stops indexed"
 
 def _gtfs_indexes():
-    from helpers._transit import gtfs_metadata
+    from transit import gtfs_metadata
     gtfs_metadata.prewarm()
 
 def _service_calendars() -> str:
@@ -100,7 +100,7 @@ def _service_calendars() -> str:
 
 def _realtime_first_fetch():
     """The refresh threads start with the graph; wait (bounded) for the first result."""
-    from helpers._transit import go_realtime, realtime
+    from transit import go_realtime, realtime
 
     timeout = float(os.getenv("MAP_WARMUP_REALTIME_TIMEOUT", "8"))
     feeds = {}

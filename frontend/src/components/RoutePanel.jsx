@@ -538,7 +538,7 @@ export default function RoutePanel({
               onClick={() => onSelectRoute(route.route_number)}
               onMouseEnter={() => onRouteHover(route.route_number)}
               onMouseLeave={() => onRouteHover(null)}
-              className={`w-full rounded-xl border p-3.5 text-left transition-all ${
+              className={`w-full rounded-xl border p-4 text-left transition-all ${
                 selected
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -556,15 +556,38 @@ export default function RoutePanel({
                     : "border-button-light bg-white hover:border-green hover:shadow-sm"
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-2.5">
+                {labels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {labels.map(label => (
+                      <span
+                        key={label}
+                        className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold leading-4 tracking-wide ${
+                          label.includes("TRANSFER")
+                            ? "bg-amber-500/15 text-amber-500"
+                            : darkMode
+                              ? "bg-hybrid-purple/15 text-hybrid-purple-light"
+                              : "bg-green/10 text-green"
+                        }`}
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div>
                   <div
-                    className={`text-xl font-bold ${
+                    className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 ${
                       darkMode ? "text-darkmode-gray" : "text-charcoal"
                     }`}
                   >
-                    {formatDuration(route.duration_min)}{" • "}
-                    {arrivalLabel(route)                          }
+                    <span className="whitespace-nowrap text-xl font-bold">
+                      {formatDuration(route.duration_min)}
+                    </span>
+                    <span className="whitespace-nowrap text-base font-semibold opacity-80">
+                      {arrivalLabel(route)}
+                    </span>
                   </div>
 
                   <div
@@ -594,7 +617,7 @@ export default function RoutePanel({
                   )}
                   {mode === "transit" && requiredLeaveTime(route) && (
                     <div
-                      className={`text-[14.5px] font-semibold ${
+                      className={`mt-2 text-[14.5px] font-semibold tabular-nums ${
                         darkMode ? "text-darkmode-gray" : "text-charcoal"
                       }`}
                     >
@@ -604,7 +627,7 @@ export default function RoutePanel({
                   )}
                   {mode === "transit" && transitSummary.length > 0 && (
                     <div
-                      className={`mt-1 line-clamp-1 text-xs font-semibold ${
+                      className={`mt-2 text-xs font-semibold leading-5 ${
                         darkMode ? "text-blue-light" : "text-green-dark"
                       }`}
                     >
@@ -642,12 +665,6 @@ export default function RoutePanel({
                     </div>
                   )}
                 </div>
-
-                {labels.length > 0 && (
-                  <div className={`text-right text-[10px] font-bold tracking-wide ${darkMode ? "text-hybrid-purple-light" : "text-green"}`}>
-                    {labels.join(" • ")}
-                  </div>
-                )}
               </div>
             </button>
           );

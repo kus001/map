@@ -95,7 +95,10 @@ AGENCIES = {agency.id: agency for agency in (
            alerts_url="https://gtfs-rt-merge.prod.bt-cadavl.com/BramptonTransit/GTFS/merged_Alert.pb"),
 
     Agency("yrt", "YRT", "https://www.yrt.ca/google/google_transit.zip",                                        # https://forms.yrt.ca/YRT-GTFS-Data?Id=db191ee1-cdb9-4909-aa49-b4e96679e142
-           cache="dyrt.pkl", fallback_mode="bus"),
+           cache="dyrt.pkl", fallback_mode="bus",
+           trip_updates_url="https://rtu.york.ca/gtfsrealtime/TripUpdates",
+           vehicles_url="https://rtu.york.ca/gtfsrealtime/VehiclePositions",
+           alerts_url="https://storage.googleapis.com/transit-terminal-alerts-bucket-production/yrt.pb"),
 
     Agency("gt", "Guelph Transit", "https://files.mobilitydatabase.org/mdb-3140/mdb-3140-202605111616/mdb-3140-202605111616.zip", # https://explore.guelph.ca/pages/transit-gtfs-data
            cache="dgt.pkl", fallback_mode="bus"),

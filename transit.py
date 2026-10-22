@@ -1476,6 +1476,16 @@ def route_signature(route):
     return tuple(signature)
 
 
+def delay_status_label(delay_min):
+    """'3 min late' / '2 min early' / 'On time' for a live delay in minutes."""
+    minutes = round(float(delay_min or 0))
+    if minutes >= 1:
+        return f"{minutes} min late"
+    if minutes <= -1:
+        return f"{-minutes} min early"
+    return "On time"
+
+
 def _namespaced_trip_keys(items):
     """The router's trip ids are '<agency>:<id>' but live feeds key trips by the raw id."""
     out = {}
@@ -2348,6 +2358,10 @@ def get_transit_route(
             "to_coordinates": list(group["to_coords"]),
         }
 
+        if go_live is None and step_realtime:
+            step["live_source"] = agencies.label(agency)
+            step["live_status"] = delay_status_label(step_delay_min)
+
         if go_live is not None:
             step.update(
                 {
@@ -2483,14 +2497,14 @@ def get_transit_route(
     if go_connected_for_route:
         live_sources.append("GO Transit")
 
-    any_live_feed_connected = bool(
-        grt_connected_for_route or go_connected_for_route
-    )
+    # any other agency (TTC, ...) counts as a live source once a trip on it actually got live data
+    for other in sorted(used_agencies - {"grt_busses", "grt_trains", "go", ""}):
+        if any(step.get("agency") == other and step.get("realtime") for step in steps):
+            live_sources.append(agencies.label(other))
+
+    any_live_feed_connected = bool(live_sources)
     realtime_info = {
-        "available": bool(
-            realtime_allowed
-            and (grt_connected_for_route or go_connected_for_route)
-        ),
+        "available": bool(realtime_allowed and live_sources),
         "feed_connected": any_live_feed_connected,
         "feed_age_seconds": feed_age if grt_connected_for_route else None,
         "used_live_updates": any(step.get("realtime") for step in steps),
@@ -2556,7 +2570,8 @@ def get_transit_route(
         if arrival_dt > requested_arrival:
             return {"success": False, "error": "No route meets your arrival deadline after accounting for walking time."}
 
-    alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids)
+    alerts = matching_alerts(realtime, route_ids, used_stop_ids, trip_ids=used_trip_ids,
+                             agency_ids=used_agencies)
     mark("formatting")
 
     route["route_variant"] = "balanced"

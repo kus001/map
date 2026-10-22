@@ -10,9 +10,9 @@ import threading
 from pathlib import Path
 from contextlib import closing
 
-from helpers._transit.agencies import AGENCIES
+from .agencies import AGENCIES
 
-ROOT = Path(__file__).resolve().parents[2] / 'transit_data' / 'GTFS_Files'
+ROOT = Path(__file__).resolve().parents[1] / 'transit_data' / 'GTFS_Files'
 CACHE_DIR = ROOT.parent / '.shape_index'
 _lock = threading.Lock()
 _ready = {}

@@ -17,7 +17,7 @@ from collections import Counter
 from datetime import date as _date, datetime, time as _time, timedelta
 from zoneinfo import ZoneInfo
 
-from helpers._transit import agencies
+from . import agencies
 
 TZ = ZoneInfo("America/Toronto")
 LATE_SECONDS = 20 * 60    # live time can be this much after the scheduled departure

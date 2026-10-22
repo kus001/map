@@ -1,9 +1,9 @@
 """Import an own-cache agency's schedule once; normal route requests only read the compact cache.
 
-    python -m helpers._transit.agency_setup ttc                 # download + build
-    python -m helpers._transit.agency_setup ttc --zip feed.zip  # use a local zip or folder
-    python -m helpers._transit.agency_setup ttc --shapes-only   # add route geometry only
-    python -m helpers._transit.agency_setup ttc --redownload    # ignore files already on disk
+    python -m transit.agency_setup ttc                 # download + build
+    python -m transit.agency_setup ttc --zip feed.zip  # use a local zip or folder
+    python -m transit.agency_setup ttc --shapes-only   # add route geometry only
+    python -m transit.agency_setup ttc --redownload    # ignore files already on disk
 """
 import argparse
 import csv
@@ -19,9 +19,9 @@ from pathlib import Path
 
 import requests
 
-from helpers._transit.agencies import AGENCIES, OWN_CACHE_AGENCIES, Agency
-from helpers._transit.compact import CompactTrips, TripPools
-from helpers._transit.make_graph import Graph, GTFS_ROOT
+from .agencies import AGENCIES, OWN_CACHE_AGENCIES, Agency
+from .compact import CompactTrips, TripPools
+from .make_graph import Graph, GTFS_ROOT
 from helpers.distance import find_dist
 from helpers.time_management import time_to_seconds
 
@@ -35,7 +35,7 @@ def _agency(agency) -> Agency:
         raise ValueError(f"Unknown agency: {agency}")
     if not found.own_cache:
         raise ValueError(f"{found.id} is built into the shared startup graph by "
-                         "helpers/_transit/make_graph.py, not by agency_setup")
+                         "transit/make_graph.py, not by agency_setup")
     return found
 
 
@@ -232,7 +232,7 @@ def _extract_files(agency, source, target, wanted):
 
 def install_shapes(agency, source=None):
     """Add route geometry to an existing compact install, without rebuilding it."""
-    from helpers._transit import shape_index
+    from . import shape_index
 
     agency = _agency(agency)
     folder = GTFS_ROOT / agency.id
@@ -291,7 +291,7 @@ def install_agency(agency, source=None, redownload=False):
 if __name__ == "__main__":
     ids = [a.id for a in OWN_CACHE_AGENCIES]
     parser = argparse.ArgumentParser(description="Build an on-demand transit agency cache.")
-    parser.add_argument("agency", choices=ids, help="agency id from helpers/_transit/agencies.py")
+    parser.add_argument("agency", choices=ids, help="agency id from transit/agencies.py")
     parser.add_argument("--zip", help="Local GTFS ZIP or extracted folder")
     parser.add_argument("--redownload", action="store_true",
                         help="Download the feed again even if its files are already on disk")

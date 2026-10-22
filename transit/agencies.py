@@ -1,11 +1,11 @@
 """Every transit agency the map knows about, described in one place.
 
 To add an agency, add one ``Agency(...)`` entry to ``AGENCIES`` below with ``own_cache=True``,
-then run ``python -m helpers._transit.agency_setup <id>`` to download and index its GTFS feed.
+then run ``python -m transit.agency_setup <id>`` to download and index its GTFS feed.
 
 For live delays / vehicles / alerts, add the agency's GTFS-RT links to the same entry:
     trip_updates_url="...", vehicles_url="...", alerts_url="..."   (all optional)
-then run ``python -m helpers._transit.realtime <id>`` to check the feed and its trip ids.
+then run ``python -m transit.realtime <id>`` to check the feed and its trip ids.
 If the live trip ids don't exist in the static feed (the check says so), add match_live_by_time=True.
 
 Two ways an agency's schedule is stored
@@ -17,8 +17,10 @@ This module must stay import-light (no project imports) so every other helper ca
 from dataclasses import dataclass
 from pathlib import Path
 
+from transit.realtime import TRIP_UPDATE_URLS, trip_update
 
-TRANSIT_DATA = Path(__file__).resolve().parents[2] / "transit_data"
+
+TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
 @dataclass(frozen=True)
 class Agency:
@@ -71,10 +73,16 @@ AGENCIES = {agency.id: agency for agency in (
             cache="dttc.pkl", match_live_by_time=True, fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore
-           cache="dhsr.pkl", fallback_mode="bus"),
+           cache="dhsr.pkl", fallback_mode="bus",
+           trip_updates_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_TripUpdates.pb",
+           vehicles_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_VehiclePositions.pb",
+           alerts_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_ServiceAlerts.pb"),
 
     Agency("ltc", "London Transit", "https://www.londontransit.ca/gtfsfeed/google_transit.zip",                 # https://www.londontransit.ca/open-data/
-           cache="dltc.pkl", fallback_mode="bus"),
+           cache="dltc.pkl", fallback_mode="bus",
+           trip_updates_url = "http://gtfs.ltconline.ca/TripUpdate/TripUpdates.pb",
+           vehicles_url="http://gtfs.ltconline.ca/Vehicle/VehiclePositions.pb",
+           alerts_url="http://gtfs.ltconline.ca/Alert/Alerts.pb"),
 
     Agency("nrt", "Niagara Transit", "https://files.mobilitydatabase.org/tld-859/tld-859-202610070040/tld-859-202610070040.zip", # https://mobilitydatabase.org/feeds/gtfs/tld-859
            realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
@@ -86,13 +94,22 @@ AGENCIES = {agency.id: agency for agency in (
            alerts_url="https://www.miapp.ca/gtfs_rt/Alerts/Alerts.pb"),
 
     Agency("bt", "Brampton Transit", "https://www.arcgis.com/sharing/rest/content/items/a355aabd5a8c490186bdce559c9c75fb/data",
-           cache="dbt.pkl", fallback_mode="bus"),
+           cache="dbt.pkl", fallback_mode="bus",
+           trip_updates_url="https://gtfs-rt-merge.prod.bt-cadavl.com/BramptonTransit/GTFS/merged_TripUpdate.pb",
+           vehicles_url="https://gtfs-rt-merge.prod.bt-cadavl.com/BramptonTransit/GTFS/merged_VehiclePosition.pb",
+           alerts_url="https://gtfs-rt-merge.prod.bt-cadavl.com/BramptonTransit/GTFS/merged_Alert.pb"),
 
     Agency("yrt", "YRT", "https://www.yrt.ca/google/google_transit.zip",                                        # https://forms.yrt.ca/YRT-GTFS-Data?Id=db191ee1-cdb9-4909-aa49-b4e96679e142
-           cache="dyrt.pkl", fallback_mode="bus"),
+           cache="dyrt.pkl", fallback_mode="bus",
+           trip_updates_url="https://rtu.york.ca/gtfsrealtime/TripUpdates",
+           vehicles_url="https://rtu.york.ca/gtfsrealtime/VehiclePositions",
+           alerts_url="https://storage.googleapis.com/transit-terminal-alerts-bucket-production/yrt.pb"),
 
     Agency("gt", "Guelph Transit", "https://files.mobilitydatabase.org/mdb-3140/mdb-3140-202605111616/mdb-3140-202605111616.zip", # https://explore.guelph.ca/pages/transit-gtfs-data
-           cache="dgt.pkl", fallback_mode="bus"),
+           cache="dgt.pkl", fallback_mode="bus",
+           trip_updates_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/tripupdate/tripupdates.pb",
+           vehicles_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/vehicle/vehiclepositions.pb",
+           alerts_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/alert/alerts.pb"),
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

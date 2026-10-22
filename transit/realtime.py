@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from helpers._transit import agencies, rt_match
+from . import agencies, rt_match
 
 try:
     from google.transit import gtfs_realtime_pb2
@@ -562,7 +562,7 @@ def _report_time_match(agency, feed):
 
 
 def _check(agency_id, trip_updates_url=None):
-    """python -m helpers._transit.realtime <agency> [trip_updates_url]  - fetch its live feeds and compare trip ids
+    """python -m transit.realtime <agency> [trip_updates_url]  - fetch its live feeds and compare trip ids
     with the static GTFS from agency_setup, so you know the live data will actually line up."""
     import csv
     from pathlib import Path
@@ -641,5 +641,5 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) not in (2, 3):
-        raise SystemExit("usage: python -m helpers._transit.realtime <agency> [trip_updates_url]")
+        raise SystemExit("usage: python -m transit.realtime <agency> [trip_updates_url]")
     _check(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None)

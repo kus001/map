@@ -160,9 +160,9 @@ That's all old! Everything should work now!! It should be integrated into the we
 </div>
 
 <details>
-<summary><h3 style="display: inline;"> Running transit.py </h3></summary>
+<summary><h3 style="display: inline;"> Running the transit router </h3></summary>
 
-It is recommended to run this project in its own folder so you can easily delete any spawned files. The project generates the transit_data folder when running `transit.py`.
+It is recommended to run this project in its own folder so you can easily delete any spawned files. The project generates the transit_data folder when running `python -m transit` (the router is now in the `transit/` package).
 
 </details>
 

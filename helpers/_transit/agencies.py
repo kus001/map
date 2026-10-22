@@ -71,7 +71,10 @@ AGENCIES = {agency.id: agency for agency in (
             cache="dttc.pkl", match_live_by_time=True, fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore
-           cache="dhsr.pkl", fallback_mode="bus"),
+           cache="dhsr.pkl", fallback_mode="bus",
+           trip_updates_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_TripUpdates.pb",
+           vehicles_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_VehiclePositions.pb",
+           alerts_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_ServiceAlerts.pb"),
 
     Agency("ltc", "London Transit", "https://www.londontransit.ca/gtfsfeed/google_transit.zip",                 # https://www.londontransit.ca/open-data/
            cache="dltc.pkl", fallback_mode="bus"),

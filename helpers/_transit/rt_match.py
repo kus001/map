@@ -13,6 +13,7 @@ import csv
 import sqlite3
 import statistics
 import threading
+from collections import Counter
 from datetime import date as _date, datetime, time as _time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,8 @@ from helpers._transit import agencies
 TZ = ZoneInfo("America/Toronto")
 LATE_SECONDS = 20 * 60    # live time can be this much after the scheduled departure
 EARLY_SECONDS = 3 * 60    # ... or this much before it
+
+SCHEMA_VERSION = 2
 
 _lock = threading.Lock()
 _indexes = {}
@@ -49,13 +52,21 @@ def _seconds(text):
 
 def _fresh(agency_id):
     db, trips = _db_path(agency_id), _folder(agency_id) / "trips.txt"
-    return db.is_file() and trips.is_file() and db.stat().st_mtime >= trips.stat().st_mtime
+    if not (db.is_file() and trips.is_file() and db.stat().st_mtime >= trips.stat().st_mtime):
+        return False
+    try:
+        con = sqlite3.connect(str(db))
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        con.close()
+    except sqlite3.Error:
+        return False
+    return version == SCHEMA_VERSION
 
 
 def build(agency_id):
     """Create the lookup table from the agency's static GTFS (one-time, SQLite does the sorting)."""
     folder, path = _folder(agency_id), _db_path(agency_id)
-    for name in ("trips.txt", "stop_times.txt", "stops.txt"):
+    for name in ("trips.txt", "stop_times.txt", "stops.txt", "routes.txt"):
         if not (folder / name).is_file():
             raise FileNotFoundError(folder / name)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +79,7 @@ def build(agency_id):
     db.execute("CREATE TABLE trips (id INTEGER PRIMARY KEY, trip_id TEXT, route TEXT, service TEXT)")
     db.execute("CREATE TABLE times (stop TEXT, dep INTEGER, trip INTEGER)")
     db.execute("CREATE TABLE stops (stop_id TEXT, stop_code TEXT)")
+    db.execute("CREATE TABLE routes (route_id TEXT, short_name TEXT)")
     db.execute("CREATE TABLE cal (service TEXT, days TEXT, start TEXT, end TEXT)")
     db.execute("CREATE TABLE exc (service TEXT, day TEXT, kind INTEGER)")
 
@@ -77,6 +89,8 @@ def build(agency_id):
         for r in _rows(folder / "trips.txt") if r.get("trip_id") not in number))
     db.executemany("INSERT INTO stops VALUES (?,?)",
                    ((r["stop_id"], (r.get("stop_code") or "").strip()) for r in _rows(folder / "stops.txt")))
+    db.executemany("INSERT INTO routes VALUES (?,?)", ((r["route_id"], (r.get("route_short_name") or "").strip())
+                                                       for r in _rows(folder / "routes.txt")))
     db.executemany("INSERT INTO cal VALUES (?,?,?,?)", (
         (r["service_id"], "".join(r.get(d, "0") for d in
                                   "monday tuesday wednesday thursday friday saturday sunday".split()),
@@ -100,6 +114,7 @@ def build(agency_id):
     if batch:
         db.executemany("INSERT INTO times VALUES (?,?,?)", batch)
     db.execute("CREATE INDEX times_stop_dep ON times(stop, dep)")
+    db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     db.commit()
     db.close()
     tmp.replace(path)
@@ -110,17 +125,27 @@ class Index:
         self.db = sqlite3.connect(str(_db_path(agency_id)), check_same_thread=False)
         self._query_lock = threading.Lock()
         self.stop_ids = {s for (s,) in self.db.execute("SELECT stop_id FROM stops")}
-        self.code_to_id = {code: sid for sid, code in self.db.execute("SELECT stop_id, stop_code FROM stops")
-                           if code and code not in self.stop_ids}
+        self.code_to_id = {code: sid for sid, code in self.db.execute("SELECT stop_id, stop_code FROM stops") if code}
+        self.routes = {}  # what a live feed may call a route -> static route_ids (route_id or short name)
+        for route_id, short in self.db.execute("SELECT route_id, short_name FROM routes"):
+            self.routes.setdefault(route_id, set()).add(route_id)
+            if short:
+                self.routes.setdefault(short, set()).add(route_id)
         self.calendar = {s: (d, a, b) for s, d, a, b in self.db.execute("SELECT * FROM cal")}
         self.exceptions = {(s, d): k for s, d, k in self.db.execute("SELECT * FROM exc")}
         self._active = {}
 
-    def static_stop(self, live_stop):
+    def route_ids(self, live_route):
+        return self.routes.get(str(live_route), set())
+
+    def static_stop(self, live_stop, mode=None):
+        """Live feeds may send a stop_id or the public stop_code; mode picks one, None tries id then code."""
         live_stop = str(live_stop)
-        if live_stop in self.stop_ids:
+        if mode in (None, "id") and live_stop in self.stop_ids:
             return live_stop
-        return self.code_to_id.get(live_stop)
+        if mode in (None, "code"):
+            return self.code_to_id.get(live_stop)
+        return None
 
     def _service_active(self, service, day):
         key = (service, day)
@@ -135,10 +160,14 @@ class Index:
             self._active[key] = active
         return self._active[key]
 
-    def _candidates(self, route, stop, epoch):
-        """(cost, delay, static_trip_id) for scheduled trips near ``epoch`` at ``stop`` on ``route``."""
+    def _scan(self, routes, stops, epoch, before, after):
+        """[(delay, service_active, trip_id)] for scheduled trips on ``routes`` at ``stops`` whose
+        departure is within [epoch - before, epoch + after]; delay = live time - scheduled time."""
+        if not routes or not stops:
+            return []
         found = []
         local_day = datetime.fromtimestamp(epoch, TZ).date()
+        marks_r, marks_s = ",".join("?" * len(routes)), ",".join("?" * len(stops))
         for offset in (0, -1):          # after-midnight trips belong to the previous service day
             day = local_day + timedelta(days=offset)
             midnight = datetime.combine(day, _time(0), TZ).timestamp()
@@ -146,42 +175,90 @@ class Index:
             with self._query_lock:
                 rows = self.db.execute(
                     "SELECT t.trip_id, t.service, x.dep FROM times x JOIN trips t ON t.id = x.trip "
-                    "WHERE x.stop = ? AND t.route = ? AND x.dep BETWEEN ? AND ?",
-                    (stop, route, seconds - LATE_SECONDS, seconds + EARLY_SECONDS)).fetchall()
+                    f"WHERE x.stop IN ({marks_s}) AND t.route IN ({marks_r}) AND x.dep BETWEEN ? AND ?",
+                    (*stops, *routes, seconds - before, seconds + after)).fetchall()
             for trip_id, service, dep in rows:
-                if self._service_active(service, day):
-                    delay = seconds - dep
-                    found.append((abs(delay), delay, trip_id))
+                found.append((seconds - dep, self._service_active(service, day), trip_id))
         return found
+
+    def _anchors(self, stops):
+        """First few (live_stop, epoch) pairs that have a time and a stop we know (as id or code)."""
+        return [(s, t) for s, t in stops if t and self.static_stop(s)][:4]
 
     def match(self, live_trips):
         """live_trips: [(live_id, route_id, [(live_stop_id, epoch), ...])].
-        Returns ({live_id: (static_trip_id, delay_seconds)}, stats). Each static trip is used once."""
+        Returns ({live_id: (static_trip_id, delay_seconds, stop_mode)}, stats). Each static trip is used once."""
         stats = {"live": len(live_trips), "matched": 0, "no_route_or_time": 0,
                  "unknown_stop": 0, "no_scheduled_trip": 0}
         options = []
         for live_id, route, stops in live_trips:
-            anchor = next(((self.static_stop(s), t) for s, t in stops if t and self.static_stop(s)), None)
-            if not route or not stops or not any(t for _, t in stops):
+            if not route or not any(t for _, t in stops):
                 stats["no_route_or_time"] += 1
-            elif anchor is None:
+                continue
+            anchors = self._anchors(stops)
+            if not anchors:
                 stats["unknown_stop"] += 1
-            else:
-                found = self._candidates(str(route), anchor[0], anchor[1])
-                if not found:
-                    stats["no_scheduled_trip"] += 1
-                options.extend((cost, delay, live_id, trip_id) for cost, delay, trip_id in found)
+                continue
+            routes, found = self.route_ids(route), False
+            for stop, epoch in anchors:          # try the next stop if this one has nothing nearby
+                for mode in ("id", "code"):
+                    sid = self.static_stop(stop, mode)
+                    for delay, active, trip_id in self._scan(routes, [sid] if sid else [], epoch,
+                                                             LATE_SECONDS, EARLY_SECONDS):
+                        if active:
+                            options.append((abs(delay), delay, live_id, trip_id, mode))
+                            found = True
+                if found:
+                    break
+            if not found:
+                stats["no_scheduled_trip"] += 1
 
         matched, taken = {}, set()
-        for cost, delay, live_id, trip_id in sorted(options):
+        for cost, delay, live_id, trip_id, mode in sorted(options):
             if live_id in matched or trip_id in taken:
                 continue
-            matched[live_id] = (trip_id, delay)
+            matched[live_id] = (trip_id, delay, mode)
             taken.add(trip_id)
         stats["matched"] = len(matched)
-        stats["median_abs_delay_s"] = (int(statistics.median(abs(d) for _, d in matched.values()))
+        stats["via_stop_code"] = sum(1 for _, _, mode in matched.values() if mode == "code")
+        stats["median_abs_delay_s"] = (int(statistics.median(abs(d) for _, d, _ in matched.values()))
                                        if matched else None)
         return matched, stats
+
+    def diagnose(self, live_trips, matched, sample=400):
+        """Why did live trips not match? Returns (Counter of reasons, median gap to nearest scheduled
+        trip in seconds, a few example lines)."""
+        reasons, gaps, examples = Counter(), [], []
+        for live_id, route, stops in [t for t in live_trips if t[0] not in matched][:sample]:
+            routes = self.route_ids(route)
+            anchors = self._anchors(stops)
+            if not route or not any(t for _, t in stops):
+                reason = "live trip has no route or no times"
+            elif not routes:
+                reason = "route not in routes.txt (by route_id or short name)"
+            elif not anchors:
+                reason = "stop id not in stops.txt (by stop_id or stop_code)"
+            else:
+                stop, epoch = anchors[0]
+                sids = [s for s in (self.static_stop(stop, "id"), self.static_stop(stop, "code")) if s]
+                near = self._scan(routes, sids, epoch, 3 * 3600, 3 * 3600)
+                if not near:
+                    with self._query_lock:
+                        ever = self.db.execute(
+                            "SELECT 1 FROM times x JOIN trips t ON t.id = x.trip WHERE x.stop IN (%s) "
+                            "AND t.route IN (%s) LIMIT 1" % (",".join("?" * len(sids)), ",".join("?" * len(routes))),
+                            (*sids, *routes)).fetchone()
+                    reason = ("no scheduled trip within 3h of that time" if ever
+                              else "that route never serves that stop in the schedule")
+                elif not any(active for _, active, _ in near):
+                    reason = "trips exist but their service isn't running that day (calendar)"
+                else:
+                    gaps.append(min(abs(d) for d, active, _ in near if active))
+                    reason = "scheduled trips exist but none within the time window"
+            reasons[reason] += 1
+            if len(examples) < 3 and reason != "scheduled trips exist but none within the time window":
+                examples.append(f"live route={route!r} first stop={stops[0][0] if stops else None!r}: {reason}")
+        return reasons, (int(statistics.median(gaps)) if gaps else None), examples
 
 
 def get_index(agency_id, block=False):

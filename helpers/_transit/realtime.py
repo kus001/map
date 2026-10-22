@@ -17,6 +17,14 @@ except ImportError:
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 REFRESH_SECONDS = int(os.getenv("GRT_REALTIME_REFRESH_SECONDS", "30"))
 REQUEST_TIMEOUT = 3.0
+# Some feed hosts (gtfsrt.ttc.ca) sit behind a firewall that answers 403 to python-requests' default
+# User-Agent. Override with the GTFS_RT_USER_AGENT environment variable if a feed still says 403.
+REQUEST_HEADERS = {
+    "User-Agent": os.getenv("GTFS_RT_USER_AGENT") or (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "application/x-protobuf, application/octet-stream, */*",
+}
 MAX_FRESH_AGE_SECONDS = 180
 
 def _declared(attr):
@@ -76,7 +84,7 @@ def _fetch_feed(url):
         return None
 
     try:
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
+        response = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
 
         feed = gtfs_realtime_pb2.FeedMessage()
@@ -572,7 +580,7 @@ def _check(agency_id, trip_updates_url=None):
             continue
         started, response = time.monotonic(), None
         try:
-            response = requests.get(url, timeout=15)
+            response = requests.get(url, headers=REQUEST_HEADERS, timeout=15)
             response.raise_for_status()
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
@@ -581,6 +589,9 @@ def _check(agency_id, trip_updates_url=None):
             if response is not None:
                 print(f"  HTTP {response.status_code}, {response.headers.get('content-type')}, "
                       f"{len(response.content)} bytes, starts with {response.content[:80]!r}")
+                if response.status_code == 403:
+                    print(f"  (sent User-Agent: {REQUEST_HEADERS['User-Agent'][:60]}... - if it is still 403, "
+                          f"set GTFS_RT_USER_AGENT to your browser's User-Agent string)")
             continue
         fetch_seconds = time.monotonic() - started
         age = int(time.time()) - int(feed.header.timestamp) if feed.header.timestamp else None

@@ -86,7 +86,10 @@ AGENCIES = {agency.id: agency for agency in (
            cache="dbt.pkl", fallback_mode="bus"),
 
     Agency("yrt", "YRT", "https://www.yrt.ca/google/google_transit.zip",                                        # https://forms.yrt.ca/YRT-GTFS-Data?Id=db191ee1-cdb9-4909-aa49-b4e96679e142
-           cache="dyrt.pkl", fallback_mode="bus")
+           cache="dyrt.pkl", fallback_mode="bus"),
+
+    Agency("gt", "Guelph Transit", "https://files.mobilitydatabase.org/mdb-3140/mdb-3140-202605111616/mdb-3140-202605111616.zip", # https://explore.guelph.ca/pages/transit-gtfs-data
+           cache="dgt.pkl", fallback_mode="bus"),
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

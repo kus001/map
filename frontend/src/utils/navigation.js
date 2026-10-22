@@ -245,3 +245,57 @@ export function navigationSnapshot(location, route, nowMs = null) {
     distance_to_next_m: distanceToNext,
   };
 }
+
+// How many of a transit leg's stops (step.stop_list) the rider has already gone past.
+// Each stop is matched to the route line inside this leg only, moving forward, so a route
+// that doubles back past the same corner can't confuse the order.
+export function passedTransitStops(route, step, routeIndex) {
+  const routeCoordinates = (route?.route_coordinates || []).filter(validCoordinate);
+  const stops = Array.isArray(step?.stop_list) ? step.stop_list : [];
+  if (!routeCoordinates.length || !stops.length || !Number.isFinite(routeIndex)) {
+    return 0;
+  }
+
+  const nearestBetween = (coordinate, from, to) => {
+    let bestIndex = null;
+    let bestDistance = Infinity;
+    for (let index = from; index <= to; index += 1) {
+      const distance = haversineMeters(coordinate, routeCoordinates[index]);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
+  };
+
+  const last = routeCoordinates.length - 1;
+  const legStart = validCoordinate(step.coordinates)
+    ? nearestBetween(step.coordinates, 0, last)
+    : null;
+  if (legStart === null) {
+    return 0;
+  }
+  const legEnd = validCoordinate(step.to_coordinates)
+    ? nearestBetween(step.to_coordinates, legStart, last) ?? last
+    : last;
+
+  let cursor = legStart;
+  let passed = 0;
+  for (const stop of stops) {
+    const stopIndex = validCoordinate(stop?.coordinates)
+      ? nearestBetween(stop.coordinates, cursor, legEnd)
+      : null;
+    if (stopIndex === null) {
+      break;
+    }
+    cursor = stopIndex;
+    // a little past the stop's spot on the line, so GPS jitter right at the stop doesn't cross it off early
+    if (routeIndex > stopIndex + 0.25) {
+      passed += 1;
+    } else {
+      break;
+    }
+  }
+  return passed;
+}

@@ -7,8 +7,6 @@
 <details>
 <summary>Street View</summary>
 
-#### Street view: 
-
 ![Street 2d dark](assets/darkmode.png)
 
 ↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
@@ -27,8 +25,6 @@
 <details>
 <summary>Satellite View</summary>
 
-#### Satellite: 
-
 ![Satellite 2d dark](assets/dark_sat.png)
 
 ↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
@@ -46,8 +42,6 @@
 
 <details>
 <summary>Hybrid View</summary>
-
-#### Hybrid:
 
 ![Hybrid 2d dark](assets/hybrid_dark.png)
 

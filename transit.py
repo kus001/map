@@ -2332,6 +2332,7 @@ def get_transit_route(
             "instruction": instruction,
             "vehicle": vehicle,
             "agency": agency,
+            "agency_label": agencies.label(agency),
             "route": route_name,
             "route_color": route_color,
             "headsign": headsign,
@@ -2356,6 +2357,15 @@ def get_transit_route(
             "coordinates": stop_points[0] if stop_points else list(group["from_coords"]),
 
             "to_coordinates": list(group["to_coords"]),
+            # every stop after the boarding stop, in order (the last one is where you get off)
+            "stop_list": [
+                {
+                    "name": stop_name(stop),
+                    "coordinates": list(point),
+                    "stop_id": raw_stop_id(stop[0]),
+                }
+                for stop, point in zip(group["stops"][1:], stop_points[1:])
+            ],
         }
 
         if go_live is None and step_realtime:

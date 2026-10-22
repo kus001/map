@@ -258,6 +258,13 @@ def _parse_alerts(feed, agency="grt"):
     return alerts
 
 
+def _live_trips(updates):
+    return [(live_id, update.get("route_id", ""),
+             [(stop, info.get("departure_time") or info.get("arrival_time"))
+              for stop, info in update["stops"].items()])
+            for (_, live_id), update in updates.items()]
+
+
 def _translate_by_time(agency, updates):
     """For feeds whose trip ids aren't the static ones: re-key live trips (and their stops) to
     static trips by route + stop + time. Returns (updates, {live_id: static_id}, stats)."""
@@ -265,18 +272,14 @@ def _translate_by_time(agency, updates):
     if index is None:  # lookup table still being built in the background
         return {}, {}, None
 
-    live = [(live_id, update.get("route_id", ""),
-             [(stop, info.get("departure_time") or info.get("arrival_time"))
-              for stop, info in update["stops"].items()])
-            for (_, live_id), update in updates.items()]
-    matched, stats = index.match(live)
+    matched, stats = index.match(_live_trips(updates))
 
     translated, mapping = {}, {}
-    for live_id, (static_id, _delay) in matched.items():
+    for live_id, (static_id, _delay, stop_mode) in matched.items():
         update = updates[(agency, live_id)]
         stops = {}
         for stop_id, info in update["stops"].items():
-            static_stop = index.static_stop(stop_id)
+            static_stop = index.static_stop(stop_id, stop_mode)
             if static_stop:
                 info = dict(info)
                 if "arrival_time" in info:
@@ -518,14 +521,21 @@ def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None):
 
 def _report_time_match(agency, feed):
     parsed, _ = _parse_trip_updates(agency.id, feed)
-    rt_match.get_index(agency.id, block=True)
-    _, mapping, stats = _translate_by_time(agency.id, parsed)
+    index = rt_match.get_index(agency.id, block=True)
+    live = _live_trips(parsed)
+    matched, stats = index.match(live)
     share = 100 * stats["matched"] / max(1, stats["live"])
     print(f"  matched {stats['matched']}/{stats['live']} live trips to scheduled trips ({share:.0f}%), "
-          f"median gap to schedule {stats['median_abs_delay_s']}s")
-    print(f"  not matched: {stats['no_scheduled_trip']} with no scheduled trip near that time, "
-          f"{stats['unknown_stop']} with a stop id not in stops.txt, "
-          f"{stats['no_route_or_time']} missing route/time")
+          f"median gap to schedule {stats['median_abs_delay_s']}s, {stats['via_stop_code']} via stop_code")
+    reasons, nearest_gap, examples = index.diagnose(live, matched)
+    if reasons:
+        print("  why the rest didn't match:")
+        for reason, count in reasons.most_common():
+            print(f"    {count:5d}  {reason}")
+        if nearest_gap is not None:
+            print(f"    (where trips exist, the nearest one is a median of {nearest_gap}s away)")
+        for line in examples:
+            print(f"    e.g. {line}")
 
 
 def _check(agency_id, trip_updates_url=None):
@@ -560,12 +570,24 @@ def _check(agency_id, trip_updates_url=None):
     for name, url in urls.items():
         if not url:
             continue
-        feed = _fetch_feed(url)
-        if feed is None:
-            print(f"{name}: FAILED to fetch/parse {url}")
+        started, response = time.monotonic(), None
+        try:
+            response = requests.get(url, timeout=15)
+            response.raise_for_status()
+            feed = gtfs_realtime_pb2.FeedMessage()
+            feed.ParseFromString(response.content)
+        except Exception as error:
+            print(f"{name}: FAILED {url}\n  {type(error).__name__}: {error}")
+            if response is not None:
+                print(f"  HTTP {response.status_code}, {response.headers.get('content-type')}, "
+                      f"{len(response.content)} bytes, starts with {response.content[:80]!r}")
             continue
+        fetch_seconds = time.monotonic() - started
         age = int(time.time()) - int(feed.header.timestamp) if feed.header.timestamp else None
-        line = f"{name}: {len(feed.entity)} entities" + (f", {age}s old" if age is not None else "")
+        line = (f"{name}: {len(feed.entity)} entities" + (f", {age}s old" if age is not None else "")
+                + f", fetched in {fetch_seconds:.1f}s")
+        if fetch_seconds > REQUEST_TIMEOUT:
+            line += f"  <-- slower than REQUEST_TIMEOUT ({REQUEST_TIMEOUT:g}s): the live poller would drop it"
         if name == "trip updates" and static_trips:
             ids = {e.trip_update.trip.trip_id for e in feed.entity if e.HasField("trip_update")}
             hits = len(ids & static_trips)

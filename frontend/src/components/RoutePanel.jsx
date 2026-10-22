@@ -85,7 +85,7 @@ function TransitMeta({ step, darkMode }) {
   const live = liveDelayInfo(step);
 
   if (step.realtime) {
-    pieces.push(step.live_source ? `LIVE ${step.live_source}` : "LIVE");
+    pieces.push(step.live_source && `${step.live_source}`);
   } else if (!step.cancelled) {
     const agencyName = step.agency_label || step.live_source;
     pieces.push(agencyName ? `${agencyName}` : "Scheduled");
@@ -680,7 +680,7 @@ export default function RoutePanel({
                           <span>
                             {" • "}
                             <span className={delayToneClass(lateness.tone, darkMode)}>
-                              LIVE · {lateness.label}
+                              {"LIVE · "}{lateness.label}
                             </span>
                           </span>
                         ) : null;

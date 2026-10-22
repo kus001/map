@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { BsPersonWalking } from "react-icons/bs";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline, IoTimeOutline } from "react-icons/io5";
@@ -16,6 +17,7 @@ import {
   liveDelayInfo,
   routeLateness,
 } from "../utils/format.js";
+import { passedTransitStops } from "../utils/navigation.js";
 
 const DELAY_TONE = {
   late: ["text-red-600", "text-red-400"],
@@ -85,7 +87,8 @@ function TransitMeta({ step, darkMode }) {
   if (step.realtime) {
     pieces.push(step.live_source ? `LIVE ${step.live_source}` : "LIVE");
   } else if (!step.cancelled) {
-    pieces.push("Scheduled");
+    const agencyName = step.agency_label || step.live_source;
+    pieces.push(agencyName ? `Scheduled ${agencyName}` : "Scheduled");
   }
 
   if (step.platform) {
@@ -282,6 +285,8 @@ export default function RoutePanel({
   darkMode,
   timingMode,
 }) {
+  // stops already crossed off per transit leg; only ever grows while navigating, so GPS jitter can't un-cross one
+  const passedLatch = useRef({});
   const mode = displayedMode || data?.mode || "driving";
 
   if (!data?.routes?.length) {
@@ -313,6 +318,26 @@ export default function RoutePanel({
     data.routes.find(route => route.route_number === selectedRouteNumber) ||
     data.routes[0];
   const steps = activeRoute?.steps || activeRoute?.stops || [];
+  if (!navigationActive) {
+    passedLatch.current = {};
+  }
+  const passedStopsFor = (step, index) => {
+    const total = step?.stop_list?.length || 0;
+    const currentIndex = navigationInfo?.current_step_index;
+    if (!navigationActive || !total || currentIndex == null) {
+      return 0;
+    }
+    let count = 0;
+    if (index < currentIndex) {
+      count = total;
+    } else if (index === currentIndex) {
+      count = passedTransitStops(activeRoute, step, navigationInfo.route_index);
+    }
+    const key = `${step.trip_id || "leg"}:${index}`;
+    const kept = Math.max(passedLatch.current[key] || 0, count);
+    passedLatch.current[key] = kept;
+    return kept;
+  };
   const alerts = data?.alerts ?? [];
   const arrivalLabel = route => {
     if (route.arrival_estimate_datetime) {
@@ -478,26 +503,36 @@ export default function RoutePanel({
          }
 
       {mode === "transit" && alerts.length > 0 && (
-        <div className="mb-3 space-y-2">
-          {alerts.map(alert => (
-            <div
-              key={`${alert.agency}:${alert.id}`}
-              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        <details className="group mb-3 rounded-xl border border-amber-300 bg-amber-50 text-xs text-amber-900">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-bold [&::-webkit-details-marker]:hidden">
+            <span>
+              {alerts.length === 1 ? "1 service alert" : `${alerts.length} service alerts`}
+            </span>
+            <span
+              aria-hidden="true"
+              className="text-[10px] transition-transform duration-200 group-open:rotate-180"
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="font-bold">{alert.header}</div>
-                {alert.agency && (
-                  <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
-                    {alert.agency_label || String(alert.agency).toUpperCase()}
-                  </span>
+              ▾
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-amber-300/70 px-3 py-2">
+            {alerts.map(alert => (
+              <div key={`${alert.agency}:${alert.id}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold">{alert.header}</div>
+                  {alert.agency && (
+                    <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+                      {alert.agency_label || String(alert.agency).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {alert.description && (
+                  <div className="mt-1">{alert.description}</div>
                 )}
               </div>
-              {alert.description && (
-                <div className="mt-1 line-clamp-3">{alert.description}</div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {mode === "transit" && data.alternatives_loading && (
@@ -784,6 +819,12 @@ export default function RoutePanel({
             const directions = Array.isArray(step?.directions)
               ? step.directions.filter(item => directionText(item))
               : [];
+            const stopList = step?.type === "transit" && Array.isArray(step.stop_list)
+              ? step.stop_list
+              : [];
+            const passedStops = passedStopsFor(step, index);
+            const ridingThisLeg =
+              navigationActive && navigationInfo?.current_step_index === index;
 
             return (
               <div
@@ -891,6 +932,58 @@ export default function RoutePanel({
                             {direction.distance_m > 0 && (
                               <span className="shrink-0 opacity-70">
                                 {formatDistance(direction.distance_m)}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </details>
+              )}
+
+              {stopList.length > 0 && (
+                <details
+                  open={ridingThisLeg}
+                  className={`pb-3 pl-14 pr-3 text-xs ${
+                    darkMode ? "text-darkmode-gray" : "text-button-darkest"
+                  }`}
+                >
+                  <summary className="cursor-pointer select-none font-semibold">
+                    Stops ({stopList.length})
+                  </summary>
+                  <ol className="mt-1.5 space-y-0.5">
+                    {stopList.map((stop, stopIndex) => {
+                      const crossedOff = stopIndex < passedStops;
+                      const isNext = ridingThisLeg && stopIndex === passedStops;
+                      const isLast = stopIndex === stopList.length - 1;
+                      const canFocusStop =
+                        Array.isArray(stop?.coordinates) && stop.coordinates.length >= 2;
+
+                      return (
+                        <li key={`${stop.stop_id || stopIndex}-${stopIndex}`}>
+                          <button
+                            type="button"
+                            onClick={() => canFocusStop && onStepSelect(stop, stopIndex)}
+                            disabled={!canFocusStop}
+                            className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left ${
+                              canFocusStop
+                                ? darkMode
+                                  ? mapStyle === "hybrid"
+                                    ? "hover:bg-hybrid-purple/10"
+                                    : mapStyle === "satellite"
+                                      ? "hover:bg-green/10"
+                                      : "hover:bg-blue/10"
+                                  : "hover:bg-green/10"
+                                : "cursor-default"
+                            } ${crossedOff ? "line-through opacity-50" : ""} ${
+                              isNext ? "font-bold" : ""
+                            }`}
+                          >
+                            <span>{stop.name}</span>
+                            {!crossedOff && (isLast || isNext) && (
+                              <span className="shrink-0 opacity-70">
+                                {isLast ? "Get off" : "Next"}
                               </span>
                             )}
                           </button>

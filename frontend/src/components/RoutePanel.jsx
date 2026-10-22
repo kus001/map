@@ -564,7 +564,7 @@ export default function RoutePanel({
                         key={label}
                         className={`whitespace-nowrap ${
                           label.includes("TRANSFER") && !label.includes("LEAST")
-                            ? "text-amber-500"
+                            ? darkMode ? "text-amber-300" : "text-amber-700"
                             : darkMode
                               ? "text-hybrid-purple-light"
                               : "text-green"

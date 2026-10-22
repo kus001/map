@@ -80,7 +80,10 @@ AGENCIES = {agency.id: agency for agency in (
            realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
 
     Agency("miway", "MiWay", "https://www.miapp.ca/GTFS/google_transit.zip",                                    # https://www.mississauga.ca/miway-transit/developer-download/
-           cache="dmiway.pkl", fallback_mode="bus"),
+           cache="dmiway.pkl", fallback_mode="bus",
+           trip_updates_url="https://www.miapp.ca/GTFS_RT/TripUpdate/TripUpdates.pb",
+           vehicles_url="https://www.miapp.ca/GTFS_RT/Vehicle/VehiclePositions.pb",
+           alerts_url="https://www.miapp.ca/gtfs_rt/Alerts/Alerts.pb"),
 
     Agency("bt", "BT", "https://www.arcgis.com/sharing/rest/content/items/a355aabd5a8c490186bdce559c9c75fb/data",
            cache="dbt.pkl", fallback_mode="bus"),

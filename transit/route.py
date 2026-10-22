@@ -128,9 +128,6 @@ def get_transit_route(
     start = coord(start)
     end = coord(end)
 
-
-
-
     if _shared is None:
         grt_realtime = realtime_snapshot()
         go_realtime = go_gtfs_snapshot()
@@ -400,15 +397,7 @@ def get_transit_route(
         step_delay_min = float(group["delay_seconds"] / 60)
         go_live = None
 
-
-
-
-        if (
-            agency == "go"
-            and realtime_allowed
-            and go_realtime_configured()
-            and TRANSIT_GO_BOARD_ENRICHMENT
-        ):
+        if (agency == "go" and realtime_allowed and go_realtime_configured() and TRANSIT_GO_BOARD_ENRICHMENT):
             boarding_stop_code = raw_stop_id(group["stops"][0][0])
             board = go_departure_boards.get(boarding_stop_code)
             if board is None:

@@ -17,6 +17,8 @@ This module must stay import-light (no project imports) so every other helper ca
 from dataclasses import dataclass
 from pathlib import Path
 
+from transit.realtime import TRIP_UPDATE_URLS, trip_update
+
 
 TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
@@ -77,7 +79,10 @@ AGENCIES = {agency.id: agency for agency in (
            alerts_url="https://opendata.hamilton.ca/GTFS-RT/GTFS_ServiceAlerts.pb"),
 
     Agency("ltc", "London Transit", "https://www.londontransit.ca/gtfsfeed/google_transit.zip",                 # https://www.londontransit.ca/open-data/
-           cache="dltc.pkl", fallback_mode="bus"),
+           cache="dltc.pkl", fallback_mode="bus",
+           trip_updates_url = "http://gtfs.ltconline.ca/TripUpdate/TripUpdates.pb",
+           vehicles_url="http://gtfs.ltconline.ca/Vehicle/VehiclePositions.pb",
+           alerts_url="http://gtfs.ltconline.ca/Alert/Alerts.pb"),
 
     Agency("nrt", "Niagara Transit", "https://files.mobilitydatabase.org/tld-859/tld-859-202610070040/tld-859-202610070040.zip", # https://mobilitydatabase.org/feeds/gtfs/tld-859
            realtime=False, cache="dnrt.pkl", fallback_mode="bus"),
@@ -101,7 +106,10 @@ AGENCIES = {agency.id: agency for agency in (
            alerts_url="https://storage.googleapis.com/transit-terminal-alerts-bucket-production/yrt.pb"),
 
     Agency("gt", "Guelph Transit", "https://files.mobilitydatabase.org/mdb-3140/mdb-3140-202605111616/mdb-3140-202605111616.zip", # https://explore.guelph.ca/pages/transit-gtfs-data
-           cache="dgt.pkl", fallback_mode="bus"),
+           cache="dgt.pkl", fallback_mode="bus",
+           trip_updates_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/tripupdate/tripupdates.pb",
+           vehicles_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/vehicle/vehiclepositions.pb",
+           alerts_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/alert/alerts.pb"),
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

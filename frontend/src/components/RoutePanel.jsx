@@ -13,7 +13,20 @@ import {
   directionText,
   formatDistance,
   formatDuration,
+  liveDelayInfo,
+  routeLateness,
 } from "../utils/format.js";
+
+const DELAY_TONE = {
+  late: ["text-red-600", "text-red-400"],
+  cancelled: ["text-red-600", "text-red-400"],
+  early: ["text-blue-600", "text-sky-300"],
+  ontime: ["text-green-700", "text-emerald-400"],
+};
+
+function delayToneClass(tone, darkMode) {
+  return (DELAY_TONE[tone] || DELAY_TONE.ontime)[darkMode ? 1 : 0];
+}
 
 const PAGE_CLOCK_MS = Date.now();
 
@@ -67,12 +80,12 @@ function StepIcon({ step }) {
 function TransitMeta({ step, darkMode }) {
   const pieces = [];
 
-  if (step.realtime) {
-    pieces.push(step.live_source === "GO Transit" ? "LIVE GO" : "LIVE");
-  }
+  const live = liveDelayInfo(step);
 
-  if (step.live_status && step.live_status !== "On time") {
-    pieces.push(step.live_status);
+  if (step.realtime) {
+    pieces.push(step.live_source ? `LIVE ${step.live_source}` : "LIVE");
+  } else if (!step.cancelled) {
+    pieces.push("Scheduled");
   }
 
   if (step.platform) {
@@ -91,30 +104,26 @@ function TransitMeta({ step, darkMode }) {
     pieces.push(`ride ${Math.round(step.ride_duration_min)} min`);
   }
 
-  if (Math.abs(step.delay_min || 0) >= 0.5) {
-    pieces.push(
-      `${step.delay_min > 0 ? "+" : ""}${Math.round(step.delay_min)} min`
-    );
-  }
-
   if (step.departure_time && step.arrival_time) {
     pieces.push(`${step.departure_time} → ${step.arrival_time}`);
   }
 
-  if (!pieces.length) {
+  if (!pieces.length && !live) {
     return null;
   }
 
   return (
     <div
       className={`mt-1 text-xs ${
-        step.cancelled
-          ? "font-semibold text-red-600"
-          : darkMode
-            ? "text-darkmode-gray"
-            : "text-button-darkest"
+        darkMode ? "text-darkmode-gray" : "text-button-darkest"
       }`}
     >
+      {live && (
+        <span className={`font-bold ${delayToneClass(live.tone, darkMode)}`}>
+          {live.label}
+        </span>
+      )}
+      {live && pieces.length > 0 && " • "}
       {pieces.join(" • ")}
     </div>
   );
@@ -472,14 +481,14 @@ export default function RoutePanel({
         <div className="mb-3 space-y-2">
           {alerts.map(alert => (
             <div
-              key={alert.id}
+              key={`${alert.agency}:${alert.id}`}
               className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="font-bold">{alert.header}</div>
                 {alert.agency && (
                   <span className="shrink-0 rounded-full border border-amber-400/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
-                    {alert.agency === "go" ? "GO" : "GRT"}
+                    {alert.agency_label || String(alert.agency).toUpperCase()}
                   </span>
                 )}
               </div>
@@ -607,9 +616,17 @@ export default function RoutePanel({
                           </span>
                         </span>
                       ))}
-                      {(route.steps || []).some(
-                        step => step?.type === "transit" && step?.realtime
-                      ) && " • LIVE"}
+                      {(() => {
+                        const lateness = routeLateness(route.steps);
+                        return lateness ? (
+                          <span>
+                            {" • "}
+                            <span className={delayToneClass(lateness.tone, darkMode)}>
+                              LIVE · {lateness.label}
+                            </span>
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   )}
 

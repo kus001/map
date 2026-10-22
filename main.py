@@ -249,7 +249,7 @@ def live_transit_departures():
     if not stop_id:
         return jsonify({"success": False, "error": "stop_id is required."}), 400
 
-    from helpers._transit.go_realtime import live_departures
+    from transit.go_realtime import live_departures
 
     result = live_departures(stop_id, limit=limit)
     return jsonify({
@@ -266,8 +266,8 @@ def live_transit_state():
         raw_steps = []
     raw_steps = raw_steps[:16]
 
-    from helpers._transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
-    from helpers._transit.realtime import (
+    from transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
+    from transit.realtime import (
         matching_alerts,
         snapshot as grt_snapshot,
         vehicle_for_trip,
@@ -374,7 +374,7 @@ def live_transit_state():
         agency_ids=used_agencies,
     )
 
-    from helpers._transit import agencies as agency_registry
+    from transit import agencies as agency_registry
     other_sources = {}
     for agency in agency_registry.AGENCIES.values():
         if agency.id in ("grt_busses", "grt_trains", "go") or not (agency.trip_updates_url or agency.vehicles_url):
@@ -426,10 +426,10 @@ def nearby_transit_vehicles():
     except (KeyError, ValueError, TypeError):
         return jsonify({"success": False, "error": "Invalid map center"}), 400
 
-    from helpers._transit.realtime import snapshot as grt_snapshot
-    from helpers._transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
+    from transit.realtime import snapshot as grt_snapshot
+    from transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
     from transit import live_vehicle_is_usable, nearby_scheduled_vehicles
-    from helpers._transit.agencies import label
+    from transit.agencies import label
     from math import radians, cos
 
 

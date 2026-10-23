@@ -484,11 +484,10 @@ def generate_alternative_paths(start_options, end_options, realtime, departure, 
                       "trips": set(trips), "routes": set(routes),
                       "safety_buffer": safety_buffer})
 
-    # order matters!
-
+    # order can matter
     enqueue("less_walking", "less_walking")
     enqueue("safer_transfers", "balanced", safety_buffer=13.0)
-    enqueue("safer_transfers", "balanced", safety_buffer=20.0)
+    enqueue("safer_transfers", "balanced", safety_buffer=20.0, shift=3)
     enqueue("fastest", "fastest")
     for group in base_groups:
         enqueue("next_bus", "fastest", trips={str(group["trip_id"])})

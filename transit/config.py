@@ -25,7 +25,7 @@ TRANSIT_PREFERENCES = {
     "less_walking": {
         "label": "Less walking",
         "soft_walk_m": 0,
-        "walk_penalty": 2.0,
+        "walk_penalty": 3.0,
         "max_nearby_stops": MAX_NEARBY_STOPS,
     },
     "fastest": {

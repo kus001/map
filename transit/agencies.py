@@ -107,6 +107,9 @@ AGENCIES = {agency.id: agency for agency in (
            trip_updates_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/tripupdate/tripupdates.pb",
            vehicles_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/vehicle/vehiclepositions.pb",
            alerts_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/alert/alerts.pb"),
+
+#     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
+#            cache="dwp.pkl", fallback_mode="bus")
 )}
 
 OWN_CACHE_AGENCIES = tuple(a for a in AGENCIES.values() if a.own_cache)

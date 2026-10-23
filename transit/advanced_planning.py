@@ -73,9 +73,9 @@ def connection_reliability(steps, *, minimum_transfer_minutes=4):
                     margin = floor((departure - arrival - walking_min)*10)/10
                     if margin < minimum_transfer_minutes:
                         status, label = "critical", "Connection at risk"
-                    elif margin < 8:
+                    elif margin < 7:
                         status, label = "tight", "Tight transfer"
-                    elif margin < 12:
+                    elif margin < 11:
                         status, label = "moderate", "Limited buffer"
                     else:
                         status, label = "comfortable", "Comfortable transfer"

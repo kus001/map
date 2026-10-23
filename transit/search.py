@@ -447,10 +447,7 @@ def search_transit(
     return path, best_real, starts[start_stop_id], best_end
 
 
-def generate_alternative_paths(
-    start_options, end_options, realtime, departure, base, want,
-    requested_arrival=None, excluded_route_keys=None,
-):
+def generate_alternative_paths(start_options, end_options, realtime, departure, base, want, requested_arrival=None, excluded_route_keys=None):
     """Diverse alternatives to the primary journey `base`.
 
     base = (path, minutes, best_start, best_end) as returned by search_transit.
@@ -487,16 +484,18 @@ def generate_alternative_paths(
                       "trips": set(trips), "routes": set(routes),
                       "safety_buffer": safety_buffer})
 
-    enqueue("fastest", "fastest")
+    # order matters!
+
     enqueue("less_walking", "less_walking")
-    enqueue("fewer_transfers", "balanced", safety_buffer=15.0)
+    enqueue("safer_transfers", "balanced", safety_buffer=13.0)
+    enqueue("safer_transfers", "balanced", safety_buffer=20.0)
+    enqueue("fastest", "fastest")
     for group in base_groups:
         enqueue("next_bus", "fastest", trips={str(group["trip_id"])})
     for key in route_keys_for_path(base_path):
         enqueue("other_route", "fastest", routes={key})
     if requested_arrival is None:
         enqueue("later_departure", "balanced", shift=10)
-        enqueue("later_departure", "balanced", shift=20)
 
     searches = 0
     while queue and len(accepted) < want and searches < 40:

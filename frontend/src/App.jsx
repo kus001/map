@@ -1913,7 +1913,15 @@ export default function App() {
           </button>
           {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
             title="Switch between globe and flat map"
-            className="rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-black/10">
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+              darkMode
+                ? mapStyle === "hybrid"
+                  ? "hover:bg-hybrid-purple/10"
+                  : mapStyle === "street"
+                    ? "hover:bg-blue/10"
+                    : "hover:bg-green/10"
+                : "hover:bg-black/10"
+            }`}>
             {globe ? "Flat" : "Globe"}
           </button>}
         </div>

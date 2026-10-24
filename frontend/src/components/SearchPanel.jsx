@@ -72,11 +72,6 @@ const BIKE_TYPES = [
   { id: "electric", label: "E-Bike" },
 ];
 
-const WALK_TYPES = [
-  { id: "regular", label: "Regular"},
-  { id: "scenic", label: "Scenic"},
-];
-
 const DEFAULT_BIAS = { lat: 43.46, lon: -80.52 };                      
 
 // round nearby search locations so small map moves share cache entries
@@ -669,8 +664,8 @@ export default function SearchPanel({
         </div>
       )}
 
-      {mode === "walking" && (
-        <div className="soft-enter mt-2 grid grid-cols-2 gap-1.5">
+      {/* {mode === "walking" && (
+        <div className="soft-enter mt-2 grid grid-cols- gap-1.5">
           {WALK_TYPES.map(option => (
             <button
               type="button"
@@ -700,7 +695,7 @@ export default function SearchPanel({
             </button>
           ))}
         </div>
-      )}
+      )} */}
 
       {mode === "transit" && (
         <div className={`mt-3 rounded-xl border p-3 ${

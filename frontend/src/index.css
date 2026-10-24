@@ -238,10 +238,6 @@ button {
 .km-3d-camera-controls button { background: #e9eee9; border-radius: 6px; padding: 3px 10px; font-size: 18px; }
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
-
-
-
- 
 .km-3d-scene, .km-3d-map {
   background-color: #87badf;
   background-image: linear-gradient(to bottom, #335c90 0%, #608fc1 33%, #a5d0ed 72%, #e6f5ff 100%);
@@ -249,6 +245,13 @@ button {
 .km-3d-globe {
   background-image: radial-gradient(ellipse at 50% 45%, #d5efff 0%, #acd5f1 47%, #6e9ecb 83%, #446e9c 100%);
 }
+
+/* globe background colour logic HEREEE */
+.km-3d-dark .km-3d-globe {
+  background-image: none;
+  background-color: "#17212c";
+}
+
 .km-3d-map .maplibregl-canvas-container,
 .km-3d-map .maplibregl-canvas { background: transparent !important; }
  

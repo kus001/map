@@ -4,6 +4,7 @@
 
 #### [kmaps](https://map.kmaps.ca/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
 
+<!-- street -->
 <details>
   <summary>Street View</summary>
 
@@ -28,11 +29,13 @@
   <details>
     <summary>Globe</summary>
 
-    <!-- add globe screenshots -->
+![Street globe dark](assets/street_globe_dark.png)
+![Street globe light](assets/street_globe_light.png)
 
   </details>
 </details>
 
+<!-- satellite -->
 <details>
   <summary>Satellite View</summary>
 
@@ -53,8 +56,18 @@
 ![Satellite 3D Light](assets/satellite_3d_light.png)
 
   </details>
+
+  <details>
+  <summary>Globe</summary>
+
+![Satellite Globe Dark](assets/satellite_globe_dark.png)
+
+![Satellite Globe Light](assets/satellite_globe_light.png)
+
+  </details>
 </details>
 
+<!-- hybrid -->
 <details>
   <summary>Hybrid View</summary>
 
@@ -73,6 +86,14 @@
 ![Hybrid 3D Dark](assets/hybrid_3d_dark.png)
 
 ![Hybrid 3D Light](assets/hybrid_3d_light.png)
+
+  </details>
+
+  <details>
+  <summary>Globe</summary>
+
+![Hybrid globe dark](assets/hybrid_globe_dark.png)
+![Hybrid globe light](assets/hybrid_globe_light.png)
 
   </details>
 </details>

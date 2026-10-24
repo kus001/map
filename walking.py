@@ -14,14 +14,8 @@ API_KEY = os.getenv("API")
 
 REQUEST_TIMEOUT = (1.8, 3.5)
 
-WALKING_PROFILES = {
-    "regular": "foot-walking",
-    "hiking": "foot-hiking",
-}
-
 _session = requests.Session()
 _session.headers.update({"Accept": "application/json, application/geo+json"})
-
 
 def _resolve_coordinates(address, provided=None):
     if isinstance(provided, (list, tuple)) and len(provided) >= 2:
@@ -65,7 +59,7 @@ def get_walking_route(
         if timing is not None:
             timing[stage] = us() - timing["start"]
 
-    profile = WALKING_PROFILES.get(route_type, "foot-walking")
+    profile = "foot-walking"
     print("walking type: ", route_type)
     print("ors profile: ", profile)
 
@@ -99,16 +93,10 @@ def get_walking_route(
     )
 
 
-    if route_type == "regular" or route_type == "scenic":
+    if route_type == "regular":
         try:
-            fast = osrm_route("walking", *key[1:], alternatives=(route_type == "scenic"))
+            fast = osrm_route("walking", *key[1:])
             mark("provider")
-
-            if route_type == "scenic": 
-                for i, route in enumerate(fast):
-                    print("route: ", i+1, "distance: ", round(route["distance"]/1000, 2), "km")
-
-                fast=fast[0]
             converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
             mark("formatting")
             return converted

@@ -354,8 +354,6 @@ export default function App() {
     )
   );
 
-  const [walkingType, setWalkingType] = useState("regular");
-
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [hoveredRouteNumber, setHoveredRouteNumber] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -575,7 +573,6 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
-    requestedWalkingType = walkingType,
     requestedTransitPreference = transitPreference,
     requestedStart = start,
     requestedDestination = destination,
@@ -641,7 +638,7 @@ export default function App() {
           destination: cleanDestination,
           mode: requestedMode,
           route_type: requestedMode === "walking"
-            ? requestedWalkingType
+            ? "regular"
             : requestedCyclingType,
           departure_datetime: departureDatetime,
           timing_mode: effectiveTimingMode,
@@ -1282,17 +1279,6 @@ export default function App() {
     }
   }
 
-  function changeWalkingType(nextType) {
-    setWalkingType(nextType);
-
-    if (mode === "walking" && start.trim() && destination.trim()) {                 
-      searchRoutes({
-        requestedMode: "walking",
-        requestedWalkingType: nextType,
-      });
-    }
-  }
-
   function changeTimingMode(nextMode) {
     if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
@@ -1300,7 +1286,7 @@ export default function App() {
       if (Number.isNaN(selected.getTime()) || selected.getTime() < Date.now()) {
         const next = initialScheduledTime(Date.now());
         setDepartureDate(next.date);
-        setDepartureTime(next.time);
+        setDepartureTime(next.time);``
       }
     }
 
@@ -1721,9 +1707,7 @@ export default function App() {
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}
-          walkingType={walkingType}
           onCyclingTypeChange={changeCyclingType}
-          onWalkingTypeChange={changeWalkingType}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}

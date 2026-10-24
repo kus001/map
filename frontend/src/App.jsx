@@ -1619,8 +1619,7 @@ export default function App() {
         prev.left === next.left && prev.bottom === next.bottom ? prev : next
       );
     };
-
-                                                                                       
+                                                      
     const observer = new ResizeObserver(measure);
     observer.observe(overlay);
     observer.observe(container);
@@ -1931,7 +1930,7 @@ export default function App() {
             type="button"
             onClick={mapStyles}
             title="Change map style"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 focus-visible:outline-none ${controlSurface} ${accentHover}`}
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} ${darkMode}`}
           >
             {mapStyle === "street" ? (
               <MdMap className="text-lg" />

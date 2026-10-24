@@ -118,19 +118,6 @@ def get_walking_route(
     if not API_KEY:
         return {"success": False, "error": "Walking routing unavailable; set API for the ORS fallback."}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     try:
         data = _ors_walking(*key)
         mark("provider")

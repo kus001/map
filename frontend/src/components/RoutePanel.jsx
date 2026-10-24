@@ -487,7 +487,11 @@ export default function RoutePanel({
         <div
           className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold ${
             darkMode
-              ? "border-hybrid-purple/50 bg-hybrid-purple/15 text-white"
+              ? mapStyle === "hybrid" 
+                ? "border-hybrid-purple bg-hybrid-purple/15 text-white"
+                : mapStyle === "street"
+                  ? "border-blue bg-blue/15 text-white"
+                  : "border-green bg-green/15 text-white"
               : "border-green/30 bg-green/10 text-green-dark"
           }`}
         >
@@ -495,11 +499,7 @@ export default function RoutePanel({
           {leaveBy ? `Leave by ${leaveBy}` : `Departing ${scheduledDeparture}`}
         </div>
       )}
-
-      {                                                                                                                                    
-                                                                                                                     
-                                                                                                                       
-              
+      {
          }
 
       {mode === "transit" && alerts.length > 0 && (

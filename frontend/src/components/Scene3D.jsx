@@ -33,8 +33,8 @@ function deviceProfile() {
 
 function applyAtmosphere(map, darkMode, globe) {
   const nextSky = globe ? {
-    "sky-color": darkMode ? "#214565" : "#8dc5ed",
-    "horizon-color": darkMode ? "#496f92" : "#e1f3ff",
+    "sky-color": darkMode ? "#0c202f" : "#8dc5ed",
+    "horizon-color": darkMode ? "#091521" : "#e1f3ff",
     "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 9, 0.95, 15, 0.65, 22, 0.38],
   } : {
     "sky-color": darkMode ? "#17304b" : "#79b8e6",

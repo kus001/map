@@ -1901,7 +1901,14 @@ export default function App() {
         <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => setThreeD(v => !v)}
             aria-pressed={threeD} title="Toggle 3D map"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${threeD ? "bg-green text-white" : "hover:bg-black/10"}`}>
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition 
+            ${threeD 
+              ? mapStyle === "hybrid"
+                ? "bg-hybrid-purple text-white" 
+                : mapStyle === "street"
+                  ? "bg-blue text-white"
+                  : "bg-green text-white"
+              : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
           </button>
           {threeD && <button type="button" onClick={() => setGlobe(v => !v)}

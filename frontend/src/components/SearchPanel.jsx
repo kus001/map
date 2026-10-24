@@ -725,7 +725,9 @@ export default function SearchPanel({
                 darkMode
                   ? mapStyle === "hybrid"
                     ? "border-hybrid-charcoal-light bg-hybrid-charcoal-light text-darkmode-gray focus:border-hybrid-purple focus:ring-hybrid-purple/20"
-                    : "border-button bg-charcoal text-darkmode-gray focus:border-blue focus:ring-blue/20"
+                    : mapStyle === "street"
+                      ? "border-button bg-charcoal text-darkmode-gray focus:border-blue focus:ring-blue/20"
+                      : "border-button bg-charcoal text-darkmode-gray focus:border-green focus:ring-green/20"
                   : "border-button-light bg-white text-charcoal focus:border-green focus:ring-green/20"
               }`}
             >

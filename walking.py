@@ -95,10 +95,20 @@ def get_walking_route(
 
     if route_type == "regular":
         try:
-            fast = osrm_route("walking", *key[1:])
+            fast = osrm_route("walking", *key[1:], alternatives=True)
             mark("provider")
-            converted = convert_osrm("walking", fast, start_address, end_address, start, end, route_type)
+            routes = []
+
+            for i, route in enumerate(fast, start=1):
+                converted = convert_osrm("walking", route, start_address, end_address, start, end, route_type)
+
+                converted_route = converted["routes"][0]
+                converted_route["route_number"] = i
+                routes.append(converted_route)
+                                                  
             mark("formatting")
+            converted["routes"] = routes
+            print("Walking routes returned:", len(routes))
             return converted
         except (requests.RequestException, ValueError, KeyError, TypeError):
             pass

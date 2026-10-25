@@ -191,6 +191,7 @@ function recentSearch() {
     return [];
   }
 }
+// console.log("Recent searches: ", recentSearch);
 
 function validSavedValue(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;
@@ -327,6 +328,7 @@ const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
   console.log("Recent searches:", recentSearch());
+  const [recentSearches, setRecentSearches] = useState(recentSearch);
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);
@@ -732,6 +734,14 @@ export default function App() {
       setData(requestedMode === "transit"
         ? { ...displayedResult, alternatives_loading: true }
         : displayedResult);
+
+      const newSearch = {
+        start: requestedUseCurrentLocation ? "Current location" : requestedStart.trim(),
+        destination: requestedDestination.trim(),
+        mode: requestedMode
+      }
+
+      setRecentSearches(current => [newSearch, ...current]);
 
       if (requestedMode === "transit") {
         const altController = new AbortController();

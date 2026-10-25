@@ -91,9 +91,10 @@ function roundedBias(bias) {
 }
 
 function sourceLabel(item) {
-  if (item.source === "known") return "Known place";
+  if (item.source === "known") return "Location";
   if (item.source === "local") return "Local address";
   if (item.source === "street") return "Street";
+  if (item.source === "tomtom") return "Place";
   return item.kind === "address" ? "Address" : "Place search";
 }
 
@@ -106,14 +107,17 @@ function mergeSuggestions(serverResults, mapTilerResults, limit = 6) {
   const known = serverResults.filter(item => item.source === "known");
   const addresses = serverResults.filter(item => item.source === "local");
   const streets = serverResults.filter(item => item.source === "street");
+  const tomtom = serverResults.filter(item => item.source === "tomtom");
 
   const prioritized = [
     ...known.slice(0, 2),
     ...addresses.slice(0, 4),
+    ...tomtom.slice(0, 2),
     ...mapTilerResults.slice(0, 3),
     ...streets.slice(0, 2),
     ...known.slice(2),
     ...addresses.slice(4),
+    ...tomtom.slice(2),
     ...mapTilerResults.slice(3),
     ...streets.slice(2),
   ];
@@ -228,10 +232,8 @@ function LocationInput({
         );
         const json = response.ok ? await response.json() : null;
         const local = json?.success ? json.results ?? [] : [];
-
-                                                                  
-                                                                       
-        const external = local.length < 3
+                                                             
+        const external = local.filter(item => item.source !== "tomtom").length < 3
           ? await extraPlaces(query, proximity, controller.signal)
           : [];
         if (controller.signal.aborted) return;

@@ -89,13 +89,14 @@ def _fetch_feed(url, key=None):
     if not url or gtfs_realtime_pb2 is None:
         return None
     try:
-        rheaders = REQUEST_HEADERS
+        rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers
         if key:
             rheaders["Ocp-Apim-Subscription-Key"] = key
         response = requests.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
         feed.ParseFromString(response.content)
+        return feed
     except Exception:
         return None
 
@@ -599,7 +600,7 @@ def _check(agency_id, trip_updates_url=None):
             continue
         started, response = time.monotonic(), None
         try:
-            rheaders = REQUEST_HEADERS
+            rheaders = dict(REQUEST_HEADERS)
             key=KEYS[agency_id] if agency_id in KEYS else None
             if key:
                 rheaders["Ocp-Apim-Subscription-Key"] = key

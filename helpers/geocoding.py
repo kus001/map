@@ -7,6 +7,10 @@ Resolution order (see resolve_address):
 4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
 5. Nominatim as a last-resort network geocoder, cross-checked against the local
    street data when the local index knew the street but not the exact civic number.
+
+Autocomplete (search_places) additionally mixes in a few TomTom place suggestions
+(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. Picking one remembers its
+coordinates for the session, so routing doesn't need to geocode it again.
 """
 
 import json
@@ -21,7 +25,7 @@ from pathlib import Path
 
 from geopy.geocoders import Nominatim
 
-from helpers import named_places
+from helpers import named_places, tomtom_places
 from helpers.local_geocode import resolve_detailed, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -45,8 +49,6 @@ _COORDINATE_RE = re.compile(
 
 _geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
 
-
-
 _NOMINATIM_MIN_INTERVAL = 1.0
 _NOMINATIM_TIMEOUT = 2.5
 _NEGATIVE_TTL = 15 * 60
@@ -55,7 +57,6 @@ _nominatim_lock = threading.Lock()
 _last_nominatim_call = 0.0
 _negative_cache = OrderedDict()
 _negative_lock = threading.Lock()
-
 
 _NOMINATIM_DISAGREE_KM = 5.0
 
@@ -279,8 +280,6 @@ def _search_known(query, limit, bias):
     ]
 
 
-
-
 def _negative_hit(key):
     now = time.monotonic()
     with _negative_lock:
@@ -372,11 +371,6 @@ def _nominatim_lookup(query, bias=None):
         getattr(chosen, "address", None) or query,
     )
 
-
-
-
-
-
 _named_locations = {}
 
 
@@ -464,8 +458,6 @@ def prime_named_places():
     )
 
 
-
-
 def _coordinates_from_text(value):
     match = _COORDINATE_RE.match(value)
     if not match:
@@ -516,11 +508,9 @@ def resolve_address(address, bias=None, allow_network=True):
 
     key = _normalize_key(clean)
 
-
     for source in (_cached_places, _saved_aliases):
         if key in source:
             return _result("ok", source[key], clean, "known")
-
 
     named = named_places.find_exact(clean)
     if named:
@@ -530,7 +520,6 @@ def resolve_address(address, bias=None, allow_network=True):
             return _result("ok", (only["lat"], only["lon"]), only["label"], "named")
         if len(options) > 1:
             return _result("ambiguous", options=options)
-
 
     remembered = _recall_runtime(key)
     if remembered is not None:
@@ -544,9 +533,6 @@ def resolve_address(address, bias=None, allow_network=True):
         return _result("ok", point, payload[4], "local")
 
     if status in ("ambiguous", "mismatch"):
-
-
-
         options = _sort_options([_entry_option(e) for e in payload], bias)
         return _result(status, options=options)
 
@@ -565,7 +551,6 @@ def resolve_address(address, bias=None, allow_network=True):
             return _result("ok", point, found[2], "nominatim")
 
     if approximate is not None:
-
         return _result("approximate", approximate[0], approximate[1], "local")
 
     return _result("not_found")
@@ -608,8 +593,6 @@ def explain_address_problem(address, default="Address couldn't be found.", bias=
     return default
 
 
-
-
 def _bias_key(bias):
     point = _valid_point(bias) if bias else None
     if point is None:
@@ -648,17 +631,42 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     return tuple(merged)
 
 
+_TOMTOM_MAX_EXTRA = 3
+
+
+def _tomtom_extras(query, limit, bias):
+    """A few TomTom place suggestions to sit alongside the local results (never raises)."""
+    wanted = min(_TOMTOM_MAX_EXTRA, limit // 2)
+    if wanted < 1:
+        return []
+    try:
+        return tomtom_places.search(query, limit=wanted, bias=_valid_point(bias) if bias else None)
+    except Exception:
+        return []
+
+
 def search_places(query, limit=6, bias=None):
-    """Return local autocomplete results: curated places, civic addresses, streets.
+    """Return autocomplete results: curated places, civic addresses, streets, plus a few
+    TomTom places (``source: "tomtom"``) when a TOMTOM_API_KEY is configured.
 
     The React frontend merges these with MapTiler POI/place suggestions. ``bias`` is
-    an optional (lat, lon) used to rank equally good matches by nearness.
+    an optional (lat, lon) used to rank equally good matches by nearness. At most
+    ``limit`` results are returned in total; TomTom's share is small and is left out
+    entirely when there's no key, so offline operation is unchanged.
     """
     limit = max(1, min(int(limit), 10))
 
-    return [
+    local = [
         {"label": label, "lat": lat, "lon": lon, "source": source}
         for label, lat, lon, source in _search_places_cached(
             query, limit, _bias_key(bias)
         )
     ]
+
+    seen = {item["label"].lower() for item in local}
+    extras = [
+        item for item in _tomtom_extras(query, limit, bias)
+        if item["label"].lower() not in seen
+    ]
+
+    return local[: limit - len(extras)] + extras

@@ -89,7 +89,7 @@ def _fetch_feed(url, key=None):
     if not url or gtfs_realtime_pb2 is None:
         return None
     try:
-        rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers
+        rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers .. yeah i know dicts are weird
         if key:
             rheaders["Ocp-Apim-Subscription-Key"] = key
         response = requests.get(url, headers=rheaders, timeout=15)

@@ -56,6 +56,10 @@ VEHICLE_URLS = {
     ),
 }
 
+KEYS = {
+    **_declared("key")
+}
+
 ALERTS_URL = os.getenv(
     "GRT_ALERTS_URL",
     "https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts",
@@ -81,14 +85,15 @@ _cache = {
 }
 
 
-def _fetch_feed(url):
+def _fetch_feed(url, key=None):
     if not url or gtfs_realtime_pb2 is None:
         return None
-
     try:
-        response = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
+        rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers .. yeah i know dicts are weird
+        if key:
+            rheaders[key["header"]] = key["key"]
+        response = requests.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
-
         feed = gtfs_realtime_pb2.FeedMessage()
         feed.ParseFromString(response.content)
         return feed
@@ -325,13 +330,13 @@ def _refresh_once():
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         for agency, url in TRIP_UPDATE_URLS.items():
-            jobs[pool.submit(_fetch_feed, url)] = ("trip", agency)
+            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("trip", agency)
 
         for agency, url in VEHICLE_URLS.items():
-            jobs[pool.submit(_fetch_feed, url)] = ("vehicle", agency)
+            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("vehicle", agency)
 
         for agency, url in ALERT_URLS.items():
-            jobs[pool.submit(_fetch_feed, url)] = ("alerts", agency)
+            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("alerts", agency)
 
         for future in as_completed(jobs):
             kind, agency = jobs[future]
@@ -595,7 +600,12 @@ def _check(agency_id, trip_updates_url=None):
             continue
         started, response = time.monotonic(), None
         try:
-            response = requests.get(url, headers=REQUEST_HEADERS, timeout=15)
+            rheaders = dict(REQUEST_HEADERS)
+            key=KEYS[agency_id]["key"] if agency_id in KEYS else None
+            if key:
+                rheaders[KEYS[agency_id]["header"]] = key
+
+            response = requests.get(url, headers=rheaders, timeout=15)
             response.raise_for_status()
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)

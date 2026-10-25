@@ -14,9 +14,6 @@ _warmed = False
 _finished = False
 _report = {}
 
-def is_warm() -> bool:
-    return _warmed
-
 def report() -> dict:
     return {name: dict(value) for name, value in _report.items()}
 

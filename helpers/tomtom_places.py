@@ -1,9 +1,8 @@
-from pprint import pprint
-
-import requests
-from dotenv import load_dotenv
 import os
-from json import dumps, loads
+import requests
+
+from json import dumps
+from dotenv import load_dotenv
 
 load_dotenv()
 API_KEY = os.getenv("TOMTOM_API_KEY", None)
@@ -12,7 +11,7 @@ testcoords = list(map(float, os.getenv("testcoords", None).split(",")))
 PLACES = {
     # "bathroom": "public_bathroom",
     # "bicycle_parking": "bicycle_parking",
-    "religious_site": ("church", "gurudwara", "mosque", "pagoda", "synagog", "temple"), 
+    # "religious_site": ("church", "gurudwara", "mosque", "pagoda", "synagog", "temple"), 
 }
 
 url = "https://api.tomtom.com/maps/orbis/places/suggest"
@@ -26,24 +25,23 @@ headers = {
 }
 
 data = {
-    "query": "restau",
+    "query": "",
     "origin": {"type": "point", "coordinates": testcoords},
     "maxResults": 5,
     "geopoliticalView": "Unified",
     "filters": {
         "types": [
             "poi",
-            "address",
-            "street",
-            "intersection",
-            "area",
-            "discoverAction",
+            # "address",
+            # "street",
+            # "intersection",
+            # "area",
+            # "discoverAction",
         ],
-        "countryCodesIso2": ["US", "CA"],
-        "poiTypes": [
-            # "restaurant",
-            "indian_restaurant"
-        ],
+        # "poiTypes": [
+        #     "restaurant",
+        #     # "public_bathroom"
+        # ],
         "geometry": {
             "type": "circle",
             "center": testcoords,

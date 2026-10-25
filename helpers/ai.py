@@ -14,6 +14,8 @@ client = OpenRouter(
 )
 
 def ask(content="Tell me a joke.", model="anthropic/claude-haiku-5.5", role="user"):
+    if not API_KEY: return
+    
     return client.chat.send(
         model=model,
         messages=[

@@ -16,6 +16,12 @@ This module must stay import-light (no project imports) so every other helper ca
 """
 from dataclasses import dataclass
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+OC_KEY = os.getenv("OC_KEY", None)
 
 TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
@@ -32,6 +38,7 @@ class Agency:
     alerts_url: str | None = None         # GTFS-RT Alerts feed
     match_live_by_time: bool = False      # live trip ids aren't the static ones (TTC): match by route+stop+time
     fallback_mode: str = "transit"  # vehicle label when routes.txt has no route_type
+    key: str | None = None
 
     def __post_init__(self):
         if self.trip_updates_url or self.vehicles_url or self.alerts_url:
@@ -111,7 +118,11 @@ AGENCIES = {agency.id: agency for agency in (
     Agency("dt", "Durham Transit", "https://maps.durham.ca/OpenDataGTFS/GTFS_Durham_TXT.zip",
            cache="ddt.pkl", fallback_mode="bus",
            trip_updates_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates",
-           vehicles_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions")
+           vehicles_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions"),
+
+    Agency("oc", "OC Transpo", "https://oct-gtfs-emasagcnfmcgeham.z01.azurefd.net/public-access/GTFSExport.zip",
+           cache="doc.pkl", fallback_mode="OC", key=OC_KEY,)
+           #vehicles_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions?format=protobuf")
 
 #     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
 #            cache="dwp.pkl", fallback_mode="bus")

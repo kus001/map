@@ -54,7 +54,6 @@ _last_nominatim_call = 0.0
 _negative_cache = OrderedDict()
 _negative_lock = threading.Lock()
 
-
 _NOMINATIM_DISAGREE_KM = 5.0
 
 # Network results depend on where the asker is, so they must not go in the shared

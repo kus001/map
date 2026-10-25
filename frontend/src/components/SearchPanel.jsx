@@ -423,6 +423,7 @@ function LocationInput({
 export default function SearchPanel({
   start,
   destination,
+  recentSearches,
   setStart,
   setDestination,
   mode,
@@ -581,6 +582,33 @@ export default function SearchPanel({
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* recent searches  */}
+      {recentSearches.length > 0 && (
+        <div className={`mt-2 rounded-xl border ${
+          darkMode
+            ? mapStyle === "hybrid"
+              ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
+              : "border-button bg-charcoal-light"
+            : "border-button-light bg-white"
+        }`}>
+          <p className={`text-xs font-semibold mb-2 ${
+            darkMode
+              ? mapStyle === "hybrid"
+                ? "text-hybrid-purple-light"
+                : mapStyle === "street"
+                  ? "text-blue-lighter"
+                  : "text-green-lighter"                  
+            : "text-charcoal"
+          }`}>Recent Searches</p>
+          {recentSearches.map((search, index) => (
+            <div className="mt-4 pt-3">
+              <p>{search.start}</p>
+              <p>{search.mode}</p>
+            </div>
+          ))}
         </div>
       )}
 

@@ -1691,7 +1691,7 @@ export default function App() {
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
+        } max-[760px]:absolute max-[760px]:bottom-5 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
           mobileMin
             ? "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
             : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"

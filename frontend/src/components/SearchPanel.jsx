@@ -459,8 +459,8 @@ export default function SearchPanel({
   }`;
 
   return (
-    <div className="px-6 pb-5">
-      <div className="space-y-3">
+    <div className="px-6 pb-5 max-[760px]:px-4 max-[760px]:pb-3">
+      <div className="space-y-3 max-[760px]:space-y-2">
         <LocationInput
           key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
@@ -661,39 +661,6 @@ export default function SearchPanel({
           ))}
         </div>
       )}
-
-      {/* {mode === "walking" && (
-        <div className="soft-enter mt-2 grid grid-cols- gap-1.5">
-          {WALK_TYPES.map(option => (
-            <button
-              type="button"
-              key={option.id}
-              disabled={loading}
-              mapStyle={mapStyle}
-              onClick={() => onWalkingTypeChange(option.id)}
-              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
-                walkingType === option.id
-                  ? darkMode
-                    ? mapStyle === "hybrid"
-                      ? "border-hybrid-purple bg-hybrid-purple/15 text-hybrid-purple-light active:bg-hybrid-purple/25"
-                      : mapStyle === "satellite"
-                        ? "border-green bg-green/15 text-green-light active:bg-green/25"
-                        : "border-blue bg-blue/15 text-blue-light active:bg-blue/25"
-                    : "border-green bg-green/15 text-green active:bg-green/25"
-                  : darkMode
-                    ? mapStyle === "hybrid"
-                      ? "border-button bg-hybrid-charcoal-light text-darkmode-gray hover:bg-hybrid-purple/10 hover:border-hybrid-purple/50 hover:text-hybrid-purple active:bg-hybrid-purple/20"
-                      : mapStyle === "satellite"
-                        ? "border-button bg-charcoal-light text-darkmode-gray hover:bg-green/10 hover:border-green/50 hover:text-green active:bg-green/20"
-                        : "border-button bg-charcoal-light text-darkmode-gray hover:bg-blue/10 hover:border-blue/50 hover:text-blue active:bg-blue/20"
-                    : "border-button-light bg-white text-charcoal hover:bg-green/10 active:bg-green/20"
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )} */}
 
       {mode === "transit" && (
         <div className={`mt-3 rounded-xl border p-3 ${

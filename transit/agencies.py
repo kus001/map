@@ -121,7 +121,7 @@ AGENCIES = {agency.id: agency for agency in (
            vehicles_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions"),
 
     Agency("oc", "OC Transpo", "https://oct-gtfs-emasagcnfmcgeham.z01.azurefd.net/public-access/GTFSExport.zip",
-           cache="doc.pkl", fallback_mode="OC", key=OC_KEY,
+           cache="doc.pkl", fallback_mode="OC", key={"header": "Ocp-Apim-Subscription-Key", "key": OC_KEY},
            vehicles_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions?format=protobuf",
            trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",)
 

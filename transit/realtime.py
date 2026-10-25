@@ -91,7 +91,7 @@ def _fetch_feed(url, key=None):
     try:
         rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers .. yeah i know dicts are weird
         if key:
-            rheaders["Ocp-Apim-Subscription-Key"] = key
+            rheaders[key["header"]] = key["key"]
         response = requests.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
@@ -601,9 +601,9 @@ def _check(agency_id, trip_updates_url=None):
         started, response = time.monotonic(), None
         try:
             rheaders = dict(REQUEST_HEADERS)
-            key=KEYS[agency_id] if agency_id in KEYS else None
+            key=KEYS[agency_id]["key"] if agency_id in KEYS else None
             if key:
-                rheaders["Ocp-Apim-Subscription-Key"] = key
+                rheaders[KEYS[agency_id]["header"]] = key
 
             response = requests.get(url, headers=rheaders, timeout=15)
             response.raise_for_status()

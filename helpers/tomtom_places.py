@@ -7,7 +7,7 @@ from json import dumps, loads
 
 load_dotenv()
 API_KEY = os.getenv("TOMTOM_API_KEY", None)
-testcoords = list(map(float, os.getenv("testcoods", None).split(",")))
+testcoords = list(map(float, os.getenv("testcoords", None).split(",")))
 
 PLACES = {
     # "bathroom": "public_bathroom",
@@ -19,7 +19,7 @@ url = "https://api.tomtom.com/maps/orbis/places/suggest"
 
 headers = {
     "accept": "application/json",
-    "Attributes": "results(subtitles,distanceInMeters)",
+    "Attributes": "results(subtitles,distanceInMeters,type,title,poiTypes,more)",
     "TomTom-Api-Version": "3",
     "TomTom-Api-Key": API_KEY,
     "Content-Type": "application/json",
@@ -40,7 +40,10 @@ data = {
             "discoverAction",
         ],
         "countryCodesIso2": ["US", "CA"],
-        "poiTypes": ["restaurant", "indian_restaurant"],
+        "poiTypes": [
+            # "restaurant",
+            "indian_restaurant"
+        ],
         "geometry": {
             "type": "circle",
             "center": testcoords,

@@ -585,13 +585,12 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* recent searches bois */}
+      {/* recent searches  */}
       {recentSearches.length > 0 && (
-        <div>
+        <div className="text-xs font-semibold mb-2">
           <p>Recent Searches</p>
-
           {recentSearches.map((search, index) => (
-            <div>
+            <div className="mt-4 pt-3`">
               <p>{search.start}</p>
               <p>{search.mode}</p>
             </div>

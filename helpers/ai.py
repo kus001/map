@@ -13,7 +13,7 @@ client = OpenRouter(
     server_url="https://ai.hackclub.com/proxy/v1",
 )
 
-def ask(content="Tell me a joke.", model="anthropic/claude-haiku-5.5", role="user"):
+def ask(content, model="anthropic/claude-haiku-5.5", role="user"):
     if not API_KEY: return
     
     return client.chat.send(

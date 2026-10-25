@@ -594,7 +594,7 @@ export default function SearchPanel({
               : "border-button bg-charcoal-light"
             : "border-button-light bg-white"
         }`}>
-          <p className={`text-xs font-semibold mb-2 ${
+          <summary className={`text-xs font-semibold mb-2 ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "text-hybrid-purple-light"
@@ -602,7 +602,7 @@ export default function SearchPanel({
                   ? "text-blue-lighter"
                   : "text-green-lighter"                  
             : "text-charcoal"
-          }`}>Recent Searches</p>
+          }`}>Recent Searches</summary>
           {recentSearches.map((search, index) => (
             <div className={`mt-3 pt-1 ${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>
               <p>{search.start}</p>

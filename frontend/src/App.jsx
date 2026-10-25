@@ -1772,6 +1772,7 @@ export default function App() {
         <SearchPanel
           start={start}
           destination={destination}
+          recentSearches={recentSearches}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
           mode={mode}

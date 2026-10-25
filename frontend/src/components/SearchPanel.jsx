@@ -423,6 +423,7 @@ function LocationInput({
 export default function SearchPanel({
   start,
   destination,
+  recentSearches,
   setStart,
   setDestination,
   mode,

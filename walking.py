@@ -17,7 +17,7 @@ REQUEST_TIMEOUT = (1.8, 3.5)
 _session = requests.Session()
 _session.headers.update({"Accept": "application/json, application/geo+json"})
 
-def _resolve_coordinates(address, provided=None):
+def _resolve_coordinates(address, provided=None, bias=None):
     if isinstance(provided, (list, tuple)) and len(provided) >= 2:
         try:
             lat = float(provided[0])
@@ -26,7 +26,7 @@ def _resolve_coordinates(address, provided=None):
                 return lat, lon
         except (TypeError, ValueError):
             pass
-    return get_coordinates(address)
+    return get_coordinates(address, bias=bias)
 
 
 @lru_cache(maxsize=192)
@@ -54,6 +54,7 @@ def get_walking_route(
     start_coordinates=None,
     end_coordinates=None,
     timing=None,
+    bias=None,
 ):
     def mark(stage):
         if timing is not None:
@@ -63,22 +64,25 @@ def get_walking_route(
     print("walking type: ", route_type)
     print("ors profile: ", profile)
 
-    start = _resolve_coordinates(start_address, start_coordinates)
-    end = _resolve_coordinates(end_address, end_coordinates)
+    # typed places prefer matches near the other end of the trip, else near the user
+    start = _resolve_coordinates(start_address, start_coordinates, bias=end_coordinates or bias)
+    end = _resolve_coordinates(end_address, end_coordinates, bias=start or bias)
     mark("geocoding")
 
     if start is None:
         return {
             "success": False,
             "error": explain_address_problem(
-                start_address, "Starting address couldn't be found."
+                start_address, "Starting address couldn't be found.",
+                bias=end or bias,
             ),
         }
     if end is None:
         return {
             "success": False,
             "error": explain_address_problem(
-                end_address, "Destination couldn't be found."
+                end_address, "Destination couldn't be found.",
+                bias=start or bias,
             ),
         }
 

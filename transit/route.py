@@ -93,6 +93,7 @@ def get_transit_route(
     excluded_route_keys=None,
     include_alternatives=True,
     arrive_by=None,
+    bias=None,
     _shared=None,
     _picked=None,
     _walks=None,
@@ -106,22 +107,24 @@ def get_transit_route(
         if timing is not None:
             timing[name] = us() - timing_start
 
-    start = coord(start_coordinates) if isinstance(start_coordinates, (list, tuple)) and len(start_coordinates) >= 2 else get_coordinates(start_address)
-    end = coord(end_coordinates) if isinstance(end_coordinates, (list, tuple)) and len(end_coordinates) >= 2 else get_coordinates(end_address)
+    start = coord(start_coordinates) if isinstance(start_coordinates, (list, tuple)) and len(start_coordinates) >= 2 else get_coordinates(start_address, bias=end_coordinates or bias)
+    end = coord(end_coordinates) if isinstance(end_coordinates, (list, tuple)) and len(end_coordinates) >= 2 else get_coordinates(end_address, bias=start or bias)
     mark("geocode")
 
     if start is None:
         return {
             "success": False,
             "error": explain_address_problem(
-                start_address, "Starting address couldn't be found."
+                start_address, "Starting address couldn't be found.",
+                bias=end or bias,
             ),
         }
     if end is None:
         return {
             "success": False,
             "error": explain_address_problem(
-                end_address, "Destination couldn't be found."
+                end_address, "Destination couldn't be found.",
+                bias=start or bias,
             ),
         }
 

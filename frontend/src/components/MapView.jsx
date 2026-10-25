@@ -179,6 +179,10 @@ function SatelliteDetails() {
   return null;
 }
 const DEFAULT_CENTER = [43.4829, -80.5249];
+// first view: neighbourhood-level for a real position, city-level for an approximate one
+const PRECISE_ZOOM = 14;
+const APPROX_ZOOM = 12;
+const DEFAULT_ZOOM = 13;
 
 const MODE_COLORS = {
   driving: "#66856B",
@@ -302,6 +306,45 @@ function MapThemeEffect({ darkMode, mapStyle }) {
       container.classList.remove("map-dark-ui", "dark-satellite-map");
     };
   }, [map, darkMode, mapStyle]);
+
+  return null;
+}
+
+// The map opens near the visitor without waiting for a permission prompt. The location can
+// arrive just after the map mounts (first visit, nothing cached; or the browser's real
+// position finishing), so move there once more - but only while nobody has moved the map
+// (the user, a route fitting itself, "find me") and only if this is a fresh map rather
+// than one coming back with its saved camera (e.g. after leaving 3D).
+function InitialLocationCenter({ currentLocation, approxLocation, initialCamera }) {
+  const map = useMap();
+  const resumed = useRef(Boolean(initialCamera));
+  const ownMove = useRef(false);
+  const moved = useRef(false);
+
+  useMapEvents({
+    movestart() {
+      if (!ownMove.current) moved.current = true;
+    },
+  });
+
+  useEffect(() => {
+    if (resumed.current || moved.current) return;
+    const precise = validCoordinate(currentLocation);
+    const target = precise ? currentLocation : approxLocation;
+    if (!validCoordinate(target)) return;
+
+    const lat = Number(target[0]);
+    const lon = Number(target[1]);
+    const center = map.getCenter();
+    if (Math.abs(center.lat - lat) < 0.005 && Math.abs(center.lng - lon) < 0.005) return;
+
+    ownMove.current = true;
+    try {
+      map.setView([lat, lon], precise ? PRECISE_ZOOM : APPROX_ZOOM, { animate: false });
+    } finally {
+      ownMove.current = false;
+    }
+  }, [map, currentLocation, approxLocation]);
 
   return null;
 }
@@ -769,6 +812,7 @@ export default function MapView({
   onHoverRoute = () => {},
   displayedMode,
   currentLocation,
+  approxLocation = null,
   navigationActive = false,
   navigationAccuracy = null,
   navigationHeading = null,
@@ -868,9 +912,14 @@ export default function MapView({
   const baseLayer = getBaseLayer(mapStyle, darkMode,
     USE_MAPTILER && !mapTilerFailed && verifiedStyle === styleId);
 
-  const mapCenter = validCoordinate(currentLocation)
-    ? [Number(currentLocation[0]), Number(currentLocation[1])]
+  // real position if we have it, else the approximate one, else the home area
+  const startPoint = validCoordinate(currentLocation) ? currentLocation
+    : validCoordinate(approxLocation) ? approxLocation : null;
+  const mapCenter = startPoint
+    ? [Number(startPoint[0]), Number(startPoint[1])]
     : DEFAULT_CENTER;
+  const startZoom = validCoordinate(currentLocation) ? PRECISE_ZOOM
+    : validCoordinate(approxLocation) ? APPROX_ZOOM : DEFAULT_ZOOM;
 
   const visibleStart = validCoordinate(startCoordinate)
     ? startCoordinate
@@ -882,7 +931,7 @@ export default function MapView({
   return (
     <MapContainer
       center={initialCamera?.center ? [initialCamera.center[1], initialCamera.center[0]] : mapCenter}
-      zoom={initialCamera?.zoom ?? 13}
+      zoom={initialCamera?.zoom ?? startZoom}
       minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
@@ -890,6 +939,11 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapCameraSync onCameraChange={onCameraChange} />
+      <InitialLocationCenter
+        currentLocation={currentLocation}
+        approxLocation={approxLocation}
+        initialCamera={initialCamera}
+      />
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />
       <MapResizeEffect />

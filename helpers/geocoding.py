@@ -508,11 +508,9 @@ def resolve_address(address, bias=None, allow_network=True):
 
     key = _normalize_key(clean)
 
-
     for source in (_cached_places, _saved_aliases):
         if key in source:
             return _result("ok", source[key], clean, "known")
-
 
     named = named_places.find_exact(clean)
     if named:
@@ -522,7 +520,6 @@ def resolve_address(address, bias=None, allow_network=True):
             return _result("ok", (only["lat"], only["lon"]), only["label"], "named")
         if len(options) > 1:
             return _result("ambiguous", options=options)
-
 
     remembered = _recall_runtime(key)
     if remembered is not None:

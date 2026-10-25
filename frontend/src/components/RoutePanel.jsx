@@ -292,7 +292,7 @@ export default function RoutePanel({
 
   if (!data?.routes?.length) {
     return (
-      <div className={`min-h-0 flex-1 px-5 py-3 ${
+      <div className={`min-h-0 flex-1 max-[760px]:flex-none px-5 py-3 ${
         !error && status === "Enter a starting point and destination."
           ? "max-[760px]:hidden"
           : ""
@@ -301,8 +301,8 @@ export default function RoutePanel({
           className={`rounded-xl border p-3 text-sm ${
             error
               ? darkMode 
-                ? "bg-charcoal border-red-300 bg-red-50 text-red-700"
-                : "border-red-300 bg-red-50 text-red-700"
+                ? "bg-button-500/70 bg-red-950/30 text-red-300"
+                : "border-red-300 bg-red-75 text-red-700"
               : darkMode
                 ? mapStyle === "hybrid"
                   ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"

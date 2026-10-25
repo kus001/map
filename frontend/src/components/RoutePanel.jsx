@@ -300,8 +300,9 @@ export default function RoutePanel({
         <div
           className={`rounded-xl border p-3 text-sm ${
             error
-
-              ? "border-red-300 bg-red-50 text-red-700"
+              ? darkMode 
+                ? "bg-charcoal border-red-300 bg-red-50 text-red-700"
+                : "border-red-300 bg-red-50 text-red-700"
               : darkMode
                 ? mapStyle === "hybrid"
                   ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"

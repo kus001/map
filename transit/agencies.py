@@ -108,6 +108,11 @@ AGENCIES = {agency.id: agency for agency in (
            vehicles_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/vehicle/vehiclepositions.pb",
            alerts_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/alert/alerts.pb"),
 
+    Agency("dt", "Durham Transit", "https://maps.durham.ca/OpenDataGTFS/GTFS_Durham_TXT.zip",
+           cache="ddt.pkl", fallback_mode="bus",
+           trip_updates_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates",
+           vehicles_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions")
+
 #     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
 #            cache="dwp.pkl", fallback_mode="bus")
 )}

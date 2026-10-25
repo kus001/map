@@ -327,8 +327,16 @@ function impossibleTransitConnection(steps) {
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
-  console.log("Recent searches:", recentSearch());
   const [recentSearches, setRecentSearches] = useState(recentSearch);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));
+    } catch (error) {
+      console.warn("Could not save recent searches", error);
+    }
+  }, [recentSearches]);
+
+  console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);
@@ -741,7 +749,13 @@ export default function App() {
         mode: requestedMode
       }
 
-      setRecentSearches(current => [newSearch, ...current]);
+      setRecentSearches(current => {
+        const filtered = current.filter(search => search.start !== newSearch.start || 
+         search.destination !== newSearch.destination ||
+         search.mode !== newSearch.mode
+        );
+        return [newSearch, ...filtered].slice(0,3);
+      });
 
       if (requestedMode === "transit") {
         const altController = new AbortController();

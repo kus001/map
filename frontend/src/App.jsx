@@ -125,7 +125,7 @@ function applyWalkShapes(route, shapes) {
 }
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
-
+const RECENT_SEARCH_KEY = "kmaps-recent-searches";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
@@ -165,7 +165,7 @@ function readSharedRoute() {
 function loadPreferences() {
   try {
     const raw = window.localStorage.getItem(PREFERENCES_KEY);
-    if (!raw) {
+    if (!raw) { // empty list return if nothing is saved
       return {};
     }
 
@@ -174,6 +174,21 @@ function loadPreferences() {
   } catch (error) {
     console.warn("Could not load saved map preferences:", error);
     return {};
+  }
+}
+
+function recentSearch() {
+  try {
+    const raw = window.localStorage.getItem(RECENT_SEARCH_KEY);
+    if (!raw) { // empty list return if nothing is saved
+      return [];
+    }
+    const saved = JSON.parse(raw);
+    return Array.isArray(saved) ? saved : [];
+  } 
+  catch (error) {
+    console.warn("Could not load recent searches", error);
+    return [];
   }
 }
 
@@ -311,6 +326,7 @@ function impossibleTransitConnection(steps) {
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
+  console.log("Recent searches:", recentSearch());
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);

@@ -587,10 +587,24 @@ export default function SearchPanel({
 
       {/* recent searches  */}
       {recentSearches.length > 0 && (
-        <div className="text-xs font-semibold mb-2">
-          <p>Recent Searches</p>
+        <div className={`mt-2 rounded-xl border ${
+          darkMode
+            ? mapStyle === "hybrid"
+              ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
+              : "border-button bg-charcoal-light"
+            : "border-button-light bg-white"
+        }`}>
+          <p className={`text-xs font-semibold mb-2 ${
+            darkMode
+              ? mapStyle === "hybrid"
+                ? "text-hybrid-purple-light"
+                : mapStyle === "street"
+                  ? "text-blue-lighter"
+                  : "text-green-lighter"                  
+            : "text-charcoal"
+          }`}>Recent Searches</p>
           {recentSearches.map((search, index) => (
-            <div className="mt-4 pt-3`">
+            <div className="mt-4 pt-3">
               <p>{search.start}</p>
               <p>{search.mode}</p>
             </div>

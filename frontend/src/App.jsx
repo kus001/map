@@ -4,6 +4,7 @@ import { IoLayers, IoClose } from "react-icons/io5";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
+import { IoIosArrowUp } from "react-icons/io";
 
 import MapView from "./components/MapView.jsx";
 import Scene3D from "./components/Scene3D.jsx";
@@ -306,6 +307,7 @@ const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
   const [sidePanel, setIsSidePanel] = useState(false);
+  const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -1668,7 +1670,11 @@ export default function App() {
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-y-auto max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"}`}
+        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
+          mobileMin
+            ? "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
+            : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
+        }`}
       >
         <header className="px-5 pb-4 pt-4">
           <div className="flex items-center justify-between">
@@ -1688,6 +1694,9 @@ export default function App() {
             >
               kmaps
             </a>
+            <button className={`hidden max-[760px]:flex ${smallButton}`} onClick={() => setMobileMin(value => !value)}>
+              <IoIosArrowUp />
+            </button>
           </div>
 
           <div

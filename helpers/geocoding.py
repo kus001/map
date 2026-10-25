@@ -7,10 +7,6 @@ Resolution order (see resolve_address):
 4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
 5. Nominatim as a last-resort network geocoder, cross-checked against the local
    street data when the local index knew the street but not the exact civic number.
-
-Important: ``geocode_cache.json`` is treated as project data and is READ ONLY at
-runtime. Nothing in this module ever writes to it; results learned while the server
-runs live in a bounded in-memory LRU cache instead.
 """
 
 import json
@@ -39,6 +35,10 @@ WATERLOO_REGION_VIEWBOX = [
 ]
 REGION_CENTER = (43.46, -80.52)
 
+# How far around the user's (approximate) position Nominatim should look first. This is a
+# preference, not a fence (bounded=False), so a farther place can still win on importance.
+_NEARBY_HALF_SPAN_DEG = 0.3  # ~33 km north-south
+
 _COORDINATE_RE = re.compile(
     r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$"
 )
@@ -58,6 +58,53 @@ _negative_lock = threading.Lock()
 
 
 _NOMINATIM_DISAGREE_KM = 5.0
+
+# Network results depend on where the asker is, so they must not go in the shared
+# (text-only) caches above: one visitor's location would decide everyone's answer.
+# They live here instead, per ~25 km bucket of bias, in memory only.
+_NETWORK_CACHE_MAX = 500
+_network_cache = OrderedDict()
+_network_lock = threading.Lock()
+
+
+def _bias_bucket(bias):
+    point = _valid_point(bias) if bias else None
+    if point is None:
+        return None
+    return (round(point[0] * 4) / 4, round(point[1] * 4) / 4)
+
+
+def _network_recall(key, bias):
+    cache_key = (key, _bias_bucket(bias))
+    with _network_lock:
+        found = _network_cache.get(cache_key)
+        if found is not None:
+            _network_cache.move_to_end(cache_key)
+        return found
+
+
+def _network_remember(key, bias, found):
+    cache_key = (key, _bias_bucket(bias))
+    with _network_lock:
+        _network_cache[cache_key] = found
+        _network_cache.move_to_end(cache_key)
+        while len(_network_cache) > _NETWORK_CACHE_MAX:
+            _network_cache.popitem(last=False)
+
+
+def _viewbox_around(bias):
+    """Nominatim viewbox (two opposite corners) centred on ``bias``, else the home region."""
+    point = _valid_point(bias) if bias else None
+    if point is None:
+        return WATERLOO_REGION_VIEWBOX
+    lat, lon = point
+    half_lat = _NEARBY_HALF_SPAN_DEG
+    # a degree of longitude is shorter away from the equator; keep the box roughly square
+    half_lon = min(half_lat / max(math.cos(math.radians(lat)), 0.2), 5.0)
+    return [
+        (min(lat + half_lat, 90.0), max(lon - half_lon, -180.0)),
+        (max(lat - half_lat, -90.0), min(lon + half_lon, 180.0)),
+    ]
 
 
 def _normalize_key(value):
@@ -254,13 +301,21 @@ def _remember_negative(key):
             _negative_cache.popitem(last=False)
 
 
-def _pick_nominatim(locations, bias):
-    """Choose between Nominatim candidates: importance first, nearness second.
+# Nearness penalty when choosing between candidates, in the same units as Nominatim's
+# "importance" (0..1): 0.1 per 25 km, capped at 0.4 (reached at 100 km). So a place
+# next door beats an equally relevant one in the next city, while a genuinely famous
+# far place (importance well above a local one) can still win.
+_NEAR_PENALTY_KM = 250.0
+_NEAR_PENALTY_MAX = 0.4
 
-    Distance only costs a little (100 km = 0.17), so a famous far place still beats a
-    trivial local one ("CN Tower") while two similar places resolve to the closer one.
+
+def _pick_nominatim(locations, bias):
+    """Choose between Nominatim candidates: importance, pulled toward the closer one.
+
+    With no ``bias`` the reference is the middle of the home region.
     """
-    reference = bias or REGION_CENTER
+    reference = _valid_point(bias) if bias else None
+    reference = reference or REGION_CENTER
     best, best_score = None, None
 
     for rank, location in enumerate(locations):
@@ -270,7 +325,7 @@ def _pick_nominatim(locations, bias):
         except (TypeError, ValueError):
             importance = 0.0
         dist = _km(reference, (location.latitude, location.longitude))
-        score = importance - min(dist / 600.0, 0.25) - rank * 0.01
+        score = importance - min(dist / _NEAR_PENALTY_KM, _NEAR_PENALTY_MAX) - rank * 0.01
         if best_score is None or score > best_score:
             best, best_score = location, score
 
@@ -298,7 +353,7 @@ def _nominatim_lookup(query, bias=None):
                 exactly_one=False,
                 limit=5,
                 timeout=_NOMINATIM_TIMEOUT,
-                viewbox=WATERLOO_REGION_VIEWBOX,
+                viewbox=_viewbox_around(bias),
                 bounded=False,
                 country_codes="ca",
             )
@@ -453,6 +508,8 @@ def resolve_address(address, bias=None, allow_network=True):
     if not clean:
         return _result("not_found")
 
+    bias = _valid_point(bias) if bias else None
+
     direct = _coordinates_from_text(clean)
     if direct is not None:
         return _result("ok", direct, clean, "coordinates")
@@ -497,12 +554,14 @@ def resolve_address(address, bias=None, allow_network=True):
     if status == "approximate":
         approximate = ((float(payload[0]), float(payload[1])), payload[2])
 
-    found = _nominatim_lookup(clean, bias) if allow_network else None
+    found = _network_recall(key, bias)
+    if found is None and allow_network:
+        found = _nominatim_lookup(clean, bias)
 
     if found is not None:
         point = (found[0], found[1])
         if approximate is None or _km(point, approximate[0]) <= _NOMINATIM_DISAGREE_KM:
-            _remember_runtime(key, point)
+            _network_remember(key, bias, found)
             return _result("ok", point, found[2], "nominatim")
 
     if approximate is not None:
@@ -534,9 +593,10 @@ def address_options(address, bias=None):
     return status, []
 
 
-def explain_address_problem(address, default="Address couldn't be found."):
-    """Human-readable reason get_coordinates() returned None, with suggestions."""
-    status, options = address_options(address)
+def explain_address_problem(address, default="Address couldn't be found.", bias=None):
+    """Human-readable reason get_coordinates() returned None, with suggestions
+    (nearest ``bias`` first when given)."""
+    status, options = address_options(address, bias=bias)
     labels = [option["label"] for option in options]
 
     if status == "ambiguous" and labels:

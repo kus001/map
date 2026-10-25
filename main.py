@@ -13,6 +13,7 @@ load_dotenv()
 
 from cycling import get_cycling_route
 from driving import get_driving_route
+from helpers import approx_location
 from helpers.geocoding import (
     address_options,
     explain_address_problem,
@@ -72,13 +73,20 @@ def parse_coordinates(value):
     return [lat, lon]
 
 
+def request_bias(explicit=None):
+    """Where results should prefer to be close to: the browser's own position when it
+    sent one, else the visitor's approximate location from the host's headers."""
+    return parse_coordinates(explicit) or approx_location.from_headers(request.headers)
+
+
 # check vague addresses before asking the router to guess
-def address_issue_for(start, destination, start_coordinates, destination_coordinates):
+def address_issue_for(start, destination, start_coordinates, destination_coordinates, bias=None):
     """Describe a typed address that needs the user's choice, in a form the UI can show.
 
     Only fields the browser did not already pin to coordinates are checked. Returns
     ``{"field", "kind", "message", "options": [{label, lat, lon}]}`` or None. The
-    other end of the trip is used as a proximity bias so the nearest option is first.
+    other end of the trip is used as a proximity bias so the nearest option is first
+    (falling back to ``bias``, the user's own area, when the other end isn't pinned).
     """
     for field, text, pinned, other in (
         ("start", start, start_coordinates, destination_coordinates),
@@ -86,7 +94,7 @@ def address_issue_for(start, destination, start_coordinates, destination_coordin
     ):
         if pinned is not None:
             continue
-        kind, options = address_options(text, bias=other)
+        kind, options = address_options(text, bias=other or bias)
         if options:
             return {
                 "field": field,
@@ -186,6 +194,21 @@ def health():
     })
 
 
+@app.get("/api/approx-location")
+def approx_location_endpoint():
+    """City-level guess of where the visitor is, for centring the map and ranking
+    nearby results without a permission prompt. ``location`` is null when the host
+    doesn't provide one (e.g. local development); the app then uses its default area."""
+    response = jsonify({
+        "success": True,
+        "location": approx_location.from_headers(request.headers),
+        "precision": "approximate",
+    })
+    # specific to this visitor: never let a shared cache hand it to someone else
+    response.headers["Cache-Control"] = "private, max-age=600"
+    return response
+
+
 @app.route("/api/search", methods=["GET"])
 def search():
     query = request.args.get("q", "").strip()
@@ -202,7 +225,7 @@ def search():
 
 
 
-    bias = parse_coordinates([request.args.get("lat"), request.args.get("lon")])
+    bias = request_bias([request.args.get("lat"), request.args.get("lon")])
 
     try:
         results = search_places(query, limit=max(1, min(limit, 10)), bias=bias)
@@ -529,6 +552,7 @@ def transit_alternatives():
 
     start_coordinates = parse_coordinates(payload.get("start_coordinates"))
     end_coordinates = parse_coordinates(payload.get("destination_coordinates"))
+    bias = request_bias(payload.get("bias"))
     try:
         from transit import get_transit_route
         if choice == "all":
@@ -538,7 +562,7 @@ def transit_alternatives():
                 start_coordinates=start_coordinates,
                 end_coordinates=end_coordinates,
                 arrive_by=departure if timing_mode == "arrive_by" else None,
-                include_alternatives=True,
+                include_alternatives=True, bias=bias,
             )
             if not result.get("success") or not result.get("routes"):
                 return jsonify({"success": True, "routes": [], "route": None})
@@ -561,6 +585,7 @@ def transit_alternatives():
                 end_coordinates=end_coordinates,
                 arrive_by=departure if timing_mode == "arrive_by" else None,
                 include_alternatives=False, excluded_route_keys=excluded,
+                bias=bias,
             )
             if not result.get("success") or not result.get("routes"):
                 continue
@@ -597,6 +622,7 @@ def routes():
             return jsonify({"success": False, "error": f"Invalid {field}.", "code": "invalid_request"}), 400
     start_coordinates = parse_coordinates(payload.get("start_coordinates"))
     destination_coordinates = parse_coordinates(payload.get("destination_coordinates"))
+    bias = request_bias(payload.get("bias"))
     mode = str(payload.get("mode", "driving")).strip().lower()
     if mode not in {"driving", "walking", "cycling", "transit"}:
         return jsonify({"success": False, "error": f"Unsupported travel mode: {mode}", "code": "invalid_request"}), 400
@@ -622,7 +648,7 @@ def routes():
             result = get_driving_route(
                 start, destination, start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates,
-                timing=timing,
+                timing=timing, bias=bias,
             )
         elif mode == "walking":
             route_type = str(payload.get("route_type", "regular")).strip().lower()
@@ -631,7 +657,7 @@ def routes():
             result = get_walking_route(
                 start, destination, route_type=route_type,
                 start_coordinates=start_coordinates,
-                end_coordinates=destination_coordinates, timing=timing,
+                end_coordinates=destination_coordinates, timing=timing, bias=bias,
             )
         elif mode == "cycling":
             route_type = str(payload.get("route_type", "regular")).strip().lower()
@@ -640,7 +666,7 @@ def routes():
             result = get_cycling_route(
                 start, destination, route_type=route_type,
                 start_coordinates=start_coordinates,
-                end_coordinates=destination_coordinates, timing=timing,
+                end_coordinates=destination_coordinates, timing=timing, bias=bias,
             )
         else:
             from transit import get_transit_route
@@ -650,7 +676,7 @@ def routes():
                 start_coordinates=start_coordinates,
                 end_coordinates=destination_coordinates,
                 arrive_by=departure_datetime if timing_mode == "arrive_by" else None,
-                include_alternatives=False,
+                include_alternatives=False, bias=bias,
                 )
         if not isinstance(result, dict):
             raise TypeError("Routing provider did not return a response object")
@@ -690,7 +716,8 @@ def routes():
         result["code"] = "provider_unavailable" if unavailable else "route_not_found"
         if not unavailable:
             issue = address_issue_for(
-                start, destination, start_coordinates, destination_coordinates
+                start, destination, start_coordinates, destination_coordinates,
+                bias=bias,
             )
             if issue:
                 result["address_issue"] = issue

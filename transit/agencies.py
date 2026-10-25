@@ -16,22 +16,29 @@ This module must stay import-light (no project imports) so every other helper ca
 """
 from dataclasses import dataclass
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+OC_KEY = os.getenv("OC_KEY", None)
 
 TRANSIT_DATA = Path(__file__).resolve().parents[1] / "transit_data"
 
 @dataclass(frozen=True)
 class Agency:
-    id: str                       # stop ids look like "<id>:<raw stop id>"
-    label: str                    # name shown in the UI
-    feed_url: str                 # direct link to the static GTFS zip
-    own_cache: bool = True       # built by agency_setup instead of the shared graph
-    cache: str | None = None      # own_cache only; defaults to "d<id>.pkl"
-    realtime: bool = False        # has a GTFS-RT integration (set automatically if a *_url below is given)
+    id: str                               # stop ids look like "<id>:<raw stop id>"
+    label: str                            # name shown in the UI
+    feed_url: str                         # direct link to the static GTFS zip
+    own_cache: bool = True                # built by agency_setup instead of the shared graph
+    cache: str | None = None              # own_cache only; defaults to "d<id>.pkl"
+    realtime: bool = False                # has a GTFS-RT integration (set automatically if a *_url below is given)
     trip_updates_url: str | None = None   # GTFS-RT TripUpdates feed (live delays)
     vehicles_url: str | None = None       # GTFS-RT VehiclePositions feed
     alerts_url: str | None = None         # GTFS-RT Alerts feed
     match_live_by_time: bool = False      # live trip ids aren't the static ones (TTC): match by route+stop+time
-    fallback_mode: str = "transit"  # vehicle label when routes.txt has no route_type
+    fallback_mode: str = "transit"        # vehicle label when routes.txt has no route_type
+    key: str | None = None                # optional API key for GTFS-RT feeds
 
     def __post_init__(self):
         if self.trip_updates_url or self.vehicles_url or self.alerts_url:
@@ -107,6 +114,16 @@ AGENCIES = {agency.id: agency for agency in (
            trip_updates_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/tripupdate/tripupdates.pb",
            vehicles_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/vehicle/vehiclepositions.pb",
            alerts_url="https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/alert/alerts.pb"),
+
+    Agency("dt", "Durham Transit", "https://maps.durham.ca/OpenDataGTFS/GTFS_Durham_TXT.zip",
+           cache="ddt.pkl", fallback_mode="bus",
+           trip_updates_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates",
+           vehicles_url="https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions"),
+
+    Agency("oc", "OC Transpo", "https://oct-gtfs-emasagcnfmcgeham.z01.azurefd.net/public-access/GTFSExport.zip",
+           cache="doc.pkl", fallback_mode="OC", key={"header": "Ocp-Apim-Subscription-Key", "key": OC_KEY},
+           vehicles_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions?format=protobuf",
+           trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",)
 
 #     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
 #            cache="dwp.pkl", fallback_mode="bus")

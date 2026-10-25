@@ -13,6 +13,11 @@ import RoutePanel from "./components/RoutePanel.jsx";
 import SearchPanel from "./components/SearchPanel.jsx";
 import { haversineMeters, navigationSnapshot as buildNavigationSnapshot } from "./utils/navigation.js";
 import { liveDelayInfo } from "./utils/format.js";
+import {
+  fetchApproxLocation,
+  loadCachedApproxLocation,
+  saveApproxLocation,
+} from "./utils/approxLocation.js";
 
                                                                 
 // same walk might show up twice when transit options get rebuilt
@@ -364,6 +369,8 @@ export default function App() {
     "Enter a starting point and destination."
   );
   const [currentLocation, setCurrentLocation] = useState(null);
+  // city-level guess, no permission needed; never shown as "you are here"
+  const [approxLocation, setApproxLocation] = useState(loadCachedApproxLocation);
   const [locationFocusKey, setLocationFocusKey] = useState(0);
   const [routeFocusKey, setRouteFocusKey] = useState(0);
   const [stepFocusKey, setStepFocusKey] = useState(0);
@@ -649,6 +656,8 @@ export default function App() {
             ? effectiveCurrentLocation
             : requestedStartCoordinate,
           destination_coordinates: requestedDestinationCoordinate,
+          // typed places resolve to the closest match to this
+          bias: currentLocation || approxLocation || undefined,
       };
       console.log("ROUTE REQUEST:", routeRequest);
       const response = await fetch("/api/routes", {
@@ -1557,6 +1566,18 @@ export default function App() {
   }
 
   useEffect(() => {
+    const controller = new AbortController();
+    fetchApproxLocation(controller.signal)
+      .then(location => {
+        if (!location) return;
+        setApproxLocation(location);
+        saveApproxLocation(location);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (initialLocationRequested.current) {
       return;
     }
@@ -1644,7 +1665,7 @@ export default function App() {
   const mapProps = {
     data, selectedRoute, selectedRouteNumber, hoveredRouteNumber, displayedMode,
     onSelectRoute: selectRoute, onHoverRoute: setHoveredRouteNumber,
-    currentLocation, navigationActive, navigationAccuracy, navigationHeading,
+    currentLocation, approxLocation, navigationActive, navigationAccuracy, navigationHeading,
     startCoordinate: startUsesCurrentLocation ? currentLocation : startMapCoordinate,
     destinationCoordinate: destinationMapCoordinate,
     startLabel: start, destinationLabel: destination,
@@ -1739,10 +1760,11 @@ export default function App() {
           onDestinationCoordinate={coordinate =>
             setDestinationMapCoordinate(coordinate)
           }
-          startBias={currentLocation || destinationMapCoordinate}
+          startBias={currentLocation || destinationMapCoordinate || approxLocation}
           destinationBias={
             (startUsesCurrentLocation ? currentLocation : startMapCoordinate) ||
-            currentLocation
+            currentLocation ||
+            approxLocation
           }
           addressIssue={addressIssue}
           onPickAddressOption={pickAddressOption}

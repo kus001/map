@@ -4,6 +4,7 @@ import { IoLayers, IoClose } from "react-icons/io5";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
+import { IoIosArrowUp } from "react-icons/io";
 
 import MapView from "./components/MapView.jsx";
 import Scene3D from "./components/Scene3D.jsx";
@@ -124,7 +125,7 @@ function applyWalkShapes(route, shapes) {
 }
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
-
+const RECENT_SEARCH_KEY = "kmaps-recent-searches";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
@@ -164,7 +165,7 @@ function readSharedRoute() {
 function loadPreferences() {
   try {
     const raw = window.localStorage.getItem(PREFERENCES_KEY);
-    if (!raw) {
+    if (!raw) { // empty list return if nothing is saved
       return {};
     }
 
@@ -175,6 +176,22 @@ function loadPreferences() {
     return {};
   }
 }
+
+function recentSearch() {
+  try {
+    const raw = window.localStorage.getItem(RECENT_SEARCH_KEY);
+    if (!raw) { // empty list return if nothing is saved
+      return [];
+    }
+    const saved = JSON.parse(raw);
+    return Array.isArray(saved) ? saved : [];
+  } 
+  catch (error) {
+    console.warn("Could not load recent searches", error);
+    return [];
+  }
+}
+// console.log("Recent searches: ", recentSearch);
 
 function validSavedValue(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;
@@ -310,7 +327,18 @@ function impossibleTransitConnection(steps) {
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export default function App() {
+  const [recentSearches, setRecentSearches] = useState(recentSearch);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));
+    } catch (error) {
+      console.warn("Could not save recent searches", error);
+    }
+  }, [recentSearches]);
+
+  console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
+  const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -714,6 +742,20 @@ export default function App() {
       setData(requestedMode === "transit"
         ? { ...displayedResult, alternatives_loading: true }
         : displayedResult);
+
+      const newSearch = {
+        start: requestedUseCurrentLocation ? "Current location" : requestedStart.trim(),
+        destination: requestedDestination.trim(),
+        mode: requestedMode
+      }
+
+      setRecentSearches(current => {
+        const filtered = current.filter(search => search.start !== newSearch.start || 
+         search.destination !== newSearch.destination ||
+         search.mode !== newSearch.mode
+        );
+        return [newSearch, ...filtered].slice(0,3);
+      });
 
       if (requestedMode === "transit") {
         const altController = new AbortController();
@@ -1689,7 +1731,11 @@ export default function App() {
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-3 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:h-[60vh] max-[760px]:w-auto max-[760px]:overflow-y-auto max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"}`}
+        } max-[760px]:absolute max-[760px]:bottom-5 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
+          mobileMin
+            ? "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
+            : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
+        }`}
       >
         <header className="px-5 pb-4 pt-4">
           <div className="flex items-center justify-between">
@@ -1709,6 +1755,9 @@ export default function App() {
             >
               kmaps
             </a>
+            <button className={`hidden max-[760px]:flex ${smallButton}`} onClick={() => setMobileMin(value => !value)}>
+              <IoIosArrowUp />
+            </button>
           </div>
 
           <div
@@ -1723,6 +1772,7 @@ export default function App() {
         <SearchPanel
           start={start}
           destination={destination}
+          recentSearches={recentSearches}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
           mode={mode}

@@ -7,10 +7,6 @@ Resolution order (see resolve_address):
 4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
 5. Nominatim as a last-resort network geocoder, cross-checked against the local
    street data when the local index knew the street but not the exact civic number.
-
-Important: ``geocode_cache.json`` is treated as project data and is READ ONLY at
-runtime. Nothing in this module ever writes to it; results learned while the server
-runs live in a bounded in-memory LRU cache instead.
 """
 
 import json

@@ -226,9 +226,7 @@ function LocationInput({
         );
         const json = response.ok ? await response.json() : null;
         const local = json?.success ? json.results ?? [] : [];
-
-                                                                  
-                                                                       
+                                                         
         const external = local.length < 3
           ? await extraPlaces(query, proximity, controller.signal)
           : [];
@@ -342,7 +340,11 @@ function LocationInput({
           }
         }}
         onKeyDown={handleKeyDown}
-        onFocus={() => suggestions.length && setOpen(true)}
+        onFocus={() => {
+          if (suggestions.length > 0 || (value.trim() === "" && recentLocations.length > 0)) {
+            setOpen(true);
+          }
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
@@ -365,7 +367,9 @@ function LocationInput({
         </div>
       )}
 
-      {!skipLookup && open && (suggestions.length > 0 || MAPTILER_KEY) && (
+      {!skipLookup && open  && (
+        suggestions.length > 0 || MAPTILER_KEY || (value.trim() === "" && recentLocations.length > 0)
+        ) && (
         <div
           className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
@@ -373,6 +377,11 @@ function LocationInput({
               : "border-button-light bg-white"
           }`}
         >
+          {value.trim() === "" && recentLocations.map((location, index) => (
+            <div key={index} className="px-3 py-2 text-sm">
+              {location}
+            </div>
+          ))}
           {suggestions.map((item, index) => (
             <button
               type="button"
@@ -399,7 +408,7 @@ function LocationInput({
               </span>
             </button>
           ))}
-          {MAPTILER_KEY && (
+          {MAPTILER_KEY && value.trim() !== "" && (
             <button
               type="button"
               onMouseDown={event => event.preventDefault()}

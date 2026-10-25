@@ -587,14 +587,14 @@ export default function SearchPanel({
 
       {/* recent searches  */}
       {recentSearches.length > 0 && (
-        <details className={` mt-3.5 rounded-xl border ${
+        <details className={`ml-9 mt-3.5 rounded-xl border ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
               : "border-button bg-charcoal-light"
             : "border-button-light bg-white"
         }`}>
-          <summary className={`cursor-pointer px-3 py-3 text-xs font-semibold mb-2 ${
+          <summary className={`cursor-pointer px-3 py-2.5 text-xs font-semibold ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "text-hybrid-purple-light"
@@ -602,9 +602,9 @@ export default function SearchPanel({
                   ? "text-blue-lighter"
                   : "text-green-lighter"                  
             : "text-charcoal"
-          }`}>Recent Searches</summary>
+          }`}>Recent Locations</summary>
           {recentSearches.map((search, index) => (
-            <div key={index} className={`mx-3 mb-2 rounded-lg border p-3 ${
+            <div key={index} className={`mx-3 mb-1.5 rounded-lg border p-2 ${
               darkMode
                 ? "border-button text-darkmode-gray "
                 : "border-button-light text-charcoal"

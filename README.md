@@ -4,58 +4,98 @@
 
 #### [kmaps](https://map.kmaps.ca/) is a student-made open source routing software, and it's still under development. All feedback is always welcome. Feel free to send it to [devs@kmaps.ca](mailto:devs@kmaps.ca)
 
+<!-- street -->
 <details>
-<summary>Street View</summary>
+  <summary>Street View</summary>
 
-![Street 2d dark](assets/darkmode.png)
+  <details>
+    <summary>2D Maps</summary>
 
-↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
+![Street 2D Dark](assets/darkmode.png)
 
-![Street 2d light](assets/lightmode.png)
+![Street 2D Light](assets/lightmode.png)
 
----
+  </details>
 
-![Street 3d dark](assets/street_3d_dark.png)
+  <details>
+    <summary>3D Maps</summary>
 
-↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
+![Street 3D Dark](assets/street_3d_dark.png)
 
-![Street 3d light](assets/street_3d_light.png)
+![Street 3D Light](assets/street_3d_light.png)
+
+  </details>
+
+  <details>
+    <summary>Globe</summary>
+
+![Street globe dark](assets/street_globe_dark.png)
+![Street globe light](assets/street_globe_light.png)
+
+  </details>
 </details>
 
+<!-- satellite -->
 <details>
-<summary>Satellite View</summary>
+  <summary>Satellite View</summary>
 
-![Satellite 2d dark](assets/dark_sat.png)
+  <details>
+    <summary>2D Maps</summary>
 
-↑↑ Dark Mode (2D) ↑↑ | ↓↓ Light Mode (2D) ↓↓
+![Satellite 2D Dark](assets/dark_sat.png)
 
-![Satelite 2d light](assets/light_sat.png)
+![Satellite 2D Light](assets/light_sat.png)
 
----
+  </details>
 
-![Satellite 3d dark](assets/satellite_3d_dark.png)
+  <details>
+    <summary>3D Maps</summary>
 
-↑↑ Dark Mode (3D) ↑↑ | ↓↓ Light Mode (3D) ↓↓
+![Satellite 3D Dark](assets/satellite_3d_dark.png)
 
-![Satellite 3d light](assets/satellite_3d_light.png)
+![Satellite 3D Light](assets/satellite_3d_light.png)
+
+  </details>
+
+  <details>
+  <summary>Globe</summary>
+
+![Satellite Globe Dark](assets/satellite_globe_dark.png)
+
+![Satellite Globe Light](assets/satellite_globe_light.png)
+
+  </details>
 </details>
 
+<!-- hybrid -->
 <details>
-<summary>Hybrid View</summary>
+  <summary>Hybrid View</summary>
 
-![Hybrid 2d dark](assets/hybrid_dark.png)
+  <details>
+    <summary>2D Maps</summary>
 
-↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
+![Hybrid 2D Dark](assets/hybrid_dark.png)
 
-![Hybrid 2d light](assets/hybrid_light.png)
+![Hybrid 2D Light](assets/hybrid_light.png)
 
----
+  </details>
 
-![Hybrid 3d dark](assets/hybrid_3d_dark.png)
+  <details>
+    <summary>3D Maps</summary>
 
-↑↑ Dark Mode (Hybrid) ↑↑ | ↓↓ Light Mode (Hybrid) ↓↓ 
+![Hybrid 3D Dark](assets/hybrid_3d_dark.png)
 
-![Hybrid 3d light](assets/hybrid_3d_light.png)
+![Hybrid 3D Light](assets/hybrid_3d_light.png)
+
+  </details>
+
+  <details>
+  <summary>Globe</summary>
+
+![Hybrid globe dark](assets/hybrid_globe_dark.png)
+![Hybrid globe light](assets/hybrid_globe_light.png)
+
+  </details>
 </details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)

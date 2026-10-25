@@ -46,6 +46,12 @@ button {
   cursor: pointer;
 }
 
+@utility glass {
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15)
+}
+
 .leaflet-container {
   width: 100%;
   height: 100%;
@@ -55,8 +61,6 @@ button {
 .leaflet-tile {
   transition: filter 0.2s ease, opacity 0.2s ease;
 }
-
-
  
 .dark-satellite-map .leaflet-tile {
   filter: brightness(0.48) contrast(1.15) saturate(0.78);
@@ -102,8 +106,6 @@ button {
   color: #334155 !important;
 }
 
-
- 
 .leaflet-bottom.leaflet-right .leaflet-control-zoom {
   margin-right: 16px;
 }
@@ -238,10 +240,6 @@ button {
 .km-3d-camera-controls button { background: #e9eee9; border-radius: 6px; padding: 3px 10px; font-size: 18px; }
 .km-3d-camera-controls small { text-align: center; font-size: 11px; }
 
-
-
-
- 
 .km-3d-scene, .km-3d-map {
   background-color: #87badf;
   background-image: linear-gradient(to bottom, #335c90 0%, #608fc1 33%, #a5d0ed 72%, #e6f5ff 100%);
@@ -249,6 +247,13 @@ button {
 .km-3d-globe {
   background-image: radial-gradient(ellipse at 50% 45%, #d5efff 0%, #acd5f1 47%, #6e9ecb 83%, #446e9c 100%);
 }
+
+/* globe background colour logic HEREEE */
+.km-3d-dark .km-3d-globe {
+  background-image: none;
+  background-color: "#17212c";
+}
+
 .km-3d-map .maplibregl-canvas-container,
 .km-3d-map .maplibregl-canvas { background: transparent !important; }
  

@@ -354,8 +354,6 @@ export default function App() {
     )
   );
 
-  const [walkingType, setWalkingType] = useState("regular");
-
   const [selectedRouteNumber, setSelectedRouteNumber] = useState(1);
   const [hoveredRouteNumber, setHoveredRouteNumber] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -575,7 +573,6 @@ export default function App() {
   async function searchRoutes({
     requestedMode = mode,
     requestedCyclingType = cyclingType,
-    requestedWalkingType = walkingType,
     requestedTransitPreference = transitPreference,
     requestedStart = start,
     requestedDestination = destination,
@@ -641,7 +638,7 @@ export default function App() {
           destination: cleanDestination,
           mode: requestedMode,
           route_type: requestedMode === "walking"
-            ? requestedWalkingType
+            ? "regular"
             : requestedCyclingType,
           departure_datetime: departureDatetime,
           timing_mode: effectiveTimingMode,
@@ -1282,17 +1279,6 @@ export default function App() {
     }
   }
 
-  function changeWalkingType(nextType) {
-    setWalkingType(nextType);
-
-    if (mode === "walking" && start.trim() && destination.trim()) {                 
-      searchRoutes({
-        requestedMode: "walking",
-        requestedWalkingType: nextType,
-      });
-    }
-  }
-
   function changeTimingMode(nextMode) {
     if (nextMode === "scheduled" || nextMode === "arrive_by") {
       const selected = new Date(`${departureDate}T${departureTime}:00`);
@@ -1300,7 +1286,7 @@ export default function App() {
       if (Number.isNaN(selected.getTime()) || selected.getTime() < Date.now()) {
         const next = initialScheduledTime(Date.now());
         setDepartureDate(next.date);
-        setDepartureTime(next.time);
+        setDepartureTime(next.time);``
       }
     }
 
@@ -1619,8 +1605,7 @@ export default function App() {
         prev.left === next.left && prev.bottom === next.bottom ? prev : next
       );
     };
-
-                                                                                       
+                                                      
     const observer = new ResizeObserver(measure);
     observer.observe(overlay);
     observer.observe(container);
@@ -1722,9 +1707,7 @@ export default function App() {
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}
-          walkingType={walkingType}
           onCyclingTypeChange={changeCyclingType}
-          onWalkingTypeChange={changeWalkingType}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}
@@ -1792,7 +1775,15 @@ export default function App() {
             href="https://github.com/kus001"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${
+              darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:text-hybrid-purple-light"
+                  : mapStyle === "street"
+                    ? "hover:text-blue-light"
+                    : "hover:text-green-light"
+                : "hover:text-green"
+              }`}
           >
             Kush
           </a>
@@ -1801,7 +1792,15 @@ export default function App() {
             href="https://github.com/BigBrain244466666"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${
+              darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:text-hybrid-purple-light"
+                  : mapStyle === "street"
+                    ? "hover:text-blue-light"
+                    : "hover:text-green-light"
+                : "hover:text-green"
+              }`}
           >
             Victor
           </a>
@@ -1810,7 +1809,15 @@ export default function App() {
             href="https://github.com/roc-ket-cod-er"
             target="_blank"
             rel="noreferrer"
-            className={`hover:underline duration-100 hover:tracking-wider ${darkMode ? "hover:text-blue-light" : "hover:text-green"}`}
+            className={`hover:underline duration-100 hover:tracking-wider ${
+              darkMode 
+                ? mapStyle === "hybrid"
+                  ? "hover:text-hybrid-purple-light"
+                  : mapStyle === "street"
+                    ? "hover:text-blue-light"
+                    : "hover:text-green-light"
+                : "hover:text-green"
+              }`}
           >
             Madhav
           </a>
@@ -1901,12 +1908,27 @@ export default function App() {
         <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => setThreeD(v => !v)}
             aria-pressed={threeD} title="Toggle 3D map"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${threeD ? "bg-green text-white" : "hover:bg-black/10"}`}>
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition 
+            ${threeD 
+              ? mapStyle === "hybrid"
+                ? "bg-hybrid-purple text-white" 
+                : mapStyle === "street"
+                  ? "bg-blue text-white"
+                  : "bg-green text-white"
+              : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
           </button>
           {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
             title="Switch between globe and flat map"
-            className="rounded-lg px-3 py-2 text-sm font-semibold transition hover:bg-black/10">
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+              darkMode
+                ? mapStyle === "hybrid"
+                  ? "hover:bg-hybrid-purple/10"
+                  : mapStyle === "street"
+                    ? "hover:bg-blue/10"
+                    : "hover:bg-green/10"
+                : "hover:bg-black/10"
+            }`}>
             {globe ? "Flat" : "Globe"}
           </button>}
         </div>
@@ -1916,7 +1938,7 @@ export default function App() {
             type="button"
             onClick={mapStyles}
             title="Change map style"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 focus-visible:outline-none ${controlSurface} ${accentHover}`}
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} ${darkMode}`}
           >
             {mapStyle === "street" ? (
               <MdMap className="text-lg" />

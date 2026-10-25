@@ -33,8 +33,8 @@ function deviceProfile() {
 
 function applyAtmosphere(map, darkMode, globe) {
   const nextSky = globe ? {
-    "sky-color": darkMode ? "#214565" : "#8dc5ed",
-    "horizon-color": darkMode ? "#496f92" : "#e1f3ff",
+    "sky-color": darkMode ? "#0c202f" : "#8dc5ed",
+    "horizon-color": darkMode ? "#091521" : "#e1f3ff",
     "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 9, 0.95, 15, 0.65, 22, 0.38],
   } : {
     "sky-color": darkMode ? "#17304b" : "#79b8e6",
@@ -1237,7 +1237,7 @@ export default function Scene3D({
 
   return (
     <div className={`km-3d-scene absolute inset-0 ${darkMode ? "km-3d-dark" : ""}`}>
-      <div ref={holder} className={`km-3d-map h-full w-full ${globe ? "km-3d-globe" : "km-3d-flat"}`} aria-label="Interactive 3D map" />
+      <div ref={holder} className={`km-3d-map h-full w-full ${globe ? "km-3d-globe" : "km-3d-flat"}`} style={{backgroundColor: globe ? (darkMode ? "#000000" : "#8dc5ed") : undefined}} aria-label="Interactive 3D map" />
       {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
       <div className="km-3d-tools" role="group" aria-label="3D map controls">
         <button type="button" className="km-3d-toggle" aria-pressed={terrainEnabled}

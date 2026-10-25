@@ -288,14 +288,21 @@ export default function RoutePanel({
   // stops already crossed off per transit leg; only ever grows while navigating, so GPS jitter can't un-cross one
   const passedLatch = useRef({});
   const mode = displayedMode || data?.mode || "driving";
+  
 
   if (!data?.routes?.length) {
     return (
-      <div className="min-h-0 flex-1 px-5 py-3">
+      <div className={`min-h-0 flex-1 max-[760px]:flex-none px-5 py-3 ${
+        !error && status === "Enter a starting point and destination."
+          ? "max-[760px]:hidden"
+          : ""
+      }`}>
         <div
           className={`rounded-xl border p-3 text-sm ${
             error
-              ? "border-red-300 bg-red-50 text-red-700"
+              ? darkMode 
+                ? "bg-button-500/70 bg-red-950/30 text-red-300"
+                : "border-red-300 bg-red-75 text-red-700"
               : darkMode
                 ? mapStyle === "hybrid"
                   ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"

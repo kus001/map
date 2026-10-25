@@ -585,6 +585,20 @@ export default function SearchPanel({
         </div>
       )}
 
+      {/* recent searches bois */}
+      {recentSearches.length > 0 && (
+        <div>
+          <p>Recent Searches</p>
+
+          {recentSearches.map((search, index) => (
+            <div>
+              <p>{search.start}</p>
+              <p>{search.mode}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mt-2 flex items-center justify-between gap-3">
         <span
           className={`text-[10px] whitespace-pre-line ${

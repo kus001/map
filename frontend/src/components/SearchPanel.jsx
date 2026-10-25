@@ -382,7 +382,11 @@ function LocationInput({
           }`}
         >
           {value.trim() === "" && recentLocations.map((location, index) => (
-            <div key={index} className="px-3 py-2 text-sm">
+            <div key={index} className={`border-b px-3 py-3 text-sm ${
+              darkMode
+                ? "border-button/40 text-darkmode-gray"
+                : "border-button-light/50 text-charcoal"
+            }`}>
               {location}
             </div>
           ))}
@@ -600,7 +604,7 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* recent searches  */}
+      {/* recent searches 
       {recentSearches.length > 0 && (
         <details className={`ml-9 mt-3.5 rounded-xl border ${
           darkMode
@@ -629,7 +633,7 @@ export default function SearchPanel({
             </div>
           ))}
         </details>
-      )}
+      )} */}
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <span

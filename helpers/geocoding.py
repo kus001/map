@@ -7,6 +7,10 @@ Resolution order (see resolve_address):
 4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
 5. Nominatim as a last-resort network geocoder, cross-checked against the local
    street data when the local index knew the street but not the exact civic number.
+
+Autocomplete (search_places) additionally mixes in a few TomTom place suggestions
+(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. Picking one remembers its
+coordinates for the session, so routing doesn't need to geocode it again.
 """
 
 import json
@@ -21,7 +25,7 @@ from pathlib import Path
 
 from geopy.geocoders import Nominatim
 
-from helpers import named_places
+from helpers import named_places, tomtom_places
 from helpers.local_geocode import resolve_detailed, search_local
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -630,17 +634,42 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     return tuple(merged)
 
 
+_TOMTOM_MAX_EXTRA = 3
+
+
+def _tomtom_extras(query, limit, bias):
+    """A few TomTom place suggestions to sit alongside the local results (never raises)."""
+    wanted = min(_TOMTOM_MAX_EXTRA, limit // 2)
+    if wanted < 1:
+        return []
+    try:
+        return tomtom_places.search(query, limit=wanted, bias=_valid_point(bias) if bias else None)
+    except Exception:
+        return []
+
+
 def search_places(query, limit=6, bias=None):
-    """Return local autocomplete results: curated places, civic addresses, streets.
+    """Return autocomplete results: curated places, civic addresses, streets, plus a few
+    TomTom places (``source: "tomtom"``) when a TOMTOM_API_KEY is configured.
 
     The React frontend merges these with MapTiler POI/place suggestions. ``bias`` is
-    an optional (lat, lon) used to rank equally good matches by nearness.
+    an optional (lat, lon) used to rank equally good matches by nearness. At most
+    ``limit`` results are returned in total; TomTom's share is small and is left out
+    entirely when there's no key, so offline operation is unchanged.
     """
     limit = max(1, min(int(limit), 10))
 
-    return [
+    local = [
         {"label": label, "lat": lat, "lon": lon, "source": source}
         for label, lat, lon, source in _search_places_cached(
             query, limit, _bias_key(bias)
         )
     ]
+
+    seen = {item["label"].lower() for item in local}
+    extras = [
+        item for item in _tomtom_extras(query, limit, bias)
+        if item["label"].lower() not in seen
+    ]
+
+    return local[: limit - len(extras)] + extras

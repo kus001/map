@@ -276,8 +276,6 @@ def _search_known(query, limit, bias):
     ]
 
 
-
-
 def _negative_hit(key):
     now = time.monotonic()
     with _negative_lock:
@@ -456,8 +454,6 @@ def prime_named_places():
     )
 
 
-
-
 def _coordinates_from_text(value):
     match = _COORDINATE_RE.match(value)
     if not match:
@@ -536,9 +532,6 @@ def resolve_address(address, bias=None, allow_network=True):
         return _result("ok", point, payload[4], "local")
 
     if status in ("ambiguous", "mismatch"):
-
-
-
         options = _sort_options([_entry_option(e) for e in payload], bias)
         return _result(status, options=options)
 
@@ -557,7 +550,6 @@ def resolve_address(address, bias=None, allow_network=True):
             return _result("ok", point, found[2], "nominatim")
 
     if approximate is not None:
-
         return _result("approximate", approximate[0], approximate[1], "local")
 
     return _result("not_found")
@@ -598,8 +590,6 @@ def explain_address_problem(address, default="Address couldn't be found.", bias=
         return "No address with that street type. Did you mean: " + "; ".join(labels)
 
     return default
-
-
 
 
 def _bias_key(bias):

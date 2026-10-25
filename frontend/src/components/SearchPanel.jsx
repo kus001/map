@@ -587,14 +587,14 @@ export default function SearchPanel({
 
       {/* recent searches  */}
       {recentSearches.length > 0 && (
-        <details className={`mt-2 rounded-xl border ${
+        <details className={` mt-3.5 rounded-xl border ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
               : "border-button bg-charcoal-light"
             : "border-button-light bg-white"
         }`}>
-          <summary className={`text-xs font-semibold mb-2 ${
+          <summary className={`cursor-pointer px-3 py-3 text-xs font-semibold mb-2 ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "text-hybrid-purple-light"
@@ -604,9 +604,13 @@ export default function SearchPanel({
             : "text-charcoal"
           }`}>Recent Searches</summary>
           {recentSearches.map((search, index) => (
-            <div className={`mt-3 pt-1 ${darkMode ? "text-darkmode-gray" : "text-charcoal"}`}>
-              <p>{search.start}</p>
-              <p>{search.mode}</p>
+            <div key={index} className={`mx-3 mb-2 rounded-lg border p-3 ${
+              darkMode
+                ? "border-button text-darkmode-gray "
+                : "border-button-light text-charcoal"
+            }`}>
+              <p className="text-xs font-medium">{search.start}</p>
+              <p className="mt-1 text-[11px] opacity-70">{search.mode}</p>
             </div>
           ))}
         </details>

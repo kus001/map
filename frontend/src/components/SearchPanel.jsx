@@ -193,7 +193,7 @@ function LocationInput({
   const suppressNextLookup = useRef(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const moreController = useRef(null);
-  const recentLocations = recentSearches.map(search => recentField === "start" ? search.start : search.destination)                                          
+  const recentLocations = [...new Set(recentSearches.map(search => recentField === "start" ? search.start : search.destination))]                                        
   const biasRef = useRef(null);
   useEffect(() => {
     biasRef.current = roundedBias(bias);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BsPersonWalking } from "react-icons/bs";
-import { GoDot } from "react-icons/go";
+import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
 import { IoCarOutline } from "react-icons/io5";
@@ -382,11 +382,12 @@ function LocationInput({
           }`}
         >
           {value.trim() === "" && recentLocations.map((location, index) => (
-            <div key={index} className={`border-b px-3 py-3 text-sm ${
+            <div key={index} className={`flex items-center gap-3 border-b px-3 py-3 text-sm ${
               darkMode
                 ? "border-button/40 text-darkmode-gray"
                 : "border-button-light/50 text-charcoal"
             }`}>
+              <GoHistory className="opacity-70"/>
               {location}
             </div>
           ))}

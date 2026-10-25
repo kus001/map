@@ -180,6 +180,8 @@ function LocationInput({
   skipLookup = false,
   bias = null,
   onSelectLocation = () => {},
+  recentSearches = [],
+  recentField,
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -187,11 +189,7 @@ function LocationInput({
   const suppressNextLookup = useRef(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const moreController = useRef(null);
-
-
-                                                                                  
-                                                                                     
-                                                                          
+  const recentLocations = recentSearches.map(search => recentField === "start" ? search.start : search.destination)                                          
   const biasRef = useRef(null);
   useEffect(() => {
     biasRef.current = roundedBias(bias);
@@ -463,6 +461,8 @@ export default function SearchPanel({
     <div className="px-6 pb-5 max-[760px]:px-4 max-[760px]:pb-3">
       <div className="space-y-3 max-[760px]:space-y-2">
         <LocationInput
+          recentSearches={recentSearches}
+          recentField="start"
           key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
           mapStyle={mapStyle}
@@ -518,6 +518,8 @@ export default function SearchPanel({
         />
 
         <LocationInput
+          recentSearches={recentSearches}
+          recentField="destination"
           value={destination}
           onChange={setDestination}
           onSearch={onSearch}

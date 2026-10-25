@@ -3,14 +3,15 @@
 Resolution order (see resolve_address):
 1. Literal ``lat, lon`` coordinates.
 2. Curated aliases in ``known_places.json`` and ``transit_data/geocode_cache.json``.
-3. Places selected from autocomplete during the current server session.
-4. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
-5. Nominatim as a last-resort network geocoder, cross-checked against the local
+3. Named places such as schools and their initials (``named_places.json``).
+4. Places selected from autocomplete (remembered in memory and in geocode_cache.json).
+5. Waterloo Region's local address-point index (exact, typo-corrected, or ambiguous).
+6. Nominatim as a last-resort network geocoder, cross-checked against the local
    street data when the local index knew the street but not the exact civic number.
 
 Autocomplete (search_places) additionally mixes in a few TomTom place suggestions
 (helpers/tomtom_places.py) when TOMTOM_API_KEY is set. Picking one remembers its
-coordinates for the session, so routing doesn't need to geocode it again.
+coordinates (see remember_place), so routing doesn't need to geocode it again.
 """
 
 import json
@@ -167,7 +168,6 @@ def _load_coordinate_map(path):
     return result
 
 
-
 _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
 _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
 
@@ -190,10 +190,11 @@ def _recall_runtime(key):
 
 
 def remember_place(label, lat, lon):
-    """Remember an autocomplete result for this server session only.
+    """Remember an autocomplete result so routing can reuse its exact coordinates.
 
-    The frontend calls this after the user selects an autocomplete suggestion so
-    routing can reuse its exact coordinates. Nothing is written to disk.
+    The frontend calls this after the user selects an autocomplete suggestion. It is
+    kept in memory and saved to ``transit_data/geocode_cache.json`` so it survives a
+    restart.
     """
     key = _normalize_key(label)
     if not key:
@@ -202,8 +203,6 @@ def remember_place(label, lat, lon):
     point = _valid_point((lat, lon))
     if point is not None:
         _remember_runtime(key, point)
-
-
 
 
 _LOWER_WORDS = {"of", "the", "and", "at", "de", "du"}
@@ -609,8 +608,6 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     named = _search_named(clean_query, limit, bias_key)
     known = _search_known(clean_query, limit, bias_key)
     local = search_local(clean_query, limit=limit, bias=bias_key)
-
-
 
     ordered = (
         local + named + known

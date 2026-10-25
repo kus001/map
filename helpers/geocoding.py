@@ -45,8 +45,6 @@ _COORDINATE_RE = re.compile(
 
 _geolocator = Nominatim(user_agent="thirdspace_map_router/2.0")
 
-
-
 _NOMINATIM_MIN_INTERVAL = 1.0
 _NOMINATIM_TIMEOUT = 2.5
 _NEGATIVE_TTL = 15 * 60
@@ -371,11 +369,6 @@ def _nominatim_lookup(query, bias=None):
         float(chosen.longitude),
         getattr(chosen, "address", None) or query,
     )
-
-
-
-
-
 
 _named_locations = {}
 

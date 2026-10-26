@@ -1729,7 +1729,7 @@ export default function App() {
       }`}
     >
       <aside
-        className={`map-sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x"} ${
+        className={`map-sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[340px] min-w-[300px] md:max-w-[480px] md:resize-x"} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"

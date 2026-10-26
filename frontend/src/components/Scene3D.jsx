@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-// kmaps v10.20.8: terrain-aligned Cesium OSM buildings with true 3D atmosphere.
+// kmaps v10.20.9: native Esri aerial provider and OSM alignment comparison.
+// Building coordinates are NEVER shifted to compensate for mismatched photos.
 // CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
 // Toronto 2025 is loaded only as real hosted 3D Tiles or I3S, never synthesized footprints.
 const CESIUM_VERSION = "1.146";
 const CESIUM_CDN = `https://cesium.com/downloads/cesiumjs/releases/${CESIUM_VERSION}/Build/Cesium/`;
-const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_MAPSERVER = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
+const ESRI_IMAGERY = `${ESRI_MAPSERVER}/tile/{z}/{y}/{x}`;
 const TORONTO = [-79.3832, 43.6525];
 const TORONTO_BOUNDS = { west: -79.64, south: 43.58, east: -79.10, north: 43.86 };
 const COLORS = { driving: "#70a9f2", walking: "#e5f4ea", cycling: "#7fdab2", transit: "#c099ff" };
@@ -94,22 +96,33 @@ function fitPath(C, viewer, points) {
   viewer.camera.flyTo({ destination: rectangle, duration: 1.0 });
 }
 
-function imageryFor(C, style) {
-  const imagery = [];
-  if (style === "street") {
-    imagery.push(new C.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" }));
-  } else {
-    imagery.push(new C.UrlTemplateImageryProvider({
-      url: ESRI_IMAGERY, maximumLevel: 19,
-      credit: new C.Credit("Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"),
-    }));
-    if (style === "hybrid") imagery.push(new C.UrlTemplateImageryProvider({
-      url: "https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png", maximumLevel: 19,
-      credit: new C.Credit("Labels © CARTO, © OpenStreetMap contributors"),
-    }));
+// Return the providers in bottom-to-top order. OSM comparison is deliberately
+// temporary; it never modifies the 3D building tileset or its geolocation.
+async function imageryFor(C, style, compareOSM = false) {
+  if (compareOSM || style === "street") {
+    return [new C.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" })];
   }
-  return imagery;
+  let aerial;
+  try {
+    // Read the ArcGIS service metadata and its real tiling scheme rather than
+    // assuming the tile URL's coordinate system.
+    aerial = await C.ArcGisMapServerImageryProvider.fromUrl(ESRI_MAPSERVER);
+  } catch (error) {
+    console.warn("Native ArcGIS imagery unavailable; using WebMercator tile fallback", error);
+    aerial = new C.UrlTemplateImageryProvider({
+      url: ESRI_IMAGERY, maximumLevel: 19, tilingScheme: new C.WebMercatorTilingScheme(),
+      credit: new C.Credit("Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"),
+    });
+  }
+  const providers = [aerial];
+  if (style === "hybrid") providers.push(new C.UrlTemplateImageryProvider({
+    url: "https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png", maximumLevel: 19,
+    tilingScheme: new C.WebMercatorTilingScheme(),
+    credit: new C.Credit("Labels © CARTO, © OpenStreetMap contributors"),
+  }));
+  return providers;
 }
+
 function safeTorontoUrl(raw) {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -162,6 +175,8 @@ export default function Scene3D({
   const [osmStatus, setOsmStatus] = useState("OSM Buildings: waiting for token");
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [terrainStatus, setTerrainStatus] = useState("Terrain: waiting for Cesium ion");
+  const [compareOSM, setCompareOSM] = useState(false);
+  const [imageryStatus, setImageryStatus] = useState("");
   const lastGlobeMode = useRef(null);
   const localView = useRef(null);
   const [menu, setMenu] = useState(null);
@@ -434,16 +449,33 @@ export default function Scene3D({
     syncBuildings(current);
   }, [ready, buildingsOn]);
 
+  // Alignment check: compare building positions against OSM's own streets.
+  // Satellite orthophotos and OSM building footprints may be from different
+  // years or have different local mapping accuracy. NEVER globally offset OSM.
   useEffect(() => {
     const context = scene.current;
     if (!ready || !context) return;
     const { viewer, C } = context;
-    viewer.imageryLayers.removeAll();
-    try {
-      for (const provider of imageryFor(C, mapStyle)) viewer.imageryLayers.addImageryProvider(provider);
-      viewer.scene.requestRender();
-    } catch (e) { setTip(`Imagery unavailable: ${e.message}`); }
-  }, [ready, mapStyle]);
+    let cancelled = false;
+    const activeSource = compareOSM ? "OpenStreetMap reference" : mapStyle === "street" ? "OpenStreetMap streets" : "Esri World Imagery";
+    setImageryStatus(`Loading ${activeSource}…`);
+    (async () => {
+      try {
+        const providers = await imageryFor(C, mapStyle, compareOSM);
+        if (cancelled || scene.current !== context || viewer.isDestroyed()) return;
+        // Swap only after metadata/provider setup finishes, so a slow Esri
+        // response cannot erase a newer OSM comparison selection.
+        viewer.imageryLayers.removeAll();
+        for (const provider of providers) viewer.imageryLayers.addImageryProvider(provider);
+        setImageryStatus(activeSource);
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (cancelled) return;
+        setImageryStatus(`Imagery error: ${String(e.message || e).slice(0, 90)}`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, mapStyle, compareOSM]);
 
   // Globe button zooms out to a globe view and back; it no longer morphs to
   // Columbus View, because that projection removes Cesium's sky atmosphere.
@@ -664,16 +696,19 @@ export default function Scene3D({
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: darkMode ? "#101b27" : "#e2eef7" }}>
       <div ref={holder} style={{ position: "absolute", inset: 0 }} aria-label="Cesium 3D globe and Toronto building massing" />
       <div style={{ position: "absolute", right: 12, top: 14, zIndex: 490, maxWidth: "min(340px, 75vw)", ...floatingStyles(darkMode) }}>
-        <strong>Cesium 3D · v10.20.7</strong>
+        <strong>Cesium 3D · v10.20.9</strong>
         <div style={{ marginTop: 5, fontSize: 11, opacity: .82 }}>{error || (ready ? osmStatus : info)}</div>
         {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{terrainStatus}</div>}
         {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{cityStatus}</div>}
+        {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{imageryStatus}</div>}
         {!ionToken && <div style={{ marginTop: 6 }}>Add VITE_CESIUM_ION_TOKEN to map/frontend/.env and restart Vite to enable OSM Buildings.</div>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
           <button type="button" onClick={recenterToronto} style={{ padding: "3px 6px", background: "#407a62", borderRadius: 5, color: "white" }}>Toronto</button>
           <button type="button" onClick={reset} style={{ padding: "3px 6px" }}>Reset</button>
           <button type="button" onClick={() => setBuildingsOn(v => !v)} style={{ padding: "3px 6px" }}>Buildings {buildingsOn ? "on" : "off"}</button>
+          <button type="button" aria-pressed={compareOSM} onClick={() => setCompareOSM(v => !v)} style={{ padding: "3px 6px", borderRadius: 5, background: compareOSM ? "#407a62" : "transparent", color: compareOSM ? "white" : "inherit" }}>{compareOSM ? "Back to aerial" : "Compare OSM"}</button>
         </div>
+        {compareOSM && <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.4, opacity: .86 }}>Compare the grey buildings with OSM streets. If they align here but not with aerial imagery, the datasets likely differ in date or registration. No model coordinates have been changed.</div>}
         {tip && <div style={{ fontSize: 11, marginTop: 6 }}>{tip}</div>}
         {error && <button type="button" onClick={onDisable3D} style={{ marginTop: 8, textDecoration: "underline" }}>Return to 2D</button>}
       </div>

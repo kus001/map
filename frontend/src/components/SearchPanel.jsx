@@ -373,7 +373,7 @@ function LocationInput({
       )}
 
       {!skipLookup && open  && (
-        suggestions.length > 0 || MAPTILER_KEY || (value.trim() === "" && recentLocations.length > 0)
+        suggestions.length > 0 || (MAPTILER_KEY && value.trim() !== "") || (value.trim() === "" && recentLocations.length > 0)
         ) && (
         <div
           className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
@@ -383,7 +383,7 @@ function LocationInput({
           }`}
         >
           {value.trim() === "" && recentLocations.map((location, index) => (
-            <div key={index} className={`flex items-center gap-3 border-b px-3 py-3 text-sm ${
+            <div key={index} className={`flex items-center gap-3 border-b last:border-b-0 px-3 py-3 text-sm ${
               darkMode
                 ? "border-button/40 text-darkmode-gray"
                 : "border-button-light/50 text-charcoal"
@@ -394,7 +394,7 @@ function LocationInput({
               </span>
 
               <button 
-                className="ml-auto px-2 text-lg opacity-70 hover:opacity-100" 
+                className="ml-auto p-1.5 text-red-400 transition hover:text-red-700 active:scale-90" 
                 type="button"
                 onClick={() => removeRecentLocation(location)}
                 aria-label= "Remove location from recent locations"

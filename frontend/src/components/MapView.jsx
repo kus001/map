@@ -268,6 +268,23 @@ function MapCameraSync({ onCameraChange }) {
   return null;
 }
 
+function RestoreCameraFrom3D({ camera }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!camera || !validCoordinate([camera.center?.[1], camera.center?.[0]]) || !Number.isFinite(camera.zoom)) return;
+    // Wait one paint for the hidden Leaflet container to become visible again.
+    // Keep the same map instance, tiles, overlays and event handlers.
+    const frame = requestAnimationFrame(() => {
+      map.stop();
+      map.invalidateSize({ pan: false });
+      const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), camera.zoom));
+      map.setView([camera.center[1], camera.center[0]], zoom, { animate: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [map, camera]);
+  return null;
+}
+
 function MapResizeEffect() {
   const map = useMap();
 
@@ -835,6 +852,7 @@ export default function MapView({
   enabledLayers = [],
   onLayerStatus = () => {},
   initialCamera = null,
+  returnCamera = null,
   onCameraChange = () => {},
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
@@ -932,6 +950,7 @@ export default function MapView({
     <MapContainer
       center={initialCamera?.center ? [initialCamera.center[1], initialCamera.center[0]] : mapCenter}
       zoom={initialCamera?.zoom ?? startZoom}
+      zoomSnap={0.25}
       minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
@@ -939,6 +958,7 @@ export default function MapView({
       className="h-full w-full"
     >
       <MapCameraSync onCameraChange={onCameraChange} />
+      <RestoreCameraFrom3D camera={returnCamera} />
       <InitialLocationCenter
         currentLocation={currentLocation}
         approxLocation={approxLocation}

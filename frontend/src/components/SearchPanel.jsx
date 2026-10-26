@@ -709,7 +709,7 @@ export default function SearchPanel({
       </div>
 
       {mode === "cycling" && (
-        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5 @container">
           {BIKE_TYPES.map(option => (
             <button
               type="button"
@@ -717,7 +717,7 @@ export default function SearchPanel({
               disabled={loading}
               mapStyle={mapStyle}
               onClick={() => onCyclingTypeChange(option.id)}
-              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+              className={`rounded-lg border px-1 py-1 text-center text-[12px] @max-[280px]:text-[10px] font-semibold transition disabled:opacity-50 ${
                 cyclingType === option.id
                   ? darkMode
                     ? mapStyle === "hybrid"

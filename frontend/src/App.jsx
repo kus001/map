@@ -335,6 +335,10 @@ export default function App() {
       console.warn("Could not save recent searches", error);
     }
   }, [recentSearches]);
+  
+  function removeLocation(location) { // remove location from saved recent
+    setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));
+  }
 
   console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
@@ -1775,6 +1779,7 @@ export default function App() {
           recentSearches={recentSearches}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
+          removeRecentLocation={removeLocation}
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}

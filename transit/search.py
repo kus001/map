@@ -115,16 +115,14 @@ def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realti
 
     if realtime.get("available") and agencies.has_realtime(agency):
         if hasattr(schedule["trips"], "tids"):
-            return _candidate_trip_realtime_compact(
-                schedule["trips"], agency, from_stop, to_stop, earliest, date, realtime
-            )
-
+            return _candidate_trip_realtime_compact(schedule["trips"], agency, from_stop, to_stop, earliest, date, realtime)
 
         index = bisect_left(times, earliest - 2 * 3600)
         best = None
         best_departure = float("inf")
 
-        for trip in schedule["trips"][index:]:
+        for i in range(index, len(schedule["trips"])):
+            trip = schedule["trips"][i]
             static_departure = trip.get("departure_time")
             if static_departure is None:
                 continue
@@ -136,15 +134,11 @@ def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realti
             if trip_id is None or not trip_active(trip_id, date):
                 continue
 
-            departure, dep_delay, live_dep = adjusted_departure(
-                realtime, agency, trip, raw_stop_id(from_stop)
-            )
+            departure, dep_delay, live_dep = adjusted_departure(realtime, agency, trip, raw_stop_id(from_stop))
             if departure is None or departure < earliest or departure >= best_departure:
                 continue
 
-            arrival, arr_delay, live_arr = adjusted_arrival(
-                realtime, agency, trip, raw_stop_id(to_stop)
-            )
+            arrival, arr_delay, live_arr = adjusted_arrival(realtime, agency, trip, raw_stop_id(to_stop))
 
             best_departure = departure
             best = (
@@ -160,8 +154,6 @@ def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realti
 
     trips = schedule["trips"]
     if hasattr(trips, "tids"):
-
-
         active = _active_services(date)
         ids = trips.pools.trip_ids
         service_of = store._data.trip_to_service.get if active is not None else None
@@ -174,9 +166,10 @@ def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realti
             return (trips._edge(i), float(trips.deps[i]),
                     float(trips.arrs[i]), 0.0, False, 0.0)
         return None
-
+    
     index = bisect_left(times, earliest)
-    for trip in trips[index:]:
+    for i in range(index, len(trips)):
+        trip = trips[i]
         trip_id = trip.get("trip_id")
         if trip_id is not None and trip_active(trip_id, date):
             arrival = trip.get("arrival_time")

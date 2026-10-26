@@ -252,19 +252,24 @@ function MapInsetEffect({ insets }) {
   return null;
 }
 
-function MapCameraSync({ onCameraChange }) {
+function MapCameraSync({ onCameraChange, registerCameraGetter }) {
   const map = useMap();
   const callback = useRef(onCameraChange);
   useEffect(() => { callback.current = onCameraChange; }, [onCameraChange]);
-  const report = () => {
+  const readCamera = () => {
     const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    return { center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 32, bearing: 0 };
   };
-  useMapEvents({ moveend: report });
+  useMapEvents({ moveend: () => callback.current?.(readCamera()) });
   useEffect(() => {
-    const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    callback.current?.(readCamera());
   }, [map]);
+  useEffect(() => {
+    // The parent can read a fresh camera even in the middle of an animated
+    // Leaflet pan/zoom; cleanup unregisters the getter on unmount.
+    registerCameraGetter?.(readCamera);
+    return () => registerCameraGetter?.(null);
+  }, [map, registerCameraGetter]);
   return null;
 }
 
@@ -854,6 +859,7 @@ export default function MapView({
   initialCamera = null,
   returnCamera = null,
   onCameraChange = () => {},
+  registerCameraGetter = null,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -957,7 +963,7 @@ export default function MapView({
       scrollWheelZoom
       className="h-full w-full"
     >
-      <MapCameraSync onCameraChange={onCameraChange} />
+      <MapCameraSync onCameraChange={onCameraChange} registerCameraGetter={registerCameraGetter} />
       <RestoreCameraFrom3D camera={returnCamera} />
       <InitialLocationCenter
         currentLocation={currentLocation}

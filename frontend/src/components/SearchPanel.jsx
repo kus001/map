@@ -690,7 +690,7 @@ export default function SearchPanel({
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-4 gap-2">
+      <div className="mt-2 max-[760px]:mt-4 grid grid-cols-4 gap-2">
         {MODES.map(({ id, label, Icon }) => (
           <Button
             type="button"

@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
-// kmaps v10.20.7: Cesium is the only renderer used by 3D mode.
+// kmaps v10.20.8: terrain-aligned Cesium OSM buildings with true 3D atmosphere.
 // CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
 // Toronto 2025 is loaded only as real hosted 3D Tiles or I3S, never synthesized footprints.
 const CESIUM_VERSION = "1.146";
 const CESIUM_CDN = `https://cesium.com/downloads/cesiumjs/releases/${CESIUM_VERSION}/Build/Cesium/`;
 const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const TORONTO = [-79.3832, 43.6525];
-const WATERLOO = [-80.5249, 43.4829];
 const TORONTO_BOUNDS = { west: -79.64, south: 43.58, east: -79.10, north: 43.86 };
 const COLORS = { driving: "#70a9f2", walking: "#e5f4ea", cycling: "#7fdab2", transit: "#c099ff" };
-const DEFAULT_CAMERA = { center: WATERLOO, zoom: 13, pitch: 58, bearing: 0 };
+const DEFAULT_CAMERA = { center: TORONTO, zoom: 14, pitch: 48, bearing: 0 };
 const CESIUM_ION_TOKEN = (import.meta.env.VITE_CESIUM_ION_TOKEN || "").trim();
 const TORONTO_TILES_ENV = (import.meta.env.VITE_TORONTO_2025_TILES_URL || "").trim();
 const TORONTO_I3S_ENV = (import.meta.env.VITE_TORONTO_2025_I3S_URL || "").trim();
@@ -71,13 +70,13 @@ function centerOfCamera(C, viewer) {
   return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
 }
 function initialFocus(C, viewer, camera) {
-  const [lon, lat] = Array.isArray(camera?.center) ? camera.center : WATERLOO;
+  const [lon, lat] = Array.isArray(camera?.center) ? camera.center : TORONTO;
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-  const pitch = Number.isFinite(camera?.pitch) ? camera.pitch : 58;
+  const pitch = Number.isFinite(camera?.pitch) ? camera.pitch : 48;
   const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
   viewer.camera.setView({
     destination: C.Cartesian3.fromDegrees(lon, lat, cameraHeight(camera?.zoom ?? 13)),
-    orientation: { heading: C.Math.toRadians(bearing), pitch: C.Math.toRadians(pitch - 90), roll: 0 },
+    orientation: { heading: C.Math.toRadians(bearing), pitch: C.Math.toRadians(Math.max(-75, Math.min(-42, pitch - 90))), roll: 0 },
   });
 }
 function flyTo(C, viewer, pair, range = 550, seconds = 1) {
@@ -122,6 +121,18 @@ function TorontoProviderType(url) {
   return /SceneServer|\/layers\/\d+/i.test(url) ? "i3s" : "tiles";
 }
 
+// Cesium OSM Buildings are positioned against Cesium World Terrain.
+// Showing them over an ellipsoid (zero-elevation ground) causes floating boxes.
+function syncBuildings(context) {
+  if (!context) return;
+  const center = centerOfCamera(context.C, context.viewer);
+  const inside = center && insideToronto(center.lon, center.lat);
+  const useCity = Boolean(context.cityLoaded && inside);
+  if (context.city) context.city.show = context.buildingsEnabled && useCity;
+  if (context.osm) context.osm.show = context.buildingsEnabled && context.terrainReady && !useCity;
+  context.viewer.scene.requestRender();
+}
+
 function floatingStyles(darkMode) {
   return {
     background: darkMode ? "rgba(16,24,32,.94)" : "rgba(250,251,251,.94)",
@@ -150,7 +161,9 @@ export default function Scene3D({
   const [cityStatus, setCityStatus] = useState("Toronto 2025: not configured");
   const [osmStatus, setOsmStatus] = useState("OSM Buildings: waiting for token");
   const [buildingsOn, setBuildingsOn] = useState(true);
-  const [terrainOn, setTerrainOn] = useState(false);
+  const [terrainStatus, setTerrainStatus] = useState("Terrain: waiting for Cesium ion");
+  const lastGlobeMode = useRef(null);
+  const localView = useRef(null);
   const [menu, setMenu] = useState(null);
   const [tip, setTip] = useState("");
   const layersKey = enabledLayers.join("|");
@@ -179,19 +192,25 @@ export default function Scene3D({
           animation: false, timeline: false, baseLayerPicker: false, geocoder: false, homeButton: false,
           navigationHelpButton: false, sceneModePicker: false, fullscreenButton: false, infoBox: false,
           selectionIndicator: false, baseLayer: false, terrainProvider: new C.EllipsoidTerrainProvider(),
-          scene3DOnly: false, requestRenderMode: true, maximumRenderTimeChange: Infinity,
+          sceneMode: C.SceneMode.SCENE3D, scene3DOnly: true,
+          skyAtmosphere: new C.SkyAtmosphere(),
+          requestRenderMode: true, maximumRenderTimeChange: Infinity,
         });
         viewer.scene.globe.enableLighting = false;
-        viewer.scene.globe.depthTestAgainstTerrain = false;
+        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true;
+        if (viewer.scene.skyBox) viewer.scene.skyBox.show = true;
         viewer.scene.fog.enabled = true;
+        viewer.scene.backgroundColor = C.Color.fromCssColorString("#c8ddeb");
+        viewer.scene.screenSpaceCameraController.enableCollisionDetection = true;
         viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
         viewer.scene.screenSpaceCameraController.minimumZoomDistance = 2.5;
         viewer.scene.screenSpaceCameraController.maximumZoomDistance = 30_000_000;
         initialFocus(C, viewer, initialCameraRef.current);
-        if (!globe) viewer.scene.morphToColumbusView(0.0);
         scene.current = { C, viewer, osm: null, city: null, cityLoaded: false,
           currentCityUrl: null, overlays: [], markers: [], dynamic: [], cityLoading: false,
-          buildingGen: 0, buildingsEnabled: true, stopped: false, stoppedUpdate: null, terrainGen: 0, oldTerrain: null, stops: [] };
+          buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false, terrainGen: 0, stops: [] };
 
         const groundCoordinate = pixel => {
           const ray = viewer.camera.getPickRay(pixel);
@@ -245,14 +264,13 @@ export default function Scene3D({
           if (center && Number.isFinite(height)) {
             callbacks.current.onCameraChange?.({ center: [center.lon, center.lat], zoom: inferredZoom(height),
               pitch: C.Math.toDegrees(viewer.camera.pitch) + 90, bearing: C.Math.toDegrees(viewer.camera.heading) });
-            if (current.osm) current.osm.show = current.buildingsEnabled && !(current.cityLoaded && insideToronto(center.lon, center.lat));
-            if (current.city) current.city.show = current.buildingsEnabled && insideToronto(center.lon, center.lat);
+            syncBuildings(current);
           }
         };
         viewer.camera.moveEnd.addEventListener(changed);
         setReady(true);
         setError("");
-        setInfo("Cesium ready · globe and 3D buildings");
+        setInfo("Cesium 3D ready · waiting for aligned terrain and buildings");
       } catch (e) { if (!disposed) { setError(String(e.message || e)); setInfo(""); } }
     })();
     return () => {
@@ -268,6 +286,68 @@ export default function Scene3D({
     // Vite environment values are loaded at build/startup; no in-browser token entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Cesium OSM Buildings are built against Cesium World Terrain (ion asset 1).
+  // Do not show them over an ellipsoid: that is the root of the floating-box issue.
+  useEffect(() => {
+    const context = scene.current;
+    if (!ready || !context) return;
+    const { C, viewer } = context;
+    const version = ++context.terrainGen;
+    context.terrainReady = false;
+    context.terrainProviderReady = false;
+    syncBuildings(context);
+    if (!ionToken) {
+      setTerrainStatus("Terrain unavailable: add VITE_CESIUM_ION_TOKEN with asset 1 access");
+      return;
+    }
+    let cancelled = false;
+    let removeLoadListener = null;
+    let removePostListener = null;
+    let removeTerrainError = null;
+    setTerrainStatus("Loading Cesium World Terrain…");
+    (async () => {
+      try {
+        const provider = await C.CesiumTerrainProvider.fromIonAssetId(1, { requestVertexNormals: false });
+        if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+        viewer.terrainProvider = provider;
+        removeTerrainError = provider.errorEvent?.addEventListener(error => {
+          if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+          context.terrainProviderReady = false;
+          context.terrainReady = false;
+          setTerrainStatus(`Terrain tile error: ${String(error.message || error).slice(0, 85)}. OSM hidden to prevent floating buildings.`);
+          syncBuildings(context);
+        });
+        context.terrainProviderReady = true;
+        setTerrainStatus("Loading ground elevations…");
+        // Wait until the ground tiles are actually displayed before revealing OSM buildings.
+        const finishIfLoaded = () => {
+          if (cancelled || scene.current !== context || version !== context.terrainGen || !context.terrainProviderReady) return;
+          if (!viewer.scene.globe.tilesLoaded) return;
+          context.terrainReady = true;
+          setTerrainStatus("Cesium World Terrain: ready");
+          if (context.osm) setOsmStatus("Cesium OSM Buildings: loaded worldwide");
+          syncBuildings(context);
+          removeLoadListener?.(); removeLoadListener = null;
+          removePostListener?.(); removePostListener = null;
+        };
+        removeLoadListener = viewer.scene.globe.tileLoadProgressEvent.addEventListener(() => finishIfLoaded());
+        removePostListener = viewer.scene.postRender.addEventListener(() => finishIfLoaded());
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+        context.terrainProviderReady = false;
+        context.terrainReady = false;
+        setTerrainStatus(`Terrain unavailable: ${String(e.message || e).slice(0, 110)}. OSM hidden to prevent floating buildings.`);
+        syncBuildings(context);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      context.terrainGen++;
+      removeLoadListener?.(); removePostListener?.(); removeTerrainError?.();
+    };
+  }, [ready, ionToken]);
 
   // OSM Buildings globally. No photorealistic/Google assets are requested.
   useEffect(() => {
@@ -289,9 +369,9 @@ export default function Scene3D({
         if (scene.current !== context || version !== context.buildingGen) { next.destroy(); return; }
         if (previous) viewer.scene.primitives.remove(previous);
         context.osm = viewer.scene.primitives.add(next);
-        const point = centerOfCamera(C, viewer);
-        next.show = buildingsOn && !(context.cityLoaded && point && insideToronto(point.lon, point.lat));
-        setOsmStatus("Cesium OSM Buildings: loaded worldwide");
+        next.show = false;
+        syncBuildings(context);
+        setOsmStatus(context.terrainReady ? "Cesium OSM Buildings: loaded worldwide" : "OSM Buildings loaded · waiting for ground elevations");
         viewer.scene.requestRender();
       } catch (e) { if (scene.current === context && version === context.buildingGen) setOsmStatus(`OSM Buildings unavailable: ${e.message}`); }
     })();
@@ -330,10 +410,7 @@ export default function Scene3D({
         if (context.city) viewer.scene.primitives.remove(context.city);
         context.city = viewer.scene.primitives.add(tiles);
         context.cityLoaded = true;
-        const pos = centerOfCamera(C, viewer);
-        const inToronto = pos && insideToronto(pos.lon, pos.lat);
-        context.city.show = buildingsOn && Boolean(inToronto);
-        if (context.osm) context.osm.show = buildingsOn && !inToronto;
+        syncBuildings(context);
         setCityStatus(`Toronto 2025 massing: ${type === "i3s" ? "I3S" : "3D Tiles"} loaded`);
         viewer.scene.requestRender();
       } catch (e) {
@@ -343,8 +420,7 @@ export default function Scene3D({
         const old = context.city;
         context.city = null;
         if (old) viewer.scene.primitives.remove(old);
-        if (context.osm) context.osm.show = buildingsOn;
-        viewer.scene.requestRender();
+        syncBuildings(context);
       }
     })();
     return () => { cancelled = true; };
@@ -354,36 +430,9 @@ export default function Scene3D({
   useEffect(() => {
     const current = scene.current;
     if (!ready || !current) return;
-    const { viewer, C } = current;
     current.buildingsEnabled = buildingsOn;
-    const point = centerOfCamera(C, viewer);
-    const inToronto = point && insideToronto(point.lon, point.lat);
-    if (current.city) current.city.show = buildingsOn && Boolean(inToronto);
-    if (current.osm) current.osm.show = buildingsOn && !(current.cityLoaded && inToronto);
-    viewer.scene.requestRender();
+    syncBuildings(current);
   }, [ready, buildingsOn]);
-
-  // World terrain uses ion quota. Optional and off by default for budget predictability.
-  useEffect(() => {
-    const current = scene.current;
-    if (!ready || !current) return;
-    const { viewer, C } = current;
-    const version = ++current.terrainGen;
-    if (!terrainOn || !ionToken) {
-      viewer.terrainProvider = new C.EllipsoidTerrainProvider();
-      viewer.scene.requestRender();
-      return;
-    }
-    (async () => {
-      try {
-        const terrain = await C.CesiumTerrainProvider.fromIonAssetId(1);
-        if (scene.current !== current || version !== current.terrainGen) return;
-        viewer.terrainProvider = terrain;
-        viewer.scene.requestRender();
-      } catch (e) { if (scene.current === current) setTip(`Terrain unavailable: ${e.message}`); }
-    })();
-    return () => { current.terrainGen++; };
-  }, [ready, terrainOn, ionToken]);
 
   useEffect(() => {
     const context = scene.current;
@@ -396,12 +445,32 @@ export default function Scene3D({
     } catch (e) { setTip(`Imagery unavailable: ${e.message}`); }
   }, [ready, mapStyle]);
 
+  // Globe button zooms out to a globe view and back; it no longer morphs to
+  // Columbus View, because that projection removes Cesium's sky atmosphere.
   useEffect(() => {
     const current = scene.current;
     if (!ready || !current) return;
-    const { C, viewer } = current;
-    if (globe) viewer.scene.morphTo3D(0.5);
-    else viewer.scene.morphToColumbusView(0.5);
+    const { viewer, C } = current;
+    if (lastGlobeMode.current === globe) return;
+    const previous = lastGlobeMode.current;
+    lastGlobeMode.current = globe;
+    if (globe) {
+      const location = centerOfCamera(C, viewer);
+      if (location) localView.current = {
+        center: [location.lon, location.lat],
+        range: Math.max(400, C.Cartographic.fromCartesian(viewer.camera.positionWC).height),
+        heading: viewer.camera.heading,
+      };
+      const target = localView.current?.center || initialCameraRef.current?.center || TORONTO;
+      viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(target[0], target[1]), 1), {
+        offset: new C.HeadingPitchRange(0, C.Math.toRadians(-85), 5_500_000), duration: previous === null ? 0 : 1.2,
+      });
+    } else if (previous === true && localView.current) {
+      const saved = localView.current;
+      viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(saved.center[0], saved.center[1]), 1), {
+        offset: new C.HeadingPitchRange(saved.heading, C.Math.toRadians(-52), Math.max(500, saved.range)), duration: 1.0,
+      });
+    }
     viewer.scene.requestRender();
   }, [ready, globe]);
 
@@ -597,13 +666,13 @@ export default function Scene3D({
       <div style={{ position: "absolute", right: 12, top: 14, zIndex: 490, maxWidth: "min(340px, 75vw)", ...floatingStyles(darkMode) }}>
         <strong>Cesium 3D · v10.20.7</strong>
         <div style={{ marginTop: 5, fontSize: 11, opacity: .82 }}>{error || (ready ? osmStatus : info)}</div>
+        {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{terrainStatus}</div>}
         {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{cityStatus}</div>}
         {!ionToken && <div style={{ marginTop: 6 }}>Add VITE_CESIUM_ION_TOKEN to map/frontend/.env and restart Vite to enable OSM Buildings.</div>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
           <button type="button" onClick={recenterToronto} style={{ padding: "3px 6px", background: "#407a62", borderRadius: 5, color: "white" }}>Toronto</button>
           <button type="button" onClick={reset} style={{ padding: "3px 6px" }}>Reset</button>
           <button type="button" onClick={() => setBuildingsOn(v => !v)} style={{ padding: "3px 6px" }}>Buildings {buildingsOn ? "on" : "off"}</button>
-          <button type="button" onClick={() => setTerrainOn(v => !v)} style={{ padding: "3px 6px" }}>Terrain {terrainOn ? "on" : "off"}</button>
         </div>
         {tip && <div style={{ fontSize: 11, marginTop: 6 }}>{tip}</div>}
         {error && <button type="button" onClick={onDisable3D} style={{ marginTop: 8, textDecoration: "underline" }}>Return to 2D</button>}

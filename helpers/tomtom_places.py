@@ -1,10 +1,12 @@
 """TomTom (Orbis) place search, used as an extra autocomplete source.
 
-TomTom's Suggest endpoint returns titles but *no coordinates*, so each suggestion is
-followed by a Details call that fetches its position.
+TomTom is only used for the *suggestions* (title + address text). It is never asked
+where a suggestion is: positions are resolved locally (the Waterloo Region address
+index) or, failing that, by Nominatim -- see ``helpers.geocoding.locate_place``.
 
-All coordinates TomTom sends or expects are GeoJSON order, ``[lon, lat]``. The rest of
-this project uses ``(lat, lon)``, so the conversion happens only inside this file.
+The one coordinate TomTom still receives is the optional ``bias`` point, sent in
+GeoJSON order ``[lon, lat]``. The rest of this project uses ``(lat, lon)``, so that
+conversion happens only inside this file.
 """
 
 import os
@@ -31,7 +33,6 @@ PLACES = {
 }
 
 SUGGEST_URL = "https://api.tomtom.com/maps/orbis/places/suggest"
-DETAILS_URL = "https://api.tomtom.com/maps/orbis/places/details/{type}/{id}"
 REVERSE_URL = "https://api.tomtom.com/search/2/reverseGeocode/{position}.json?key={KEY}&radius={radius}"
 
 # Which kinds of result to ask for: "poi", "address", "street", "intersection", "area".
@@ -45,22 +46,11 @@ MIN_QUERY_LENGTH = 3
 MAX_RESULTS = 5
 TIMEOUT = (1.5, 2.5)  # connect, read (seconds) -- autocomplete must never hang
 
-# Details path segment for each result type (used when a result has no ``more`` link)
-_DETAILS_TYPE = {
-    "poi": "pois",
-    "address": "addresses",
-    "street": "streets",
-    "intersection": "intersections",
-    "area": "areas",
-}
-
 _SUGGEST_TTL = 15 * 60
 _SUGGEST_CACHE_MAX = 300
-_POSITION_CACHE_MAX = 2000
 
 _lock = threading.Lock()
 _suggest_cache = OrderedDict()  # (query, bias bucket) -> (expires, results)
-_position_cache = OrderedDict()  # place id -> (lat, lon)
 _paused_until = 0.0  # set after the key is rejected or the quota is hit
 
 
@@ -116,7 +106,7 @@ def _remember(cache, key, value, limit):
 
 
 def _suggest(query, bias, limit):
-    """Raw Suggest results (a list of dicts, no coordinates yet), or [] on any failure."""
+    """Raw Suggest results (a list of dicts, no coordinates), or [] on any failure."""
     body = {
         "query": query,
         "maxResults": max(1, min(int(limit), 10)),
@@ -135,7 +125,7 @@ def _suggest(query, bias, limit):
         response = requests.post(
             SUGGEST_URL,
             headers={
-                **_headers("results(id,type,title,subtitles,more)"),
+                **_headers("results(id,type,title,subtitles)"),
                 "Content-Type": "application/json",
             },
             json=body,
@@ -154,58 +144,6 @@ def _suggest(query, bias, limit):
         return []
 
 
-def _details_path(result):
-    """(type, id) for the Details URL, taken from the result's ``more`` link if it has one."""
-    arguments = {}
-    for item in (result.get("more") or {}).get("pathParameters") or []:
-        arguments[item.get("parameter")] = item.get("argument")
-    if arguments.get("type") and arguments.get("id"):
-        return arguments["type"], arguments["id"]
-
-    place_type = _DETAILS_TYPE.get(result.get("type"))
-    if place_type and result.get("id"):
-        return place_type, result["id"]
-    return None
-
-
-def _position(result):
-    """(lat, lon) for a Suggest result via Details, or None."""
-    path = _details_path(result)
-    if path is None:
-        return None
-
-    place_type, place_id = path
-    with _lock:
-        known = _position_cache.get(place_id)
-    if known is not None:
-        return known
-
-    try:
-        response = requests.get(
-            DETAILS_URL.format(type=place_type, id=place_id),
-            headers=_headers("id,type,title,position"),
-            timeout=TIMEOUT,
-        )
-    except requests.RequestException:
-        return None
-
-    if not response.ok:
-        _pause_for(response)
-        return None
-
-    try:
-        lon, lat = response.json()["position"]["coordinates"][:2]
-        point = (float(lat), float(lon))
-    except (ValueError, KeyError, TypeError):
-        return None
-
-    if not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
-        return None
-
-    _remember(_position_cache, place_id, point, _POSITION_CACHE_MAX)
-    return point
-
-
 def _label(result):
     """'Title, first subtitle'. The subtitle (usually the street address) keeps different
     branches of the same chain from looking like duplicates in the dropdown."""
@@ -217,11 +155,26 @@ def _label(result):
     return title or subtitle
 
 
-def search(query, limit=4, bias=None):
+def _address_of(result):
+    """The street-address part of a suggestion (first subtitle), or ''."""
+    subtitles = result.get("subtitles") or []
+    return str(subtitles[0]).strip() if subtitles else ""
+
+
+def _default_locate(title, address, bias):
+    # Imported here because helpers.geocoding imports this module.
+    from helpers.geocoding import locate_place
+
+    return locate_place(title, address, bias)
+
+
+def search(query, limit=4, bias=None, locate=None):
     """Autocomplete-style place search.
 
     ``bias`` is an optional ``(lat, lon)``; closer places rank higher but nothing is
-    excluded by distance. Returns up to ``limit`` dicts shaped like the other search
+    excluded by distance. ``locate(title, address, bias) -> (lat, lon) | None`` places
+    each suggestion (default: local index, then Nominatim); suggestions it can't place
+    are dropped. Returns up to ``limit`` dicts shaped like the other search
     sources: ``{"label", "lat", "lon", "source": "tomtom", "kind"}``. Never raises:
     a missing key, a network error or a rejected request just gives ``[]``.
     """
@@ -242,8 +195,13 @@ def search(query, limit=4, bias=None):
     if not suggestions:
         return []
 
+    locate = locate or _default_locate
+    titles = [str(r.get("title") or "").strip() for r in suggestions]
     with ThreadPoolExecutor(max_workers=len(suggestions)) as pool:
-        points = list(pool.map(_position, suggestions))
+        points = list(
+            pool.map(lambda pair: locate(pair[0], _address_of(pair[1]), bias),
+                     zip(titles, suggestions))
+        )
 
     results = []
     for suggestion, point in zip(suggestions, points):
@@ -260,7 +218,7 @@ def search(query, limit=4, bias=None):
             }
         )
 
-    # Only remember complete answers, so a hiccup in a Details call isn't cached.
+    # Only remember complete answers, so a failed lookup isn't cached.
     if len(results) == len(suggestions):
         _remember(_suggest_cache, cache_key, (time.monotonic() + _SUGGEST_TTL, results), _SUGGEST_CACHE_MAX)
     return [dict(item) for item in results]

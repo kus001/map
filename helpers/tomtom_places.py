@@ -1,13 +1,10 @@
 """TomTom (Orbis) place search, used as an extra autocomplete source.
 
 TomTom's Suggest endpoint returns titles but *no coordinates*, so each suggestion is
-followed by a Details call that fetches its position. Results are cached (positions
-for good, suggestion lists for a few minutes) to keep the number of billable calls low.
+followed by a Details call that fetches its position.
 
 All coordinates TomTom sends or expects are GeoJSON order, ``[lon, lat]``. The rest of
 this project uses ``(lat, lon)``, so the conversion happens only inside this file.
-
-Run ``python -m helpers.tomtom_places "tim hortons"`` to try it against the live API.
 """
 
 import os
@@ -27,6 +24,7 @@ load_dotenv()
 testcoords = list(map(float, os.getenv("testcoords", "43.65373,-79.38403").split(",")))
 
 PLACES = {
+    "food": {}
     # "bathroom": "public_bathroom",
     # "bicycle_parking": "bicycle_parking",
     # "religious_site": ("church", "gurudwara", "mosque", "pagoda", "synagog", "temple"),
@@ -56,7 +54,7 @@ _DETAILS_TYPE = {
     "area": "areas",
 }
 
-_SUGGEST_TTL = 10 * 60
+_SUGGEST_TTL = 15 * 60
 _SUGGEST_CACHE_MAX = 300
 _POSITION_CACHE_MAX = 2000
 
@@ -269,6 +267,10 @@ def search(query, limit=4, bias=None):
 
 
 def reverse_search(long, lat, radius=100, responses=1) -> str | list[str]:
+    """coords -> address (in the format of 123 example street)"""
+    if not available():
+        return None
+
     url = REVERSE_URL.format(
         position=",".join(map(str, (lat, long))),
         KEY= _api_key(),

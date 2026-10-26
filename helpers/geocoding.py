@@ -10,8 +10,9 @@ Resolution order (see resolve_address):
    street data when the local index knew the street but not the exact civic number.
 
 Autocomplete (search_places) additionally mixes in a few TomTom place suggestions
-(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. Picking one remembers its
-coordinates (see remember_place), so routing doesn't need to geocode it again.
+(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. TomTom only supplies the text;
+each suggestion is positioned by locate_place (local index, then Nominatim). Picking one
+remembers its coordinates (see remember_place), so routing doesn't need to geocode it again.
 """
 
 import json
@@ -372,6 +373,45 @@ def _nominatim_lookup(query, bias=None):
         float(chosen.longitude),
         getattr(chosen, "address", None) or query,
     )
+
+def locate_place(title, address, bias=None):
+    """(lat, lon) for a suggested place whose position we don't trust a vendor to supply.
+
+    Used for TomTom suggestions (title + street address, no coordinates). Order:
+    1. the local address-point index, using the address text (exact match only);
+    2. Nominatim, for "address" and then "title, address" (POIs are often only
+       findable by name);
+    3. the local index's approximate placement, if that is all we have.
+    Returns None when nothing placed it.
+    """
+    title = str(title or "").strip()
+    address = str(address or "").strip()
+    street = address.split(",")[0].strip()
+    approximate = None
+
+    for text in dict.fromkeys(t for t in (address, street) if t):
+        status, payload = resolve_detailed(text)
+        if status == "ok":
+            return (float(payload[2]), float(payload[3]))
+        if status == "approximate" and approximate is None:
+            approximate = (float(payload[0]), float(payload[1]))
+
+    bias = _valid_point(bias) if bias else None
+    queries = [", ".join(p for p in (title, address) if p), address]
+    for text in dict.fromkeys(q for q in queries if q):
+        found = _network_recall(_normalize_key(text), bias)
+        if found is None:
+            found = _nominatim_lookup(text, bias)
+            if found is not None:
+                _network_remember(_normalize_key(text), bias, found)
+        if found is None:
+            continue
+        point = (found[0], found[1])
+        if approximate is None or _km(point, approximate) <= _NOMINATIM_DISAGREE_KM:
+            return point
+
+    return approximate
+
 
 _named_locations = {}
 

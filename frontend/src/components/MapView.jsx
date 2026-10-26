@@ -536,7 +536,7 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   );
 }
 
-function StopBoard({ stop }) {
+export function StopBoard({ stop }) {
   const [board, setBoard] = useState(null);
 
   useEffect(() => {

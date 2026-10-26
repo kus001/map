@@ -137,7 +137,7 @@ function TorontoProviderType(url) {
 // Cesium OSM Buildings are positioned against Cesium World Terrain.
 // Showing them over an ellipsoid (zero-elevation ground) causes floating boxes.
 function syncBuildings(context) {
-  if (!context) return;
+  if (!context || context.disposed || context.viewer.isDestroyed()) return;
   const center = centerOfCamera(context.C, context.viewer);
   const inside = center && insideToronto(center.lon, center.lat);
   const useCity = Boolean(context.cityLoaded && inside);
@@ -245,7 +245,7 @@ export default function Scene3D({
         scene.current = { C, viewer, osm: null, city: null, cityLoaded: false,
           currentCityUrl: null, overlays: [], markers: [], dynamic: [], cityLoading: false,
           buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false,
-          terrainGen: 0, stops: [], baseImageryLayers: [] };
+          terrainGen: 0, stops: [], baseImageryLayers: [], disposed: false };
 
         const groundCoordinate = pixel => {
           const ray = viewer.camera.getPickRay(pixel);
@@ -257,11 +257,13 @@ export default function Scene3D({
         };
         handler = new C.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(evt => {
+          if (viewer.isDestroyed() || scene.current?.disposed) return;
           const coord = groundCoordinate(evt.position);
           if (!coord) return;
           setMenu({ x: evt.position.x, y: evt.position.y, point: coord });
         }, C.ScreenSpaceEventType.RIGHT_CLICK);
         handler.setInputAction(evt => {
+          if (viewer.isDestroyed() || scene.current?.disposed) return;
           setMenu(null);
           const picked = viewer.scene.pick(evt.position);
           const entity = picked?.id;
@@ -293,7 +295,7 @@ export default function Scene3D({
         }, C.ScreenSpaceEventType.LEFT_UP);
         changed = () => {
           const current = scene.current;
-          if (!current || current.viewer !== viewer) return;
+          if (!current || current.disposed || current.viewer !== viewer || viewer.isDestroyed()) return;
           const center = centerOfCamera(C, viewer);
           const height = C.Cartographic.fromCartesian(viewer.camera.positionWC)?.height;
           if (center && Number.isFinite(height)) {
@@ -309,13 +311,25 @@ export default function Scene3D({
     })();
     return () => {
       disposed = true;
-      setReady(false);
-      if (handler && !handler.isDestroyed()) handler.destroy();
-      if (viewer) {
-        if (changed) viewer.camera.moveEnd.removeEventListener(changed);
-        if (!viewer.isDestroyed()) viewer.destroy();
+      // Invalidate the scene before releasing WebGL resources: in-flight
+      // Cesium/route callbacks must not update a destroyed renderer.
+      const ownedScene = scene.current?.viewer === viewer ? scene.current : null;
+      if (ownedScene) {
+        ownedScene.disposed = true;
+        ownedScene.buildingGen++;
+        ownedScene.terrainGen++;
+        scene.current = null;
       }
-      if (scene.current?.viewer === viewer) scene.current = null;
+      try { if (handler && !handler.isDestroyed()) handler.destroy(); }
+      catch (error) { console.warn("3D picking cleanup", error); }
+      if (viewer && !viewer.isDestroyed()) {
+        try {
+          viewer.camera.cancelFlight();
+          if (changed) viewer.camera.moveEnd.removeEventListener(changed);
+          viewer.destroy();
+        } catch (error) { console.warn("Cesium cleanup", error); }
+      }
+      // The component is unmounting; avoid setState in this cleanup.
     };
     // Vite environment values are loaded at build/startup; no in-browser token entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -600,10 +614,11 @@ export default function Scene3D({
     const kinds = ["incidents", "construction", "cameras", "winter"];
     let cancelled = false, timer = null, controller = null;
     const redraw = async () => {
+      if (cancelled || current.disposed || viewer.isDestroyed()) return;
       controller?.abort();
       controller = new AbortController();
       const center = centerOfCamera(C, viewer);
-      if (!center) return;
+      if (!center || cancelled || current.disposed || viewer.isDestroyed()) return;
       const cameraAltitude = viewer.camera.positionCartographic?.height ?? Infinity;
       if (!Number.isFinite(cameraAltitude) || cameraAltitude > 120_000 || !kinds.some(kind => active.has(kind))) return;
       const span = Math.max(0.05, Math.min(1.0, cameraAltitude / 30000));
@@ -616,7 +631,7 @@ export default function Scene3D({
           const response = await fetch(`/api/layers/ontario511?${new URLSearchParams({kind,bbox})}`, {signal:controller.signal});
           if (!response.ok) throw new Error("Unavailable");
           const payload = await response.json();
-          if (cancelled || !scene.current || controller.signal.aborted) return;
+          if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
           callbacks.current.onLayerStatus?.(kind, payload.message || "");
           for (const item of (payload.items || []).slice(0, 150)) {
             if (!validLatLon(item.point)) continue;
@@ -629,15 +644,26 @@ export default function Scene3D({
               description: item.summary || item.details || item.title || kind,
             }));
           }
-        } catch (e) { if (e.name !== "AbortError") callbacks.current.onLayerStatus?.(kind, "Unavailable in 3D"); }
+        } catch (e) {
+          if (!cancelled && !current.disposed && !viewer.isDestroyed() && e.name !== "AbortError")
+            callbacks.current.onLayerStatus?.(kind, "Unavailable in 3D");
+        }
       }
-      viewer.scene.requestRender();
+      if (!cancelled && !current.disposed && !viewer.isDestroyed()) viewer.scene.requestRender();
     };
     const schedule = () => { clearTimeout(timer); timer = setTimeout(redraw, 550); };
     viewer.camera.moveEnd.addEventListener(schedule);
     schedule();
-    return () => { cancelled = true; clearTimeout(timer); controller?.abort(); viewer.camera.moveEnd.removeEventListener(schedule);
-      for (const entity of current.dynamic) if (!viewer.isDestroyed()) viewer.entities.remove(entity); current.dynamic = []; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller?.abort();
+      if (!viewer.isDestroyed()) {
+        viewer.camera.moveEnd.removeEventListener(schedule);
+        for (const entity of current.dynamic) viewer.entities.remove(entity);
+      }
+      current.dynamic = [];
+    };
   }, [ready, layersKey]);
 
   useEffect(() => {
@@ -661,8 +687,10 @@ export default function Scene3D({
     const { C, viewer } = current;
     let cancelled = false, timeout, controller;
     const refresh = () => {
+      if (cancelled || current.disposed || viewer.isDestroyed()) return;
       clearTimeout(timeout);
       timeout = setTimeout(async () => {
+        if (cancelled || current.disposed || viewer.isDestroyed()) return;
         controller?.abort();
         controller = new AbortController();
         for (const entity of current.stops) viewer.entities.remove(entity);
@@ -674,7 +702,7 @@ export default function Scene3D({
         try {
           const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lon), radius: "900" });
           const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
-          if (cancelled || controller.signal.aborted) return;
+          if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
           for (const stop of (result.stops || []).slice(0, 120)) {
             if (!validLatLon(stop.coordinates)) continue;
             const entity = viewer.entities.add({
@@ -686,14 +714,22 @@ export default function Scene3D({
             current.stops.push(entity);
           }
           viewer.scene.requestRender();
-        } catch (e) { if (e.name !== "AbortError") console.warn("3D transit stops unavailable", e); }
+        } catch (e) {
+          if (!cancelled && !current.disposed && !viewer.isDestroyed() && e.name !== "AbortError")
+            console.warn("3D transit stops unavailable", e);
+        }
       }, 350);
     };
     viewer.camera.moveEnd.addEventListener(refresh);
     refresh();
-    return () => { cancelled = true; clearTimeout(timeout); controller?.abort();
-      viewer.camera.moveEnd.removeEventListener(refresh);
-      if (!viewer.isDestroyed()) for (const entity of current.stops) viewer.entities.remove(entity);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller?.abort();
+      if (!viewer.isDestroyed()) {
+        viewer.camera.moveEnd.removeEventListener(refresh);
+        for (const entity of current.stops) viewer.entities.remove(entity);
+      }
       current.stops = [];
     };
   }, [ready, mode]);

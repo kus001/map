@@ -205,7 +205,23 @@ def search_transit(
     _heuristic_values=None,
     excluded_trip_ids=None,
     boarding_penalty=0.0,
+    _stats=None,
 ):
+    search_started = time.perf_counter()
+    if _stats is not None:
+        _stats.clear()
+        _stats.update({
+            "heap_pops": 0,
+            "stale_pops": 0,
+            "states_expanded": 0,
+            "edges_examined": 0,
+            "candidate_trip_calls": 0,
+            "heap_pushes": 0,
+            "max_queue_size": 0,
+            "candidate_trip_seconds": 0.0,
+            "schedule_info_seconds": 0.0,
+        })
+
     departure_datetime = normalize_departure_datetime(departure_datetime)
     excluded_trip_ids = {str(t) for t in (excluded_trip_ids or ())}
     boarding_penalty = float(boarding_penalty or 0.0)
@@ -234,9 +250,6 @@ def search_transit(
             ends[stop_id] = option
 
     heuristic_cache = _heuristic_values if _heuristic_values is not None else {}
-
-
-
 
     goal_terms = []
     rad = math.radians
@@ -288,6 +301,12 @@ def search_transit(
             ),
         )
 
+        if _stats is not None:
+            _stats["heap_pushes"] += 1
+            _stats["max_queue_size"] = max(
+                _stats["max_queue_size"], len(queue)
+            )
+
     best_total = float("inf")
     best_real = float("inf")
     best_state = None
@@ -296,6 +315,9 @@ def search_transit(
     while queue:
         priority, popped_g, popped_boardings, _, stop_id, current_trip = heappop(queue)
 
+        if _stats is not None:
+            _stats["heap_pops"] += 1
+
         if priority >= best_total:
             break
 
@@ -303,7 +325,12 @@ def search_transit(
         current_g, boardings = costs.get(state, (float("inf"), float("inf")))
 
         if abs(current_g - popped_g) > 1e-9 or boardings != popped_boardings:
+            if _stats is not None:
+                _stats["stale_pops"] += 1
             continue
+
+        if _stats is not None:
+            _stats["states_expanded"] += 1
 
         current_pen = penalty_of.get(state, 0.0)
 
@@ -324,6 +351,9 @@ def search_transit(
 
         for neighbor_id, route_options in store.graph.get(stop_id, {}).items():
             for route_key, trips in route_options.items():
+                if _stats is not None:
+                    _stats["edges_examined"] += 1
+
                 choices = []
 
                 if route_key == "__walk__":
@@ -335,7 +365,13 @@ def search_transit(
                     edge["_ride_minutes"] = float(edge.get("distance", 0))
                     choices.append((edge["_ride_minutes"], None, edge, boardings))
                 else:
+                    schedule_started = time.perf_counter()
                     schedule = schedule_info(trips)
+
+                    if _stats is not None:
+                        _stats["schedule_info_seconds"] += (
+                            time.perf_counter() - schedule_started
+                        )
                     continuing = (
                         schedule["by_trip"].get(str(current_trip))
                         if current_trip is not None
@@ -367,10 +403,19 @@ def search_transit(
                         earliest = current_arrival
                         if not is_seed:
                             earliest += safety_buffer * 60
+                        if _stats is not None:
+                            _stats["candidate_trip_calls"] += 1
+
+                        candidate_started = time.perf_counter()
+
                         selected = _candidate_trip(
                             schedule, agency, stop_id, neighbor_id,
                             earliest, service_date, realtime,
                         )
+
+                        if _stats is not None:
+                            _stats["candidate_trip_seconds"] += (time.perf_counter() - candidate_started)
+
                         if selected is None:
                             continue
                         trip, departure, arrival, dep_delay, has_live, arr_delay = selected
@@ -429,7 +474,14 @@ def search_transit(
                         ),
                     )
 
+                    if _stats is not None:
+                        _stats["heap_pushes"] += 1
+                        _stats["max_queue_size"] = max(_stats["max_queue_size"], len(queue))
+
     if best_state is None:
+        if _stats is not None:
+            _stats["seconds"] = round(time.perf_counter() - search_started, 4)
+            _stats["candidate_trip_seconds"] = round(_stats["candidate_trip_seconds"], 4)
         return None, float("inf"), None, None
 
     path = []
@@ -443,6 +495,10 @@ def search_transit(
     start_stop_id = state[0]
     path.append((start_stop_id, store.stops[start_stop_id], None))
     path.reverse()
+
+    if _stats is not None:
+        _stats["seconds"] = round(time.perf_counter() - search_started, 4)
+        _stats["candidate_trip_seconds"] = round(_stats["candidate_trip_seconds"], 4)
 
     return path, best_real, starts[start_stop_id], best_end
 

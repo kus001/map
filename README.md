@@ -32,31 +32,12 @@
 <details>
   <summary>Hybrid View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Hybrid 2D Dark](assets/hybrid_dark.png) | ![Hybrid 2D Light](assets/hybrid_light.png) |
+| ![Hybrid 3D Dark](assets/hybrid_3d_dark.png) | ![Hybrid 3D Light](assets/hybrid_3d_light.png) |
+| ![Hybrid globe dark](assets/hybrid_globe_dark.png) | ![Hybrid globe light](assets/hybrid_globe_light.png) |
 
-![Hybrid 2D Dark](assets/hybrid_dark.png)
-
-![Hybrid 2D Light](assets/hybrid_light.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Hybrid 3D Dark](assets/hybrid_3d_dark.png)
-
-![Hybrid 3D Light](assets/hybrid_3d_light.png)
-
-  </details>
-
-  <details>
-  <summary>Globe</summary>
-
-![Hybrid globe dark](assets/hybrid_globe_dark.png)
-![Hybrid globe light](assets/hybrid_globe_light.png)
-
-  </details>
 </details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)

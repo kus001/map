@@ -65,7 +65,9 @@ function centerOfCamera(C, viewer) {
   const pixel = new C.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
   const ray = viewer.camera.getPickRay(pixel);
   const ground = ray && viewer.scene.globe.pick(ray, viewer.scene);
-  const point = ground || viewer.camera.pickEllipsoid(pixel) || viewer.camera.positionWC;
+  // A sky click is not a map location. Never use the camera's position as
+  // a fake ground target: that made long-distance globe navigation drift.
+  const point = ground || viewer.camera.pickEllipsoid(pixel);
   if (!point) return null;
   const c = C.Cartographic.fromCartesian(point);
   return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
@@ -139,8 +141,12 @@ function syncBuildings(context) {
   const center = centerOfCamera(context.C, context.viewer);
   const inside = center && insideToronto(center.lon, center.lat);
   const useCity = Boolean(context.cityLoaded && inside);
-  if (context.city) context.city.show = context.buildingsEnabled && useCity;
-  if (context.osm) context.osm.show = context.buildingsEnabled && context.terrainReady && !useCity;
+  // At regional/globe scale a single building is far smaller than a pixel.
+  // Avoid loading and drawing thousands of useless 3D tiles in orbit.
+  const height = context.viewer.camera.positionCartographic?.height ?? Infinity;
+  const showBuildings = context.buildingsEnabled && Number.isFinite(height) && height < 180_000;
+  if (context.city) context.city.show = showBuildings && useCity;
+  if (context.osm) context.osm.show = showBuildings && context.terrainReady && !useCity;
   context.viewer.scene.requestRender();
 }
 
@@ -172,7 +178,6 @@ export default function Scene3D({
   const ionToken = CESIUM_ION_TOKEN;
   const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
   const lastGlobeMode = useRef(null);
-  const localView = useRef(null);
   const [menu, setMenu] = useState(null);
   const [tip, setTip] = useState("");
   const layersKey = enabledLayers.join("|");
@@ -204,6 +209,9 @@ export default function Scene3D({
           sceneMode: C.SceneMode.SCENE3D, scene3DOnly: true,
           skyAtmosphere: new C.SkyAtmosphere(),
           requestRenderMode: true, maximumRenderTimeChange: Infinity,
+          // Cesium's on-demand renderer saves GPU work between interactions.
+          useBrowserRecommendedResolution: true,
+          contextOptions: { webgl: { antialias: false, powerPreference: "high-performance" } },
         });
         viewer.scene.globe.enableLighting = false;
         viewer.scene.globe.showGroundAtmosphere = true;
@@ -213,13 +221,31 @@ export default function Scene3D({
         viewer.scene.fog.enabled = true;
         viewer.scene.backgroundColor = C.Color.fromCssColorString("#c8ddeb");
         viewer.scene.screenSpaceCameraController.enableCollisionDetection = true;
-        viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
-        viewer.scene.screenSpaceCameraController.minimumZoomDistance = 2.5;
-        viewer.scene.screenSpaceCameraController.maximumZoomDistance = 30_000_000;
+        // Previous setting allowed 1.5x pixel scaling (2.25x fragment work).
+        // Render at CSS pixel resolution; keep the atmosphere and 3D terrain.
+        viewer.resolutionScale = 1.0;
+        if (viewer.scene.msaaSupported) viewer.scene.msaaSamples = 2;
+        viewer.scene.globe.maximumScreenSpaceError = 3.5;
+        viewer.scene.globe.tileCacheSize = 80;
+        const controls = viewer.scene.screenSpaceCameraController;
+        controls.minimumZoomDistance = 8;
+        controls.maximumZoomDistance = 23_000_000;
+        controls.enableCollisionDetection = true;
+        // Stop free-looking into space and large residual movement after mouseup.
+        controls.enableLook = false;
+        controls.minimumTrackBallHeight = Number.POSITIVE_INFINITY;
+        controls.inertiaSpin = 0.18;
+        controls.inertiaTranslate = 0.18;
+        controls.inertiaZoom = 0.18;
+        controls.zoomFactor = 2.6;
+        controls.maximumMovementRatio = 0.07;
+        controls.maximumTiltAngle = C.Math.toRadians(89);
+
         initialFocus(C, viewer, initialCameraRef.current);
         scene.current = { C, viewer, osm: null, city: null, cityLoaded: false,
           currentCityUrl: null, overlays: [], markers: [], dynamic: [], cityLoading: false,
-          buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false, terrainGen: 0, stops: [] };
+          buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false,
+          terrainGen: 0, stops: [], baseImageryLayers: [] };
 
         const groundCoordinate = pixel => {
           const ray = viewer.camera.getPickRay(pixel);
@@ -377,6 +403,11 @@ export default function Scene3D({
         if (scene.current !== context || version !== context.buildingGen) { next.destroy(); return; }
         if (previous) viewer.scene.primitives.remove(previous);
         context.osm = viewer.scene.primitives.add(next);
+        // Trade a little distant facade detail for responsive camera movement.
+        next.maximumScreenSpaceError = 24;
+        next.dynamicScreenSpaceError = true;
+        next.cullRequestsWhileMoving = true;
+        next.preloadFlightDestinations = false;
         next.show = false;
         syncBuildings(context);
         setBuildingProblem("");
@@ -415,7 +446,8 @@ export default function Scene3D({
         if (cancelled || scene.current !== context) return;
         const tiles = type === "i3s"
           ? await C.I3SDataProvider.fromUrl(cityUrl)
-          : await C.Cesium3DTileset.fromUrl(cityUrl, { maximumScreenSpaceError: 12 });
+          : await C.Cesium3DTileset.fromUrl(cityUrl, { maximumScreenSpaceError: 18,
+              cullRequestsWhileMoving: true, preloadFlightDestinations: false });
         if (cancelled || scene.current !== context || context.currentCityUrl !== currentUrl) {
           tiles.destroy?.(); return;
         }
@@ -449,8 +481,13 @@ export default function Scene3D({
         const providers = await imageryFor(C, mapStyle);
         if (cancelled || scene.current !== context || viewer.isDestroyed()) return;
         // Swap only after provider setup finishes to avoid stale layer changes.
-        viewer.imageryLayers.removeAll();
-        for (const provider of providers) viewer.imageryLayers.addImageryProvider(provider);
+        // Replace ONLY the basemap layers. removeAll() also discarded
+        // separate overlays (notably live traffic) during a style change.
+        for (const layer of context.baseImageryLayers || []) {
+          if (viewer.imageryLayers.contains(layer)) viewer.imageryLayers.remove(layer, true);
+        }
+        context.baseImageryLayers = providers.map((provider, index) =>
+          viewer.imageryLayers.addImageryProvider(provider, index));
         setImageryProblem("");
         viewer.scene.requestRender();
       } catch (e) {
@@ -462,33 +499,26 @@ export default function Scene3D({
     return () => { cancelled = true; };
   }, [ready, mapStyle]);
 
-  // Globe button zooms out to a globe view and back; it no longer morphs to
-  // Columbus View, because that projection removes Cesium's sky atmosphere.
+  // The globe is already spherical in Cesium SCENE3D. Changing the parent
+  // Globe/Flat preference must not teleport the user millions of metres away.
+  // Keep the location, height, tilt and heading exactly as they were.
+  // Natural wheel/pinch zoom reveals the full Earth; Cesium's trackball controls
+  // keep it centred when the pointer starts over space.
   useEffect(() => {
     const current = scene.current;
-    if (!ready || !current) return;
-    const { viewer, C } = current;
-    if (lastGlobeMode.current === globe) return;
+    if (!ready || !current || lastGlobeMode.current === globe) return;
     const previous = lastGlobeMode.current;
     lastGlobeMode.current = globe;
-    if (globe) {
-      const location = centerOfCamera(C, viewer);
-      if (location) localView.current = {
-        center: [location.lon, location.lat],
-        range: Math.max(400, C.Cartographic.fromCartesian(viewer.camera.positionWC).height),
-        heading: viewer.camera.heading,
-      };
-      const target = localView.current?.center || initialCameraRef.current?.center || TORONTO;
-      viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(target[0], target[1]), 1), {
-        offset: new C.HeadingPitchRange(0, C.Math.toRadians(-85), 5_500_000), duration: previous === null ? 0 : 1.2,
-      });
-    } else if (previous === true && localView.current) {
-      const saved = localView.current;
-      viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(saved.center[0], saved.center[1]), 1), {
-        offset: new C.HeadingPitchRange(saved.heading, C.Math.toRadians(-52), Math.max(500, saved.range)), duration: 1.0,
+    // If already high enough to see the planet, re-centre Earth without
+    // changing altitude. Never fly millions of metres away on toggle.
+    const altitude = current.viewer.camera.positionCartographic?.height ?? 0;
+    if (globe && previous === false && altitude > 750_000) {
+      current.viewer.camera.setView({
+        destination: current.C.Cartesian3.clone(current.viewer.camera.positionWC),
+        orientation: { heading: 0, pitch: -current.C.Math.PI_OVER_TWO, roll: 0 },
       });
     }
-    viewer.scene.requestRender();
+    current.viewer.scene.requestRender();
   }, [ready, globe]);
 
   // Routes are displayed as georeferenced Cesium polylines (no MapLibre canvas).
@@ -574,7 +604,9 @@ export default function Scene3D({
       controller = new AbortController();
       const center = centerOfCamera(C, viewer);
       if (!center) return;
-      const span = Math.max(0.05, Math.min(1.0, C.Cartographic.fromCartesian(viewer.camera.positionWC).height / 30000));
+      const cameraAltitude = viewer.camera.positionCartographic?.height ?? Infinity;
+      if (!Number.isFinite(cameraAltitude) || cameraAltitude > 120_000 || !kinds.some(kind => active.has(kind))) return;
+      const span = Math.max(0.05, Math.min(1.0, cameraAltitude / 30000));
       const bbox = [center.lon-span,center.lat-span*0.7,center.lon+span,center.lat+span*0.7].map(n=>n.toFixed(4)).join(",");
       for (const entity of current.dynamic) viewer.entities.remove(entity);
       current.dynamic = [];
@@ -613,14 +645,14 @@ export default function Scene3D({
     if (!ready || !current) return;
     const { C, viewer } = current;
     let traffic = null;
-    if (enabledLayers.includes("traffic")) {
+    if (layersKey.split("|").includes("traffic")) {
       traffic = viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
         url: `/api/layers/traffic/tile/{z}/{x}/{y}.png?style=${darkMode ? "dark" : "light"}`, maximumLevel: 20,
       }));
       traffic.alpha = 0.77;
     }
     return () => { if (traffic && !viewer.isDestroyed()) viewer.imageryLayers.remove(traffic); };
-  }, [ready, layersKey, darkMode, mapStyle, enabledLayers]);
+  }, [ready, layersKey, darkMode, mapStyle]);
 
   // Nearby transit stops remain usable in the Cesium scene at street-level zoom.
   useEffect(() => {

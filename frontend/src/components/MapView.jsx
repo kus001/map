@@ -252,19 +252,41 @@ function MapInsetEffect({ insets }) {
   return null;
 }
 
-function MapCameraSync({ onCameraChange }) {
+function MapCameraSync({ onCameraChange, registerCameraGetter }) {
   const map = useMap();
   const callback = useRef(onCameraChange);
   useEffect(() => { callback.current = onCameraChange; }, [onCameraChange]);
-  const report = () => {
+  const readCamera = () => {
     const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    return { center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 32, bearing: 0 };
   };
-  useMapEvents({ moveend: report });
+  useMapEvents({ moveend: () => callback.current?.(readCamera()) });
   useEffect(() => {
-    const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    callback.current?.(readCamera());
   }, [map]);
+  useEffect(() => {
+    // The parent can read a fresh camera even in the middle of an animated
+    // Leaflet pan/zoom; cleanup unregisters the getter on unmount.
+    registerCameraGetter?.(readCamera);
+    return () => registerCameraGetter?.(null);
+  }, [map, registerCameraGetter]);
+  return null;
+}
+
+function RestoreCameraFrom3D({ camera }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!camera || !validCoordinate([camera.center?.[1], camera.center?.[0]]) || !Number.isFinite(camera.zoom)) return;
+    // Wait one paint for the hidden Leaflet container to become visible again.
+    // Keep the same map instance, tiles, overlays and event handlers.
+    const frame = requestAnimationFrame(() => {
+      map.stop();
+      map.invalidateSize({ pan: false });
+      const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), camera.zoom));
+      map.setView([camera.center[1], camera.center[0]], zoom, { animate: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [map, camera]);
   return null;
 }
 
@@ -536,7 +558,7 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   );
 }
 
-function StopBoard({ stop }) {
+export function StopBoard({ stop }) {
   const [board, setBoard] = useState(null);
 
   useEffect(() => {
@@ -835,7 +857,9 @@ export default function MapView({
   enabledLayers = [],
   onLayerStatus = () => {},
   initialCamera = null,
+  returnCamera = null,
   onCameraChange = () => {},
+  registerCameraGetter = null,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -932,13 +956,15 @@ export default function MapView({
     <MapContainer
       center={initialCamera?.center ? [initialCamera.center[1], initialCamera.center[0]] : mapCenter}
       zoom={initialCamera?.zoom ?? startZoom}
+      zoomSnap={0.25}
       minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
     >
-      <MapCameraSync onCameraChange={onCameraChange} />
+      <MapCameraSync onCameraChange={onCameraChange} registerCameraGetter={registerCameraGetter} />
+      <RestoreCameraFrom3D camera={returnCamera} />
       <InitialLocationCenter
         currentLocation={currentLocation}
         approxLocation={approxLocation}

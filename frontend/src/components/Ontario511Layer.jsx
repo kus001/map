@@ -85,7 +85,7 @@ function CameraViews({ images, name }) {
   );
 }
 
-function Info({ item }) {
+export function Info({ item }) {
   const report = item.kind === "construction" || item.kind === "incidents";
   return (
     <div className="max-w-[280px] text-sm leading-snug text-slate-900">

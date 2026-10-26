@@ -415,8 +415,24 @@ export default function App() {
   );
   const [mapStyle, setMapStyle] = useState("satellite");
   const [threeD, setThreeD] = useState(false);
-  const [globe, setGlobe] = useState(false);
   const mapCamera = useRef(null);
+  const twoDCameraGetter = useRef(null);
+  const threeDCamera = useRef(null);
+  const threeDCameraGetter = useRef(null);
+  const [return2DCamera, setReturn2DCamera] = useState(null);
+  const leave3D = () => {
+    // Read Cesium *before* it unmounts; moveEnd may not have fired yet if the
+    // user changes modes while pinching or panning.
+    let camera = null;
+    try { camera = threeDCameraGetter.current?.() || threeDCamera.current; }
+    catch (error) { console.warn("Unable to read 3D camera", error); camera = threeDCamera.current; }
+    if (camera && Array.isArray(camera.center) && camera.center.length === 2 &&
+        camera.center.every(Number.isFinite) && Number.isFinite(camera.zoom)) {
+      mapCamera.current = camera;
+      setReturn2DCamera({ ...camera });
+    }
+    setThreeD(false);
+  };
   const [layersOpen, setLayersOpen] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState(() => {
     try {
@@ -1719,7 +1735,9 @@ export default function App() {
     locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
     darkMode, mapStyle, viewInsets, enabledLayers, onLayerStatus: layerStatusChanged,
     initialCamera: mapCamera.current,
+    returnCamera: threeD ? null : return2DCamera,
     onCameraChange: value => { mapCamera.current = value; },
+    registerCameraGetter: getter => { twoDCameraGetter.current = getter; },
   };
 
   return (
@@ -1978,12 +1996,45 @@ export default function App() {
           </div>
         )}
 
-        {threeD
-          ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
-          : <MapView {...mapProps} />}
+        {/* Keep Leaflet's live map and overlays mounted when 3D is active.
+            Visibility preserves layout dimensions and Leaflet tile state. */}
+        <div
+          aria-hidden={threeD}
+          inert={threeD}
+          style={{ position: "absolute", inset: 0,
+            visibility: threeD ? "hidden" : "visible",
+            pointerEvents: threeD ? "none" : "auto" }}
+        >
+          <MapView {...mapProps} />
+        </div>
+        {threeD && (
+          <div style={{ position: "absolute", inset: 0 }}>
+            <Scene3D {...mapProps}
+              initialCamera={mapCamera.current}
+              onCameraChange={value => { threeDCamera.current = value; }}
+              registerCameraGetter={getter => { threeDCameraGetter.current = getter; }}
+              onDisable3D={leave3D} />
+          </div>
+        )}
 
         <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
-          <button type="button" onClick={() => setThreeD(v => !v)}
+          <button type="button" onClick={() => {
+            if (threeD) leave3D();
+            else {
+              // Leaflet may still be animating a zoom or pan. Capture its
+              // *current* centre/zoom before hiding it, not its last moveend.
+              let camera = null;
+              try { camera = twoDCameraGetter.current?.(); }
+              catch (error) { console.warn("Unable to read 2D camera", error); }
+              if (camera && Array.isArray(camera.center) && camera.center.length === 2 &&
+                  camera.center.every(Number.isFinite) && Number.isFinite(camera.zoom)) {
+                mapCamera.current = camera;
+              }
+              threeDCamera.current = null;
+              setReturn2DCamera(null);
+              setThreeD(true);
+            }
+          }}
             aria-pressed={threeD} title="Toggle 3D map"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition 
             ${threeD 
@@ -1995,19 +2046,7 @@ export default function App() {
               : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
           </button>
-          {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
-            title="Switch between globe and flat map"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-              darkMode
-                ? mapStyle === "hybrid"
-                  ? "hover:bg-hybrid-purple/10"
-                  : mapStyle === "street"
-                    ? "hover:bg-blue/10"
-                    : "hover:bg-green/10"
-                : "hover:bg-black/10"
-            }`}>
-            {globe ? "Flat" : "Globe"}
-          </button>}
+
         </div>
 
         <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2">

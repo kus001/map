@@ -52,6 +52,43 @@ function cameraHeight(zoom) {
 function inferredZoom(height) {
   return Math.max(1, Math.min(22, 1 + Math.log2(23_000_000 / Math.max(65, height))));
 }
+// Synchronize the actual ground footprint with Leaflet. Camera altitude alone
+// is not a 2D zoom: it changes with pitch and the height of the terrain.
+function readCameraFor2D(C, viewer) {
+  if (!viewer || viewer.isDestroyed()) return null;
+  const focus = centerOfCamera(C, viewer);
+  if (!focus) return null;
+  const canvas = viewer.scene.canvas;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  let zoom = inferredZoom(viewer.camera.positionCartographic?.height ?? 1500);
+  if (width > 40 && height > 40) {
+    const groundAt = (x, y) => {
+      const pixel = new C.Cartesian2(x, y);
+      const ray = viewer.camera.getPickRay(pixel);
+      return (ray && viewer.scene.globe.pick(ray, viewer.scene)) || viewer.camera.pickEllipsoid(pixel);
+    };
+    // Compare two points at the same screen height around the centre. Taking
+    // a local half-width works at oblique pitch and doesn't require sky hits.
+    const left = groundAt(width * 0.25, height * 0.5);
+    const right = groundAt(width * 0.75, height * 0.5);
+    if (left && right) {
+      const metres = C.Cartesian3.distance(left, right);
+      const metresPerPixel = metres / (width * 0.5);
+      const latitudeScale = 156543.03392804097 * Math.cos(C.Math.toRadians(focus.lat));
+      if (Number.isFinite(metresPerPixel) && metresPerPixel > 0.005 && latitudeScale > 0) {
+        zoom = Math.log2(latitudeScale / metresPerPixel);
+      }
+    }
+  }
+  return {
+    center: [focus.lon, focus.lat],
+    zoom: Math.max(0, Math.min(21, zoom)),
+    pitch: C.Math.toDegrees(viewer.camera.pitch) + 90,
+    bearing: C.Math.toDegrees(viewer.camera.heading),
+  };
+}
+
 function coordsToCartesians(C, points) {
   return (points || []).filter(validLatLon).map(item => degreesPoint(C, item, 5));
 }
@@ -192,7 +229,7 @@ export default function Scene3D({
   currentLocation, navigationActive, startCoordinate, destinationCoordinate, startLabel, destinationLabel,
   startDraggable, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination,
   locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
-  mapStyle = "street", darkMode = true, globe, initialCamera, onCameraChange, onDisable3D,
+  mapStyle = "street", darkMode = true, globe, initialCamera, onCameraChange, onDisable3D, registerCameraGetter,
   enabledLayers = [], onLayerStatus = () => {},
 }) {
   const holder = useRef(null);
@@ -267,9 +304,12 @@ export default function Scene3D({
         controls.minimumTrackBallHeight = Number.POSITIVE_INFINITY;
         controls.inertiaSpin = 0.18;
         controls.inertiaTranslate = 0.18;
-        controls.inertiaZoom = 0.18;
-        controls.zoomFactor = 2.6;
-        controls.maximumMovementRatio = 0.07;
+        controls.inertiaZoom = 0.12;
+        // Cesium's stock multiplier is 5.0. The old 2.6 together with an
+        // unusually strict movement cap made touchscreen pinches feel sluggish.
+        // Keep native pinch-pan/tilt rather than layering competing handlers.
+        controls.zoomFactor = 5.5;
+        controls.maximumMovementRatio = 0.22;
         controls.maximumTiltAngle = C.Math.toRadians(89);
 
         initialFocus(C, viewer, initialCameraRef.current);
@@ -348,15 +388,14 @@ export default function Scene3D({
         changed = () => {
           const current = scene.current;
           if (!current || current.disposed || current.viewer !== viewer || viewer.isDestroyed()) return;
-          const center = centerOfCamera(C, viewer);
-          const height = C.Cartographic.fromCartesian(viewer.camera.positionWC)?.height;
-          if (center && Number.isFinite(height)) {
-            callbacks.current.onCameraChange?.({ center: [center.lon, center.lat], zoom: inferredZoom(height),
-              pitch: C.Math.toDegrees(viewer.camera.pitch) + 90, bearing: C.Math.toDegrees(viewer.camera.heading) });
+          const camera = readCameraFor2D(C, viewer);
+          if (camera) {
+            callbacks.current.onCameraChange?.(camera);
             syncBuildings(current);
           }
         };
         viewer.camera.moveEnd.addEventListener(changed);
+        registerCameraGetter?.(() => readCameraFor2D(C, viewer));
         // Follow the selected geographic point every frame, including camera
         // tilt, touch pan, and terrain tile changes. This is NOT screen-fixed.
         const followPopup = () => {
@@ -396,6 +435,7 @@ export default function Scene3D({
     })();
     return () => {
       disposed = true;
+      registerCameraGetter?.(null);
       // Invalidate the scene before releasing WebGL resources: in-flight
       // Cesium/route callbacks must not update a destroyed renderer.
       const ownedScene = scene.current?.viewer === viewer ? scene.current : null;
@@ -831,7 +871,7 @@ export default function Scene3D({
             stopIds.add(stop.id);
             const entity = viewer.entities.add({
               position: degreesPoint(C, stop.coordinates),
-              point: { pixelSize: 9, color: C.Color.fromCssColorString("#a888f2"),
+              point: { pixelSize: 9, color: C.Color.fromCssColorString("#8A6F4D"),
                 outlineColor: C.Color.WHITE, outlineWidth: 1.5,
                 heightReference: C.HeightReference.CLAMP_TO_GROUND },
             });

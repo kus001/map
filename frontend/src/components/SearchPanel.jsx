@@ -3,7 +3,7 @@ import { BsPersonWalking } from "react-icons/bs";
 import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline } from "react-icons/io5";
+import { IoCarOutline, IoClose } from "react-icons/io5";
 import {
   MdDirectionsTransit,
   MdMyLocation,
@@ -186,6 +186,7 @@ function LocationInput({
   onSelectLocation = () => {},
   recentSearches = [],
   recentField,
+  removeRecentLocation,
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -388,7 +389,19 @@ function LocationInput({
                 : "border-button-light/50 text-charcoal"
             }`}>
               <GoHistory className="opacity-70"/>
-              {location}
+              <span className="min-w-0 flex-1 truncate"> {/* truncate is to shorten text when too long */}
+                {location}
+              </span>
+
+              <button 
+                className="ml-auto px-2 text-lg opacity-70 hover:opacity-100" 
+                type="button"
+                onClick={() => removeRecentLocation(location)}
+                aria-label= "Remove location from recent locations"
+                onMouseDown={event => event.preventDefault()}
+              >
+                <IoClose />
+              </button>
             </div>
           ))}
           {suggestions.map((item, index) => (
@@ -443,6 +456,7 @@ export default function SearchPanel({
   setStart,
   setDestination,
   mode,
+  removeRecentLocation,
   cyclingType,
   onModeChange,
   onCyclingTypeChange,
@@ -480,6 +494,7 @@ export default function SearchPanel({
       <div className="space-y-3 max-[760px]:space-y-2">
         <LocationInput
           recentSearches={recentSearches}
+          removeRecentLocation={removeRecentLocation}
           recentField="start"
           key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
@@ -537,6 +552,7 @@ export default function SearchPanel({
 
         <LocationInput
           recentSearches={recentSearches}
+          removeRecentLocation={removeRecentLocation}
           recentField="destination"
           value={destination}
           onChange={setDestination}

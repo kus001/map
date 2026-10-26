@@ -417,6 +417,7 @@ export default function App() {
   const [threeD, setThreeD] = useState(false);
   const [globe, setGlobe] = useState(false);
   const mapCamera = useRef(null);
+  const threeDCamera = useRef(null);
   const [layersOpen, setLayersOpen] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState(() => {
     try {
@@ -1991,7 +1992,10 @@ export default function App() {
         </div>
         {threeD && (
           <div style={{ position: "absolute", inset: 0 }}>
-            <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
+            <Scene3D {...mapProps} globe={globe}
+              initialCamera={mapCamera.current}
+              onCameraChange={value => { threeDCamera.current = value; }}
+              onDisable3D={() => setThreeD(false)} />
           </div>
         )}
 

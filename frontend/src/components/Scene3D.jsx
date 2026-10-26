@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-// kmaps v10.20.9: native Esri aerial provider and OSM alignment comparison.
-// Building coordinates are NEVER shifted to compensate for mismatched photos.
+// Production Cesium 3D scene. Building positions are not shifted to match imagery.
 // CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
 // Toronto 2025 is loaded only as real hosted 3D Tiles or I3S, never synthesized footprints.
 const CESIUM_VERSION = "1.146";
@@ -96,10 +95,9 @@ function fitPath(C, viewer, points) {
   viewer.camera.flyTo({ destination: rectangle, duration: 1.0 });
 }
 
-// Return the providers in bottom-to-top order. OSM comparison is deliberately
-// temporary; it never modifies the 3D building tileset or its geolocation.
-async function imageryFor(C, style, compareOSM = false) {
-  if (compareOSM || style === "street") {
+// Return imagery providers in bottom-to-top order for the selected map style.
+async function imageryFor(C, style) {
+  if (style === "street") {
     return [new C.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" })];
   }
   let aerial;
@@ -167,16 +165,12 @@ export default function Scene3D({
   const callbacks = useRef({});
   const routeData = useRef({});
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("Loading CesiumJS…");
   const [ready, setReady] = useState(false);
+  const [terrainProblem, setTerrainProblem] = useState("");
+  const [buildingProblem, setBuildingProblem] = useState("");
+  const [imageryProblem, setImageryProblem] = useState("");
   const ionToken = CESIUM_ION_TOKEN;
   const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
-  const [cityStatus, setCityStatus] = useState("Toronto 2025: not configured");
-  const [osmStatus, setOsmStatus] = useState("OSM Buildings: waiting for token");
-  const [buildingsOn, setBuildingsOn] = useState(true);
-  const [terrainStatus, setTerrainStatus] = useState("Terrain: waiting for Cesium ion");
-  const [compareOSM, setCompareOSM] = useState(false);
-  const [imageryStatus, setImageryStatus] = useState("");
   const lastGlobeMode = useRef(null);
   const localView = useRef(null);
   const [menu, setMenu] = useState(null);
@@ -261,7 +255,7 @@ export default function Scene3D({
         handler.setInputAction(evt => {
           if (!drag) return;
           const pos = groundCoordinate(evt.endPosition);
-          if (pos) setTip(`Move ${drag === "start" ? "start" : "destination"}: ${pos[0].toFixed(5)}, ${pos[1].toFixed(5)}`);
+          if (pos) setTip(`Move ${drag === "start" ? "start" : "destination"}`);
         }, C.ScreenSpaceEventType.MOUSE_MOVE);
         handler.setInputAction(evt => {
           if (!drag) return;
@@ -285,8 +279,7 @@ export default function Scene3D({
         viewer.camera.moveEnd.addEventListener(changed);
         setReady(true);
         setError("");
-        setInfo("Cesium 3D ready · waiting for aligned terrain and buildings");
-      } catch (e) { if (!disposed) { setError(String(e.message || e)); setInfo(""); } }
+      } catch (e) { if (!disposed) setError(String(e.message || e)); }
     })();
     return () => {
       disposed = true;
@@ -313,14 +306,14 @@ export default function Scene3D({
     context.terrainProviderReady = false;
     syncBuildings(context);
     if (!ionToken) {
-      setTerrainStatus("Terrain unavailable: add VITE_CESIUM_ION_TOKEN with asset 1 access");
+      setTerrainProblem("Cesium token required for 3D buildings and terrain.");
       return;
     }
     let cancelled = false;
     let removeLoadListener = null;
     let removePostListener = null;
     let removeTerrainError = null;
-    setTerrainStatus("Loading Cesium World Terrain…");
+    setTerrainProblem("");
     (async () => {
       try {
         const provider = await C.CesiumTerrainProvider.fromIonAssetId(1, { requestVertexNormals: false });
@@ -330,18 +323,17 @@ export default function Scene3D({
           if (cancelled || scene.current !== context || version !== context.terrainGen) return;
           context.terrainProviderReady = false;
           context.terrainReady = false;
-          setTerrainStatus(`Terrain tile error: ${String(error.message || error).slice(0, 85)}. OSM hidden to prevent floating buildings.`);
+          setTerrainProblem("Terrain couldn't load. Buildings are hidden to prevent floating geometry.");
+          console.warn("Cesium terrain tile error", error);
           syncBuildings(context);
         });
         context.terrainProviderReady = true;
-        setTerrainStatus("Loading ground elevations…");
         // Wait until the ground tiles are actually displayed before revealing OSM buildings.
         const finishIfLoaded = () => {
           if (cancelled || scene.current !== context || version !== context.terrainGen || !context.terrainProviderReady) return;
           if (!viewer.scene.globe.tilesLoaded) return;
           context.terrainReady = true;
-          setTerrainStatus("Cesium World Terrain: ready");
-          if (context.osm) setOsmStatus("Cesium OSM Buildings: loaded worldwide");
+          setTerrainProblem("");
           syncBuildings(context);
           removeLoadListener?.(); removeLoadListener = null;
           removePostListener?.(); removePostListener = null;
@@ -353,7 +345,8 @@ export default function Scene3D({
         if (cancelled || scene.current !== context || version !== context.terrainGen) return;
         context.terrainProviderReady = false;
         context.terrainReady = false;
-        setTerrainStatus(`Terrain unavailable: ${String(e.message || e).slice(0, 110)}. OSM hidden to prevent floating buildings.`);
+        setTerrainProblem("Terrain unavailable. Buildings are hidden to prevent floating geometry.");
+        console.warn("Cesium World Terrain unavailable", e);
         syncBuildings(context);
       }
     })();
@@ -373,10 +366,10 @@ export default function Scene3D({
     C.Ion.defaultAccessToken = ionToken || "";
     if (!ionToken) {
       if (context.osm) { viewer.scene.primitives.remove(context.osm); context.osm = null; }
-      setOsmStatus("OSM Buildings: set VITE_CESIUM_ION_TOKEN in frontend/.env, then restart Vite");
+      setBuildingProblem("Add VITE_CESIUM_ION_TOKEN to frontend/.env to enable buildings.");
       return;
     }
-    setOsmStatus("Loading Cesium OSM Buildings…");
+    setBuildingProblem("");
     (async () => {
       try {
         const previous = context.osm;
@@ -386,9 +379,14 @@ export default function Scene3D({
         context.osm = viewer.scene.primitives.add(next);
         next.show = false;
         syncBuildings(context);
-        setOsmStatus(context.terrainReady ? "Cesium OSM Buildings: loaded worldwide" : "OSM Buildings loaded · waiting for ground elevations");
+        setBuildingProblem("");
         viewer.scene.requestRender();
-      } catch (e) { if (scene.current === context && version === context.buildingGen) setOsmStatus(`OSM Buildings unavailable: ${e.message}`); }
+      } catch (e) {
+        if (scene.current === context && version === context.buildingGen) {
+          setBuildingProblem("OSM buildings couldn't load. Check your Cesium ion token and asset access.");
+          console.warn("Cesium OSM Buildings unavailable", e);
+        }
+      }
     })();
     return () => { context.buildingGen++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -401,11 +399,10 @@ export default function Scene3D({
     if (!ready || !context) return;
     const { C, viewer } = context;
     const cityUrl = safeTorontoUrl(torontoUrl);
-    if (!cityUrl) { setCityStatus("Toronto 2025: not configured (OSM fallback)"); return; }
+    if (!cityUrl) return;
     let cancelled = false;
     const currentUrl = cityUrl;
     context.currentCityUrl = cityUrl;
-    setCityStatus("Toronto 2025: checking source…");
     (async () => {
       try {
         const type = TorontoProviderType(cityUrl);
@@ -426,12 +423,11 @@ export default function Scene3D({
         context.city = viewer.scene.primitives.add(tiles);
         context.cityLoaded = true;
         syncBuildings(context);
-        setCityStatus(`Toronto 2025 massing: ${type === "i3s" ? "I3S" : "3D Tiles"} loaded`);
         viewer.scene.requestRender();
       } catch (e) {
         if (cancelled || scene.current !== context) return;
         context.cityLoaded = false;
-        setCityStatus(`Toronto 2025 unavailable: ${String(e.message || e).slice(0, 115)} · OSM fallback`);
+        console.warn("Toronto 2025 model unavailable; using OSM buildings", e);
         const old = context.city;
         context.city = null;
         if (old) viewer.scene.primitives.remove(old);
@@ -442,40 +438,29 @@ export default function Scene3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, torontoUrl]);
 
-  useEffect(() => {
-    const current = scene.current;
-    if (!ready || !current) return;
-    current.buildingsEnabled = buildingsOn;
-    syncBuildings(current);
-  }, [ready, buildingsOn]);
-
-  // Alignment check: compare building positions against OSM's own streets.
-  // Satellite orthophotos and OSM building footprints may be from different
-  // years or have different local mapping accuracy. NEVER globally offset OSM.
+  // Keep imagery matched to the user's selected basemap style.
   useEffect(() => {
     const context = scene.current;
     if (!ready || !context) return;
     const { viewer, C } = context;
     let cancelled = false;
-    const activeSource = compareOSM ? "OpenStreetMap reference" : mapStyle === "street" ? "OpenStreetMap streets" : "Esri World Imagery";
-    setImageryStatus(`Loading ${activeSource}…`);
     (async () => {
       try {
-        const providers = await imageryFor(C, mapStyle, compareOSM);
+        const providers = await imageryFor(C, mapStyle);
         if (cancelled || scene.current !== context || viewer.isDestroyed()) return;
-        // Swap only after metadata/provider setup finishes, so a slow Esri
-        // response cannot erase a newer OSM comparison selection.
+        // Swap only after provider setup finishes to avoid stale layer changes.
         viewer.imageryLayers.removeAll();
         for (const provider of providers) viewer.imageryLayers.addImageryProvider(provider);
-        setImageryStatus(activeSource);
+        setImageryProblem("");
         viewer.scene.requestRender();
       } catch (e) {
         if (cancelled) return;
-        setImageryStatus(`Imagery error: ${String(e.message || e).slice(0, 90)}`);
+        setImageryProblem("Map imagery couldn't load. Check your network connection.");
+        console.warn("Cesium imagery unavailable", e);
       }
     })();
     return () => { cancelled = true; };
-  }, [ready, mapStyle, compareOSM]);
+  }, [ready, mapStyle]);
 
   // Globe button zooms out to a globe view and back; it no longer morphs to
   // Columbus View, because that projection removes Cesium's sky atmosphere.
@@ -669,7 +654,7 @@ export default function Scene3D({
             current.stops.push(entity);
           }
           viewer.scene.requestRender();
-        } catch (e) { if (e.name !== "AbortError") console.debug("3D transit stops unavailable", e); }
+        } catch (e) { if (e.name !== "AbortError") console.warn("3D transit stops unavailable", e); }
       }, 350);
     };
     viewer.camera.moveEnd.addEventListener(refresh);
@@ -681,37 +666,27 @@ export default function Scene3D({
     };
   }, [ready, mode]);
 
-  const reset = () => {
-    const current = scene.current;
-    if (!current) return;
-    initialFocus(current.C, current.viewer, initialCameraRef.current);
-  };
-  const recenterToronto = () => {
-    const current = scene.current;
-    if (!current) return;
-    flyTo(current.C, current.viewer, [TORONTO[1], TORONTO[0]], 2200);
-  };
-
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: darkMode ? "#101b27" : "#e2eef7" }}>
       <div ref={holder} style={{ position: "absolute", inset: 0 }} aria-label="Cesium 3D globe and Toronto building massing" />
-      <div style={{ position: "absolute", right: 12, top: 14, zIndex: 490, maxWidth: "min(340px, 75vw)", ...floatingStyles(darkMode) }}>
-        <strong>Cesium 3D · v10.20.9</strong>
-        <div style={{ marginTop: 5, fontSize: 11, opacity: .82 }}>{error || (ready ? osmStatus : info)}</div>
-        {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{terrainStatus}</div>}
-        {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{cityStatus}</div>}
-        {ready && <div style={{ marginTop: 4, fontSize: 11, opacity: .82 }}>{imageryStatus}</div>}
-        {!ionToken && <div style={{ marginTop: 6 }}>Add VITE_CESIUM_ION_TOKEN to map/frontend/.env and restart Vite to enable OSM Buildings.</div>}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-          <button type="button" onClick={recenterToronto} style={{ padding: "3px 6px", background: "#407a62", borderRadius: 5, color: "white" }}>Toronto</button>
-          <button type="button" onClick={reset} style={{ padding: "3px 6px" }}>Reset</button>
-          <button type="button" onClick={() => setBuildingsOn(v => !v)} style={{ padding: "3px 6px" }}>Buildings {buildingsOn ? "on" : "off"}</button>
-          <button type="button" aria-pressed={compareOSM} onClick={() => setCompareOSM(v => !v)} style={{ padding: "3px 6px", borderRadius: 5, background: compareOSM ? "#407a62" : "transparent", color: compareOSM ? "white" : "inherit" }}>{compareOSM ? "Back to aerial" : "Compare OSM"}</button>
+      {/* Production UI: only loading, actionable errors, and contextual map interactions. */}
+      {(!ready || error || (ready && (terrainProblem || buildingProblem || imageryProblem))) && (
+        <div role={error || terrainProblem || buildingProblem || imageryProblem ? "alert" : "status"}
+          style={{ position: "absolute", right: 12, top: 14, zIndex: 490,
+            maxWidth: "min(320px, calc(100vw - 24px))", ...floatingStyles(darkMode) }}>
+          {error ? (
+            <>
+              <div>{error}</div>
+              <button type="button" onClick={onDisable3D} style={{ marginTop: 8, textDecoration: "underline" }}>Return to 2D</button>
+            </>
+          ) : !ready ? (
+            <span>Loading 3D map…</span>
+          ) : (
+            <span>{terrainProblem || buildingProblem || imageryProblem}</span>
+          )}
         </div>
-        {compareOSM && <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.4, opacity: .86 }}>Compare the grey buildings with OSM streets. If they align here but not with aerial imagery, the datasets likely differ in date or registration. No model coordinates have been changed.</div>}
-        {tip && <div style={{ fontSize: 11, marginTop: 6 }}>{tip}</div>}
-        {error && <button type="button" onClick={onDisable3D} style={{ marginTop: 8, textDecoration: "underline" }}>Return to 2D</button>}
-      </div>
+      )}
+      {tip && <div role="status" style={{ position: "absolute", bottom: 48, left: 12, zIndex: 490, ...floatingStyles(darkMode) }}>{tip}</div>}
       {menu && <div style={{ position: "absolute", left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 90), zIndex: 491, ...floatingStyles(darkMode), display: "grid", gap: 4 }}>
         <button type="button" onClick={() => { callbacks.current.onSetMapStart?.(menu.point); setMenu(null); }}>Set as start</button>
         <button type="button" onClick={() => { callbacks.current.onSetMapDestination?.(menu.point); setMenu(null); }}>Set as destination</button>

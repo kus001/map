@@ -415,7 +415,6 @@ export default function App() {
   );
   const [mapStyle, setMapStyle] = useState("satellite");
   const [threeD, setThreeD] = useState(false);
-  const [globe, setGlobe] = useState(false);
   const mapCamera = useRef(null);
   const threeDCamera = useRef(null);
   const threeDCameraGetter = useRef(null);
@@ -2008,7 +2007,7 @@ export default function App() {
         </div>
         {threeD && (
           <div style={{ position: "absolute", inset: 0 }}>
-            <Scene3D {...mapProps} globe={globe}
+            <Scene3D {...mapProps}
               initialCamera={mapCamera.current}
               onCameraChange={value => { threeDCamera.current = value; }}
               registerCameraGetter={getter => { threeDCameraGetter.current = getter; }}
@@ -2032,19 +2031,7 @@ export default function App() {
               : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
           </button>
-          {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
-            title="Switch between globe and flat map"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-              darkMode
-                ? mapStyle === "hybrid"
-                  ? "hover:bg-hybrid-purple/10"
-                  : mapStyle === "street"
-                    ? "hover:bg-blue/10"
-                    : "hover:bg-green/10"
-                : "hover:bg-black/10"
-            }`}>
-            {globe ? "Flat" : "Globe"}
-          </button>}
+
         </div>
 
         <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2">

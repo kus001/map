@@ -381,7 +381,7 @@ function LocationInput({
         suggestions.length > 0 || (MAPTILER_KEY && value.trim() !== "") || (value.trim() === "" && recentLocations.length > 0)
         ) && (
         <div
-          className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
+          className={`map-scrollbar absolute left-9 right-0 top-[48px] max-[760px]:top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
               ? "border-button bg-charcoal"
               : "border-button-light bg-white"

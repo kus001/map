@@ -92,6 +92,15 @@ function readCameraFor2D(C, viewer) {
 function coordsToCartesians(C, points) {
   return (points || []).filter(validLatLon).map(item => degreesPoint(C, item, 5));
 }
+// Lightweight haversine distance for selecting only stops in the visible area.
+function distanceToStopMetres([lat1, lon1], [lat2, lon2]) {
+  const rad = Math.PI / 180;
+  const a = (lat2 - lat1) * rad;
+  const b = (lon2 - lon1) * rad;
+  const h = Math.sin(a / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(b / 2) ** 2;
+  return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 function css(C, value, fallback = "#71b0d4") {
   try { return C.Color.fromCssColorString(value || fallback) || C.Color.fromCssColorString(fallback); }
   catch { return C.Color.fromCssColorString(fallback); }
@@ -229,7 +238,7 @@ export default function Scene3D({
   currentLocation, navigationActive, startCoordinate, destinationCoordinate, startLabel, destinationLabel,
   startDraggable, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination,
   locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
-  mapStyle = "street", darkMode = true, globe, initialCamera, onCameraChange, onDisable3D, registerCameraGetter,
+  mapStyle = "street", darkMode = true, initialCamera, onCameraChange, onDisable3D, registerCameraGetter,
   enabledLayers = [], onLayerStatus = () => {},
 }) {
   const holder = useRef(null);
@@ -243,7 +252,6 @@ export default function Scene3D({
   const [imageryProblem, setImageryProblem] = useState("");
   const ionToken = CESIUM_ION_TOKEN;
   const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
-  const lastGlobeMode = useRef(null);
   const [popup, setPopup] = useState(null);
   const popupElement = useRef(null);
   const popupRef = useRef(null);
@@ -639,28 +647,6 @@ export default function Scene3D({
     return () => { cancelled = true; };
   }, [ready, mapStyle]);
 
-  // The globe is already spherical in Cesium SCENE3D. Changing the parent
-  // Globe/Flat preference must not teleport the user millions of metres away.
-  // Keep the location, height, tilt and heading exactly as they were.
-  // Natural wheel/pinch zoom reveals the full Earth; Cesium's trackball controls
-  // keep it centred when the pointer starts over space.
-  useEffect(() => {
-    const current = scene.current;
-    if (!ready || !current || lastGlobeMode.current === globe) return;
-    const previous = lastGlobeMode.current;
-    lastGlobeMode.current = globe;
-    // If already high enough to see the planet, re-centre Earth without
-    // changing altitude. Never fly millions of metres away on toggle.
-    const altitude = current.viewer.camera.positionCartographic?.height ?? 0;
-    if (globe && previous === false && altitude > 750_000) {
-      current.viewer.camera.setView({
-        destination: current.C.Cartesian3.clone(current.viewer.camera.positionWC),
-        orientation: { heading: 0, pitch: -current.C.Math.PI_OVER_TWO, roll: 0 },
-      });
-    }
-    current.viewer.scene.requestRender();
-  }, [ready, globe]);
-
   // Routes are displayed as georeferenced Cesium polylines (no MapLibre canvas).
   useEffect(() => {
     const current = scene.current;
@@ -838,62 +824,183 @@ export default function Scene3D({
     }
   }, [popup]);
 
-  // Nearby transit stops remain usable in the Cesium scene at street-level zoom.
+  // Mirror the 2D stop layer: no stops below zoom 16, and only fetch the
+  // visible neighborhood when the camera settles. Clear old entities *during*
+  // a zoom-out, not only after a delayed moveEnd request has completed.
   useEffect(() => {
     const current = scene.current;
     if (!ready || !current) return;
     const { C, viewer } = current;
-    let cancelled = false, timeout, controller;
-    const refresh = () => {
-      if (cancelled || current.disposed || viewer.isDestroyed()) return;
-      clearTimeout(timeout);
-      timeout = setTimeout(async () => {
-        if (cancelled || current.disposed || viewer.isDestroyed()) return;
-        controller?.abort();
-        controller = new AbortController();
+    let disposed = false;
+    let timer = null;
+    let request = null;
+    let requestSerial = 0;
+    let previousRequest = null;
+    let lastFrameCheck = 0;
+    let stopsWereInRange = false;
+    let lastDrawnCenter = null;
+
+    const alive = () => !disposed && !current.disposed &&
+      scene.current === current && !viewer.isDestroyed();
+
+    function zoomLevel() {
+      const altitude = viewer.camera.positionCartographic?.height ?? Infinity;
+      // At this altitude a stop-sized item is never useful. Fast-path
+      // keeps globe-scale navigation cheap, even with oblique cameras.
+      if (!Number.isFinite(altitude) || altitude > 1800) return -Infinity;
+      return readCameraFor2D(C, viewer)?.zoom ?? inferredZoom(altitude);
+    }
+
+    function visibleAtCurrentZoom() {
+      return mode === "transit" && zoomLevel() >= 16;
+    }
+
+    function cancelRequest() {
+      requestSerial++;
+      request?.abort();
+      request = null;
+    }
+
+    function removeStops() {
+      if (!alive()) return;
+      if (current.stops.length) {
+        viewer.entities.suspendEvents();
+        try {
+          for (const entity of current.stops) viewer.entities.remove(entity);
+          current.stops = [];
+        } finally { viewer.entities.resumeEvents(); }
+        viewer.scene.requestRender();
+      }
+      lastDrawnCenter = null;
+      if (popupRef.current?.kind === "stop") setPopup(null);
+    }
+
+    function unloadIfTooFar() {
+      if (!alive()) return true;
+      if (visibleAtCurrentZoom()) {
+        stopsWereInRange = true;
+        return false;
+      }
+      // When already outside the stop zoom range, don't repeatedly abort
+      // empty requests or create renders on every Cesium postRender event.
+      if (!stopsWereInRange && !timer && !request && !current.stops.length) return true;
+      stopsWereInRange = false;
+      clearTimeout(timer);
+      timer = null;
+      cancelRequest();
+      previousRequest = null;
+      removeStops();
+      return true;
+    }
+
+    function updateEntities(rawStops, center) {
+      if (!alive() || !visibleAtCurrentZoom()) return;
+      const selectedStops = route?.transit_stops || [];
+      const used = new Set();
+      const localStops = [];
+      // Route stops often span several kilometres. Never keep all of them
+      // active when the camera only shows one neighborhood.
+      for (const stop of [...selectedStops, ...(rawStops || [])]) {
+        if (!validLatLon(stop?.coordinates)) continue;
+        if (distanceToStopMetres(center, stop.coordinates) > 1050) continue;
+        const key = String(stop.id ?? `${stop.coordinates[0]}:${stop.coordinates[1]}`);
+        if (used.has(key)) continue;
+        used.add(key);
+        localStops.push(stop);
+        if (localStops.length >= 180) break;
+      }
+      viewer.entities.suspendEvents();
+      try {
         for (const entity of current.stops) viewer.entities.remove(entity);
         current.stops = [];
-        if (mode !== "transit") return;
+        for (const stop of localStops) {
+          const entity = viewer.entities.add({
+            position: degreesPoint(C, stop.coordinates),
+            point: { pixelSize: 9, color: C.Color.fromCssColorString("#8A6F4D"),
+              outlineColor: C.Color.WHITE, outlineWidth: 1.5,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND },
+          });
+          entity.kmapsStop = stop;
+          current.stops.push(entity);
+        }
+      } finally { viewer.entities.resumeEvents(); }
+      lastDrawnCenter = center;
+      viewer.scene.requestRender();
+    }
+
+    function refresh() {
+      if (!alive()) return;
+      clearTimeout(timer);
+      timer = null;
+      if (unloadIfTooFar()) return;
+      // Abort the previous region's request as soon as the camera settles;
+      // an older response must never restore stops behind the user.
+      cancelRequest();
+      timer = setTimeout(async () => {
+        if (!alive() || unloadIfTooFar()) return;
         const center = centerOfCamera(C, viewer);
-        const range = C.Cartographic.fromCartesian(viewer.camera.positionWC).height;
-        if (!center || range > 1750) return;
+        if (!center) { removeStops(); return; }
+        const centrePair = [center.lat, center.lon];
+        // A single fetched neighborhood covers small pans and zooms.
+        // Avoid re-requesting hundreds of stops for every tiny gesture.
+        if (previousRequest && Date.now() - previousRequest.at < 30000 &&
+            distanceToStopMetres(centrePair, previousRequest.center) < 180) {
+          if (!lastDrawnCenter || distanceToStopMetres(centrePair, lastDrawnCenter) > 85 || !current.stops.length)
+            updateEntities(previousRequest.stops, centrePair);
+          return;
+        }
+        cancelRequest();
+        const serial = requestSerial;
+        const controller = new AbortController();
+        request = controller;
         try {
           const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lon), radius: "900" });
-          const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
-          if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
-          // Mirror the 2D map: always include the selected route's stops
-          // alongside nearby stops, without duplicating the same stop ID.
-          const selectedStops = route?.transit_stops || [];
-          const candidates = [...selectedStops, ...(result.stops || [])];
-          const stopIds = new Set();
-          for (const stop of candidates.slice(0, 180)) {
-            if (!validLatLon(stop.coordinates) || stopIds.has(stop.id)) continue;
-            stopIds.add(stop.id);
-            const entity = viewer.entities.add({
-              position: degreesPoint(C, stop.coordinates),
-              point: { pixelSize: 9, color: C.Color.fromCssColorString("#8A6F4D"),
-                outlineColor: C.Color.WHITE, outlineWidth: 1.5,
-                heightReference: C.HeightReference.CLAMP_TO_GROUND },
-            });
-            entity.kmapsStop = stop;
-            current.stops.push(entity);
+          const response = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          if (!alive() || controller.signal.aborted || serial !== requestSerial || !visibleAtCurrentZoom()) return;
+          const stops = Array.isArray(payload.stops) ? payload.stops : [];
+          previousRequest = { center: centrePair, at: Date.now(), stops };
+          const now = centerOfCamera(C, viewer);
+          if (now) updateEntities(stops, [now.lat, now.lon]);
+        } catch (error) {
+          if (alive() && error.name !== "AbortError") {
+            console.warn("3D transit stops unavailable", error);
+            // Route stops remain usable if the nearby-stop service fails.
+            const now = centerOfCamera(C, viewer);
+            if (now) updateEntities([], [now.lat, now.lon]);
           }
-          viewer.scene.requestRender();
-        } catch (e) {
-          if (!cancelled && !current.disposed && !viewer.isDestroyed() && e.name !== "AbortError")
-            console.warn("3D transit stops unavailable", e);
+        } finally {
+          if (request === controller) request = null;
         }
-      }, 350);
+      }, 200);
+    }
+
+    // camera.changed detects zoom-out *while* the gesture is taking place.
+    // postRender catches the globe-scale / inertial cases where moveEnd has
+    // not fired yet. Fetch only once the camera has finished moving.
+    const onCameraChanged = () => { if (alive()) unloadIfTooFar(); };
+    const onFrame = () => {
+      const now = Date.now();
+      if (now - lastFrameCheck < 100) return;
+      lastFrameCheck = now;
+      if (alive()) unloadIfTooFar();
     };
+    viewer.camera.changed.addEventListener(onCameraChanged);
+    viewer.scene.postRender.addEventListener(onFrame);
     viewer.camera.moveEnd.addEventListener(refresh);
     refresh();
     return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-      controller?.abort();
+      disposed = true;
+      clearTimeout(timer);
+      cancelRequest();
       if (!viewer.isDestroyed()) {
+        viewer.camera.changed.removeEventListener(onCameraChanged);
         viewer.camera.moveEnd.removeEventListener(refresh);
-        for (const entity of current.stops) viewer.entities.remove(entity);
+        viewer.scene.postRender.removeEventListener(onFrame);
+        viewer.entities.suspendEvents();
+        try { for (const entity of current.stops) viewer.entities.remove(entity); }
+        finally { viewer.entities.resumeEvents(); }
       }
       current.stops = [];
     };

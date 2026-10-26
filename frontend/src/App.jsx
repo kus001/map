@@ -335,6 +335,10 @@ export default function App() {
       console.warn("Could not save recent searches", error);
     }
   }, [recentSearches]);
+  
+  function removeLocation(location) { // remove location from saved recent
+    setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));
+  }
 
   console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
@@ -1725,7 +1729,7 @@ export default function App() {
       }`}
     >
       <aside
-        className={`map-sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[360px] min-w-[300px] md:max-w-[480px] md:resize-x"} ${
+        className={`map-sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[340px] min-w-[311px] md:max-w-[480px] md:resize-x"} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"
@@ -1737,7 +1741,7 @@ export default function App() {
             : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
         }`}
       >
-        <header className="px-5 pb-4 pt-4">
+        <header className="px-5 pb-2 pt-3">
           <div className="flex items-center justify-between">
             <a
               href="https://github.com/kus001/map"
@@ -1775,6 +1779,7 @@ export default function App() {
           recentSearches={recentSearches}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
+          removeRecentLocation={removeLocation}
           mode={mode}
           cyclingType={cyclingType}
           onModeChange={changeMode}

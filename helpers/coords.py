@@ -46,8 +46,3 @@ def nearest_stops(all_stops, lat, lon, amount_of_stops=50):
          for stop_id, item in candidates),
         key=lambda result: result[0],
     )
-
-
-def nearest_stop(all_stops, lat, lon):
-    found = nearest_stops(all_stops, lat, lon, 1)
-    return found[0] if found else (float("inf"), None)

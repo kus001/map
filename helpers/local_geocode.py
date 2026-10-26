@@ -119,16 +119,12 @@ def _parse_query(address):
 
     words = _tokens(address)
 
-
     civic = None
     if words:
         match = re.match(r"^(?:\d+[a-z]?-)?(\d+[a-z]?)$", words[0])
         if match:
             civic = match.group(1)
             words = words[1:]
-
-
-
 
     cities = set()
     text_after_comma = str(address).lower().split(",", 1)[1] if "," in str(address) else ""
@@ -316,8 +312,6 @@ def _read_csv(path, built):
                 lon, lat = UTM17N_TO_LATLON.transform(x_value, y_value)
             else:
                 lat, lon = y_value, x_value
-
-
 
             if civic_field and street_field and row.get(civic_field) and row.get(street_field):
                 civic_raw = row[civic_field].strip().lower()
@@ -553,7 +547,7 @@ def _approximate(q):
     return "approximate", (nearest[1], nearest[2], f"{q['civic'].upper()} {label}")
 
 
-def resolve_detailed(address, fuzzy_cutoff=FUZZY_CUTOFF, fuzzy_accept=FUZZY_ACCEPT):
+def resolve_detailed(address):
     """Resolve an address against the local index without guessing.
 
     Returns (status, payload):
@@ -588,15 +582,15 @@ def resolve_detailed(address, fuzzy_cutoff=FUZZY_CUTOFF, fuzzy_accept=FUZZY_ACCE
         for c in candidates:
             scores[c[0]] = _candidate_score(q["core"], c[0])
         ranked = sorted(scores.items(), key=lambda item: -item[1])
-        if not ranked or ranked[0][1] < fuzzy_cutoff:
+        if not ranked or ranked[0][1] < FUZZY_CUTOFF:
             return _approximate(q)
 
-        close = [name for name, score in ranked if score >= fuzzy_cutoff][:3]
-        if ranked[0][1] < fuzzy_accept or (
+        close = [name for name, score in ranked if score >= FUZZY_CUTOFF][:3]
+        if ranked[0][1] < FUZZY_ACCEPT or (
             len(ranked) > 1 and ranked[0][1] - ranked[1][1] < FUZZY_MARGIN
         ):
 
-            names = close if ranked[0][1] < fuzzy_accept else close[:2]
+            names = close if ranked[0][1] < FUZZY_ACCEPT else close[:2]
             return "ambiguous", _distinct(c for c in candidates if c[0] in names)[:6]
         pool = [c for c in candidates if c[0] == ranked[0][0]]
 
@@ -616,26 +610,6 @@ def resolve_detailed(address, fuzzy_cutoff=FUZZY_CUTOFF, fuzzy_accept=FUZZY_ACCE
         return "ok", pool[0]
 
     return "ambiguous", _distinct(pool)[:6]
-
-
-def local_resolve(address, fuzzy_cutoff=FUZZY_CUTOFF):
-    """Label-only view of resolve_detailed() (kept for older callers).
-
-    Statuses are "ok" (lat, lon) / "ambiguous" [labels] / "mismatch" [labels] /
-    "none". Approximate placements are reported as "none" here: this API never guesses.
-    """
-    status, payload = resolve_detailed(address, fuzzy_cutoff)
-    if status == "ok":
-        return "ok", (payload[2], payload[3])
-    if status in ("ambiguous", "mismatch"):
-        return status, [entry[4] for entry in payload]
-    return "none", None
-
-
-def local_geocode(address, fuzzy_cutoff=FUZZY_CUTOFF):
-    """Look up an address locally and return (lat, lon), or None."""
-    status, payload = local_resolve(address, fuzzy_cutoff)
-    return payload if status == "ok" else None
 
 
 def _search_streets(q, limit, bias):
@@ -739,7 +713,3 @@ def search_local(query, limit=6, bias=None):
             break
 
     return results
-
-
-def is_available():
-    return bool(_resolve_csv_paths())

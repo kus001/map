@@ -46,9 +46,6 @@ function validLatLon(value) {
 function degreesPoint(C, pair, altitude = 0) {
   return C.Cartesian3.fromDegrees(Number(pair[1]), Number(pair[0]), altitude);
 }
-function cameraHeight(zoom) {
-  return Math.max(65, Math.min(17_000_000, 23_000_000 / 2 ** (Math.min(22, Math.max(1, zoom)) - 1)));
-}
 function inferredZoom(height) {
   return Math.max(1, Math.min(22, 1 + Math.log2(23_000_000 / Math.max(65, height))));
 }
@@ -120,21 +117,40 @@ function centerOfCamera(C, viewer) {
   const c = C.Cartographic.fromCartesian(point);
   return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
 }
+// Match Leaflet's Web-Mercator ground metres per CSS pixel to Cesium's
+// perspective frustum at the centre of the canvas. A fixed altitude per zoom
+// cannot do this: the same zoom must work at every viewport size/latitude.
+function rangeForLeafletCamera(C, viewer, camera) {
+  const zoom = Math.max(0, Math.min(22, Number.isFinite(camera?.zoom) ? camera.zoom : 13));
+  const lat = Math.max(-85, Math.min(85, Number(camera?.center?.[1]) || 0));
+  const metresPerPixel = 156543.03392804097 * Math.cos(C.Math.toRadians(lat)) / (2 ** zoom);
+  const viewportHeight = Math.max(1, viewer.scene.canvas.clientHeight || viewer.container?.clientHeight || 800);
+  const frustumFovy = viewer.camera.frustum?.fovy;
+  const fovy = Number.isFinite(frustumFovy) && frustumFovy > 0 && frustumFovy < Math.PI
+    ? frustumFovy : Math.PI / 3;
+  // In a perspective camera the screen-centre ground scale is 2 * range *
+  // tan(fovy / 2) / viewportHeight. Solving for range preserves map scale.
+  return Math.max(45, Math.min(23_000_000, metresPerPixel * viewportHeight / (2 * Math.tan(fovy / 2))));
+}
+
 function initialFocus(C, viewer, camera) {
-  // A Leaflet camera.center is the point ON THE MAP being viewed, not the
-  // camera's geodetic position. The old setView(fromDegrees(center, altitude))
-  // placed a pitched camera north/south of the intended focus.
+  // The geographic centre of Leaflet is a *ground target*, not an eye point.
   const [lon, lat] = Array.isArray(camera?.center) ? camera.center.map(Number) : TORONTO;
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
   const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
-  const tiltFromVertical = Number.isFinite(camera?.pitch) ? camera.pitch : 45;
-  const pitch = C.Math.toRadians(Math.max(-85, Math.min(-40, tiltFromVertical - 90)));
-  const range = cameraHeight(camera?.zoom ?? 13);
-  const target = C.Cartesian3.fromDegrees(lon, lat, 0);
+  // A mild starting tilt avoids the perceived lateral shift caused by the
+  // previous almost-horizontal 58-degree pitch. Users can tilt further.
+  const tilt = Math.max(0, Math.min(32, Number.isFinite(camera?.pitch) ? camera.pitch : 32));
+  const pitch = C.Math.toRadians(tilt - 90);
+  const range = rangeForLeafletCamera(C, viewer, camera);
+  const position = C.Cartographic.fromDegrees(lon, lat);
+  const sampledHeight = viewer.scene.globe.getHeight(position);
+  const targetHeight = Number.isFinite(sampledHeight) ? sampledHeight : 0;
+  const target = C.Cartesian3.fromDegrees(lon, lat, targetHeight);
   viewer.camera.lookAt(target, new C.HeadingPitchRange(C.Math.toRadians(bearing), pitch, range));
-  // Restore Cesium's world transform so normal pan/tilt and globe gestures
-  // work, but keep the world target established above.
+  // Return to world coordinates without changing the established target.
   viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
+  viewer.scene.requestRender();
 }
 
 function flyTo(C, viewer, pair, range = 550, seconds = 1) {

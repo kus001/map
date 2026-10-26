@@ -20,32 +20,12 @@
 <details>
   <summary>Satellite View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Satellite 2D Dark](assets/dark_sat.png) | ![Satellite 2D Light](assets/light_sat.png) |
+| ![Satellite 3D Dark](assets/satellite_3d_dark.png) | ![Satellite 3D Light](assets/satellite_3d_light.png) |
+| ![Satellite Globe Dark](assets/satellite_globe_dark.png) | ![Satellite Globe Light](assets/satellite_globe_light.png) |
 
-![Satellite 2D Dark](assets/dark_sat.png)
-
-![Satellite 2D Light](assets/light_sat.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Satellite 3D Dark](assets/satellite_3d_dark.png)
-
-![Satellite 3D Light](assets/satellite_3d_light.png)
-
-  </details>
-
-  <details>
-  <summary>Globe</summary>
-
-![Satellite Globe Dark](assets/satellite_globe_dark.png)
-
-![Satellite Globe Light](assets/satellite_globe_light.png)
-
-  </details>
 </details>
 
 <!-- hybrid -->

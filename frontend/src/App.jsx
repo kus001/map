@@ -1741,7 +1741,7 @@ export default function App() {
             : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
         }`}
       >
-        <header className="px-5 pb-4 pt-4">
+        <header className="px-5 pb-2 pt-3">
           <div className="flex items-center justify-between">
             <a
               href="https://github.com/kus001/map"

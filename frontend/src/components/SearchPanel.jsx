@@ -501,7 +501,7 @@ export default function SearchPanel({
   }`;
 
   return (
-    <div className="px-6 pb-5 max-[760px]:px-4 max-[760px]:pb-3">
+    <div className="px-5 pb-5 max-[760px]:px-4 max-[760px]:pb-3">
       <div className="space-y-2 max-[760px]:space-y-2">
         <LocationInput
           recentSearches={recentSearches}

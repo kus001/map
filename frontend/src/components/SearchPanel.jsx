@@ -274,6 +274,11 @@ function LocationInput({
     }
   }
 
+  function chooseCurrentLocation(location) {
+    onChange(location);
+    setOpen(false);
+  }
+
   function chooseSuggestion(item) {
     suppressNextLookup.current = true;
     onChange(item.label);
@@ -388,10 +393,16 @@ function LocationInput({
                 ? "border-button/40 text-darkmode-gray"
                 : "border-button-light/50 text-charcoal"
             }`}>
-              <GoHistory className="opacity-70"/>
-              <span className="min-w-0 flex-1 truncate"> {/* truncate is to shorten text when too long */}
-                {location}
-              </span>
+              
+              <button
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                type="button"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => chooseCurrentLocation(location)}
+              >
+                <GoHistory className="opacity-70" />
+                <span className="truncate">{location}</span>
+              </button>
 
               <button 
                 className="ml-auto p-1.5 text-red-400 transition hover:text-red-700 active:scale-90" 

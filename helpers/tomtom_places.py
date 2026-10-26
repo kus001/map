@@ -1,8 +1,10 @@
 """TomTom (Orbis) place search, used as an extra autocomplete source.
 
 TomTom is only used for the *suggestions* (title + address text). It is never asked
-where a suggestion is: positions are resolved locally (the Waterloo Region address
-index) or, failing that, by Nominatim -- see ``helpers.geocoding.locate_place``.
+where a suggestion is, and ``search`` never waits on anyone else to find out either:
+results come back at once with ``lat``/``lon`` set to None. Positioning is the caller's
+job (the local address index, then Nominatim) -- see ``helpers.geocoding.locate_place``
+and the ``/api/locate-place`` route.
 
 The one coordinate TomTom still receives is the optional ``bias`` point, sent in
 GeoJSON order ``[lon, lat]``. The rest of this project uses ``(lat, lon)``, so that
@@ -14,7 +16,6 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from json import dumps
 
 import requests
@@ -161,21 +162,13 @@ def _address_of(result):
     return str(subtitles[0]).strip() if subtitles else ""
 
 
-def _default_locate(title, address, bias):
-    # Imported here because helpers.geocoding imports this module.
-    from helpers.geocoding import locate_place
-
-    return locate_place(title, address, bias)
-
-
-def search(query, limit=4, bias=None, locate=None):
+def search(query, limit=4, bias=None):
     """Autocomplete-style place search.
 
     ``bias`` is an optional ``(lat, lon)``; closer places rank higher but nothing is
-    excluded by distance. ``locate(title, address, bias) -> (lat, lon) | None`` places
-    each suggestion (default: local index, then Nominatim); suggestions it can't place
-    are dropped. Returns up to ``limit`` dicts shaped like the other search
-    sources: ``{"label", "lat", "lon", "source": "tomtom", "kind"}``. Never raises:
+    excluded by distance. Returns up to ``limit`` dicts shaped like the other search
+    sources: ``{"label", "lat": None, "lon": None, "source": "tomtom", "kind", "title", "address"}``
+    (coordinates are filled in later by the caller). Never raises:
     a missing key, a network error or a rejected request just gives ``[]``.
     """
     query = " ".join(str(query).split())
@@ -195,31 +188,24 @@ def search(query, limit=4, bias=None, locate=None):
     if not suggestions:
         return []
 
-    locate = locate or _default_locate
-    titles = [str(r.get("title") or "").strip() for r in suggestions]
-    with ThreadPoolExecutor(max_workers=len(suggestions)) as pool:
-        points = list(
-            pool.map(lambda pair: locate(pair[0], _address_of(pair[1]), bias),
-                     zip(titles, suggestions))
-        )
-
     results = []
-    for suggestion, point in zip(suggestions, points):
+    for suggestion in suggestions:
         label = _label(suggestion)
-        if point is None or not label:
+        if not label:
             continue
         results.append(
             {
                 "label": label,
-                "lat": point[0],
-                "lon": point[1],
+                "lat": None,
+                "lon": None,
                 "source": "tomtom",
                 "kind": suggestion.get("type"),
+                "title": str(suggestion.get("title") or "").strip(),
+                "address": _address_of(suggestion),
             }
         )
 
-    # Only remember complete answers, so a failed lookup isn't cached.
-    if len(results) == len(suggestions):
+    if results:
         _remember(_suggest_cache, cache_key, (time.monotonic() + _SUGGEST_TTL, results), _SUGGEST_CACHE_MAX)
     return [dict(item) for item in results]
 

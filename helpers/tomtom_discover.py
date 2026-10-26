@@ -12,23 +12,25 @@ def _isopen():
 
 def find(rawquery, lat=None, long=None):
     if not available():
-        # print("SETUP TOMTOM API KEY")
         return
-    if not lat or not long:
+
+    if lat is None or long is None:
         long, lat = testcoords
         print(f"No lat/long given... using long:{long}, lat:{lat}")
 
-    query = ""
-    for word in rawquery.split():
-        if not ("near" in word or "close" in word or word == "me"):
-            query += word
-            query += " "
+    query = " ".join(
+        word for word in rawquery.split()
+        if not ("near" in word.lower() or "close" in word.lower() or word.lower() == "me")
+    ).strip()
 
     headers = {
-        'TomTom-Api-Key': _api_key(),
-        'TomTom-Api-Version': "3",
-        'Attributes': 'results(title,poiTypes,position,subtitles,distanceInMeters,address,contacts,timeZones,openingHours)',
-        'Content-Type': 'application/json'
+        "TomTom-Api-Key": _api_key(),
+        "TomTom-Api-Version": "3",
+        "Attributes": (
+            "results(title,poiTypes,position,subtitles,"
+            "distanceInMeters,address,contacts,timeZones,openingHours)"
+        ),
+        "Content-Type": "application/json",
     }
 
     body = {
@@ -40,30 +42,48 @@ def find(rawquery, lat=None, long=None):
         "preferences": {
             "geometry": {
                 "type": "point",
-                "coordinates": [long, lat]
+                "coordinates": [long, lat],
             }
         },
-        "maxResults": 10
+        "maxResults": 10,
     }
 
-    rawresults = requests.post(DETAILS_URL, headers=headers, json=body).json()
-    results={}
+    response = requests.post(
+        DETAILS_URL, headers=headers, json=body
+    )
+    response.raise_for_status()
+    rawresults = response.json()
 
-    for rawresult in rawresults["results"]:
-        title = rawresult["title"]
-        results[title] = {
-            "type": rawresult["poiTypes"],
-            "position": rawresult["position"]["coordinates"],
-            "address" : rawresult["subtitles"],
-            "dist"    : rawresult["distanceInMeters"],
+    results = {}
+
+    for place in rawresults.get("results", []):
+        title = place["title"]
+        poi_types = place.get("poiTypes", [])
+        contacts = place.get("contacts", [{}])
+        contact = contacts[0] if contacts else {}
+
+        result = {
+            "type": poi_types[0].get("name") if poi_types else None,
+            "position": place.get("position", {}).get("coordinates"),
+            "address": ", ".join(place.get("subtitles", [])),
+            "distance_km": round(place["distanceInMeters"] / 1000, 2) if place.get("distanceInMeters") is not None else None,
+            "phone": next(iter(contact.get("phones", [])), None),
+            "website": next(iter(contact.get("websites", [])), None),
         }
 
-        if "contacts" in rawresult:
-            results[title]["contacts"] = rawresult["contacts"]
-        if "timeZones" in rawresult:
-            results[title]["time_zone"] = rawresult["timeZones"]
-        if "openingHours" in rawresult:
-            results[title]["hours"] = rawresult["openingHours"]
+        # Preserve opening hours and timezone data when available.
+        if place.get("openingHours"):
+            result["hours"] = place["openingHours"]
+
+        if place.get("timeZones"):
+            result["time_zone"] = place["timeZones"]
+
+        # Omit unavailable fields.
+        results[title] = {
+            key: value
+            for key, value in result.items()
+            if value is not None
+        }
 
     return results
 

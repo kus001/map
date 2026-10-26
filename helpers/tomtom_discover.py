@@ -27,7 +27,7 @@ def find(rawquery, lat=None, long=None):
     headers = {
         'TomTom-Api-Key': _api_key(),
         'TomTom-Api-Version': "3",
-        'Attributes': 'results(title,poiTypes,position,subtitles,distanceInMeters,address,contactstimeZones,openingHours)',
+        'Attributes': 'results(title,poiTypes,position,subtitles,distanceInMeters,address,contacts,timeZones,openingHours)',
         'Content-Type': 'application/json'
     }
 
@@ -52,7 +52,7 @@ def find(rawquery, lat=None, long=None):
     for rawresult in rawresults["results"]:
         title = rawresult["title"]
         results[title] = {
-            "poiTypes": rawresult["poiTypes"],
+            "type": rawresult["poiTypes"],
             "position": rawresult["position"]["coordinates"],
             "address" : rawresult["subtitles"],
             "dist"    : rawresult["distanceInMeters"],
@@ -60,6 +60,10 @@ def find(rawquery, lat=None, long=None):
 
         if "contacts" in rawresult:
             results[title]["contacts"] = rawresult["contacts"]
+        if "timeZones" in rawresult:
+            results[title]["time_zone"] = rawresult["timeZones"]
+        if "openingHours" in rawresult:
+            results[title]["hours"] = rawresult["openingHours"]
 
     return results
 

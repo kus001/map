@@ -8,31 +8,12 @@
 <details>
   <summary>Street View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Street 2D Dark](assets/darkmode.png) | ![Street 2D Light](assets/lightmode.png) |
+| ![Street 3D Dark](assets/street_3d_dark.png) | ![Street 3D Light](assets/street_3d_light.png) |
+| ![Street globe dark](assets/street_globe_dark.png) | ![Street globe light](assets/street_globe_light.png) |
 
-![Street 2D Dark](assets/darkmode.png)
-
-![Street 2D Light](assets/lightmode.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Street 3D Dark](assets/street_3d_dark.png)
-
-![Street 3D Light](assets/street_3d_light.png)
-
-  </details>
-
-  <details>
-    <summary>Globe</summary>
-
-![Street globe dark](assets/street_globe_dark.png)
-![Street globe light](assets/street_globe_light.png)
-
-  </details>
 </details>
 
 <!-- satellite -->

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { StopBoard } from "./MapView.jsx";
+import { Info as Ontario511Info } from "./Ontario511Layer.jsx";
 
 // Production Cesium 3D scene. Building positions are not shifted to match imagery.
 // CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
@@ -73,15 +75,22 @@ function centerOfCamera(C, viewer) {
   return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
 }
 function initialFocus(C, viewer, camera) {
-  const [lon, lat] = Array.isArray(camera?.center) ? camera.center : TORONTO;
+  // A Leaflet camera.center is the point ON THE MAP being viewed, not the
+  // camera's geodetic position. The old setView(fromDegrees(center, altitude))
+  // placed a pitched camera north/south of the intended focus.
+  const [lon, lat] = Array.isArray(camera?.center) ? camera.center.map(Number) : TORONTO;
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-  const pitch = Number.isFinite(camera?.pitch) ? camera.pitch : 48;
   const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
-  viewer.camera.setView({
-    destination: C.Cartesian3.fromDegrees(lon, lat, cameraHeight(camera?.zoom ?? 13)),
-    orientation: { heading: C.Math.toRadians(bearing), pitch: C.Math.toRadians(Math.max(-75, Math.min(-42, pitch - 90))), roll: 0 },
-  });
+  const tiltFromVertical = Number.isFinite(camera?.pitch) ? camera.pitch : 45;
+  const pitch = C.Math.toRadians(Math.max(-85, Math.min(-40, tiltFromVertical - 90)));
+  const range = cameraHeight(camera?.zoom ?? 13);
+  const target = C.Cartesian3.fromDegrees(lon, lat, 0);
+  viewer.camera.lookAt(target, new C.HeadingPitchRange(C.Math.toRadians(bearing), pitch, range));
+  // Restore Cesium's world transform so normal pan/tilt and globe gestures
+  // work, but keep the world target established above.
+  viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
 }
+
 function flyTo(C, viewer, pair, range = 550, seconds = 1) {
   if (!validLatLon(pair)) return;
   viewer.camera.flyToBoundingSphere(new C.BoundingSphere(degreesPoint(C, pair), 1), {
@@ -158,6 +167,26 @@ function floatingStyles(darkMode) {
   };
 }
 
+function BusDetails({ vehicle }) {
+  const estimated = Boolean(vehicle.estimated);
+  const delayAdjusted = vehicle.position_source === "schedule_adjusted";
+  return (
+    <div className="text-sm text-slate-900">
+      <div className="font-semibold">{vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {estimated ? "Scheduled estimate" : "Live"} {vehicle.route ? `route ${vehicle.route}` : "vehicle"}</div>
+      {(vehicle.display_headsign || vehicle.headsign) && <div>toward {vehicle.display_headsign || vehicle.headsign}</div>}
+      {vehicle.vehicle_label && <div>{vehicle.vehicle_label}</div>}
+      {estimated ? (
+        <div className="mt-1 text-[10px] opacity-70">
+          {delayAdjusted ? "Estimated from the timetable with the latest known delay."
+            : "Estimated from the scheduled timetable; not a GPS position."}
+        </div>
+      ) : vehicle.timestamp ? (
+        <div className="mt-1 text-[10px] opacity-60">Position update {new Date(Number(vehicle.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Scene3D({
   data, selectedRoute, selectedRouteNumber = 1, displayedMode, onSelectRoute,
   currentLocation, navigationActive, startCoordinate, destinationCoordinate, startLabel, destinationLabel,
@@ -178,9 +207,11 @@ export default function Scene3D({
   const ionToken = CESIUM_ION_TOKEN;
   const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
   const lastGlobeMode = useRef(null);
-  const [menu, setMenu] = useState(null);
-  const [tip, setTip] = useState("");
+  const [popup, setPopup] = useState(null);
+  const popupElement = useRef(null);
+  const popupRef = useRef(null);
   const layersKey = enabledLayers.join("|");
+  popupRef.current = popup;
   const mode = displayedMode || data?.mode || "driving";
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const initialCameraRef = useRef(initialCamera || DEFAULT_CAMERA);
@@ -260,17 +291,44 @@ export default function Scene3D({
           if (viewer.isDestroyed() || scene.current?.disposed) return;
           const coord = groundCoordinate(evt.position);
           if (!coord) return;
-          setMenu({ x: evt.position.x, y: evt.position.y, point: coord });
+          setPopup({ kind: "picker", location: coord });
         }, C.ScreenSpaceEventType.RIGHT_CLICK);
         handler.setInputAction(evt => {
           if (viewer.isDestroyed() || scene.current?.disposed) return;
-          setMenu(null);
           const picked = viewer.scene.pick(evt.position);
           const entity = picked?.id;
           if (entity?.kmapsRoute) callbacks.current.onSelectRoute?.(entity.kmapsRoute);
           if (entity?.kmapsStop) {
-            const label = entity.kmapsStop.name || "Transit stop";
-            setTip(`${label} · ${entity.kmapsStop.agency || "Transit"}`);
+            setPopup({ kind: "stop", location: entity.kmapsStop.coordinates, stop: entity.kmapsStop });
+          } else if (entity?.kmapsVehicle) {
+            const vehicle = entity.kmapsVehicle;
+            setPopup({ kind: "bus", location: [vehicle.lat, vehicle.lon], vehicle });
+          } else if (entity?.kmapsReport) {
+            setPopup({ kind: "report", location: entity.kmapsReport.position, item: entity.kmapsReport.item });
+          } else if (entity?.kmapsMarker && entity.kmapsMarker !== "bus") {
+            setPopup({ kind: "marker", location: entity.kmapsPosition, title: entity.kmapsMarker === "start"
+              ? `Start: ${routeData.current.data?.start?.address || startLabel || "Selected location"}`
+              : entity.kmapsMarker === "end"
+                ? `Destination: ${routeData.current.data?.end?.address || destinationLabel || "Selected location"}`
+                : "Current location" });
+          } else {
+            // Match Leaflet: near-by stops are clickable even when their tiny
+            // visible dot isn't exactly under the pointer.
+            const current = scene.current;
+            const height = viewer.camera.positionCartographic?.height ?? Infinity;
+            let closest = null, closestPixels = 34;
+            if (current && routeData.current.mode === "transit" && height < 1750) {
+              for (const stopEntity of current.stops) {
+                const position = stopEntity.position?.getValue(C.JulianDate.now());
+                if (!position) continue;
+                const projected = C.SceneTransforms.worldToWindowCoordinates(viewer.scene, position);
+                if (!projected) continue;
+                const pixels = Math.hypot(projected.x - evt.position.x, projected.y - evt.position.y);
+                if (pixels < closestPixels) { closest = stopEntity.kmapsStop; closestPixels = pixels; }
+              }
+            }
+            if (closest) setPopup({ kind: "stop", location: closest.coordinates, stop: closest });
+            else setPopup(null);
           }
         }, C.ScreenSpaceEventType.LEFT_CLICK);
         let drag = null;
@@ -282,16 +340,10 @@ export default function Scene3D({
         }, C.ScreenSpaceEventType.LEFT_DOWN);
         handler.setInputAction(evt => {
           if (!drag) return;
-          const pos = groundCoordinate(evt.endPosition);
-          if (pos) setTip(`Move ${drag === "start" ? "start" : "destination"}`);
-        }, C.ScreenSpaceEventType.MOUSE_MOVE);
-        handler.setInputAction(evt => {
-          if (!drag) return;
           const pos = groundCoordinate(evt.position);
           if (pos) (drag === "start" ? callbacks.current.onMoveStart : callbacks.current.onMoveDestination)?.(pos);
           drag = null;
           viewer.scene.screenSpaceCameraController.enableRotate = true;
-          setTip("");
         }, C.ScreenSpaceEventType.LEFT_UP);
         changed = () => {
           const current = scene.current;
@@ -305,6 +357,39 @@ export default function Scene3D({
           }
         };
         viewer.camera.moveEnd.addEventListener(changed);
+        // Follow the selected geographic point every frame, including camera
+        // tilt, touch pan, and terrain tile changes. This is NOT screen-fixed.
+        const followPopup = () => {
+          const pop = popupRef.current;
+          const element = popupElement.current;
+          if (!element || !pop || !validLatLon(pop.location) || viewer.isDestroyed()) return;
+          const [lat, lon] = pop.location;
+          const cartographic = C.Cartographic.fromDegrees(Number(lon), Number(lat));
+          const ground = viewer.scene.globe.getHeight(cartographic);
+          const world = C.Cartesian3.fromDegrees(Number(lon), Number(lat), (Number.isFinite(ground) ? ground : 0) + 4);
+          const toward = C.Cartesian3.subtract(world, viewer.camera.positionWC, new C.Cartesian3());
+          const facing = C.Cartesian3.dot(viewer.camera.directionWC, toward) > 0;
+          const pixel = facing ? C.SceneTransforms.worldToWindowCoordinates(viewer.scene, world) : null;
+          const width = holder.current?.clientWidth || 0;
+          const height = holder.current?.clientHeight || 0;
+          if (!pixel || !Number.isFinite(pixel.x) || !Number.isFinite(pixel.y) ||
+              pixel.x < -35 || pixel.x > width + 35 || pixel.y < -35 || pixel.y > height + 35) {
+            element.style.visibility = "hidden";
+          } else {
+            element.style.visibility = "visible";
+            const halfWidth = Math.min(150, Math.max(12, width / 2 - 12));
+            element.style.left = `${Math.max(halfWidth, Math.min(width - halfWidth, pixel.x))}px`;
+            if (pixel.y < 275) {
+              element.style.top = `${Math.max(12, pixel.y + 14)}px`;
+              element.style.transform = "translate(-50%, 0)";
+            } else {
+              element.style.top = `${pixel.y - 14}px`;
+              element.style.transform = "translate(-50%, -100%)";
+            }
+          }
+        };
+        scene.current.followPopup = followPopup;
+        scene.current.removeFollowPopup = viewer.scene.postRender.addEventListener(followPopup);
         setReady(true);
         setError("");
       } catch (e) { if (!disposed) setError(String(e.message || e)); }
@@ -316,6 +401,7 @@ export default function Scene3D({
       const ownedScene = scene.current?.viewer === viewer ? scene.current : null;
       if (ownedScene) {
         ownedScene.disposed = true;
+        ownedScene.removeFollowPopup?.();
         ownedScene.buildingGen++;
         ownedScene.terrainGen++;
         scene.current = null;
@@ -573,27 +659,36 @@ export default function Scene3D({
     const { C, viewer } = current;
     for (const entity of current.markers) viewer.entities.remove(entity);
     current.markers = [];
-    function marker(pair, text, kind, color) {
+    function marker(pair, text, kind, color, payload) {
       if (!validLatLon(pair)) return;
+      const location = [Number(pair[0]), Number(pair[1])];
       const entity = viewer.entities.add({
-        position: degreesPoint(C, pair, 3),
-        point: { pixelSize: 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
-          heightReference: C.HeightReference.RELATIVE_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-        label: { text, font: "bold 13px system-ui", fillColor: C.Color.WHITE,
+        position: degreesPoint(C, location),
+        point: { pixelSize: kind === "bus" ? 14 : 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
+          heightReference: C.HeightReference.CLAMP_TO_GROUND },
+        label: { text, font: "bold 12px system-ui", fillColor: C.Color.WHITE,
           style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 3,
-          pixelOffset: new C.Cartesian2(0, -23), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+          heightReference: C.HeightReference.CLAMP_TO_GROUND,
+          pixelOffset: new C.Cartesian2(0, -23), distanceDisplayCondition: new C.DistanceDisplayCondition(0, 4500) },
       });
       entity.kmapsMarker = kind;
+      entity.kmapsPosition = location;
+      if (kind === "bus") entity.kmapsVehicle = payload;
       current.markers.push(entity);
     }
     if (!navigationActive) marker(startCoordinate || data?.start?.coordinates, "A", "start", "#5cb78a");
     marker(destinationCoordinate || data?.end?.coordinates, "B", "end", "#ee6d5e");
     marker(currentLocation, "●", "location", "#4ba4fc");
-    for (const vehicle of route?.live_vehicles || []) {
-      if (Number.isFinite(Number(vehicle.lat)) && Number.isFinite(Number(vehicle.lon))) marker([vehicle.lat, vehicle.lon], "BUS", "bus", "#f2aa66");
+    if (mode === "transit") for (const vehicle of route?.live_vehicles || []) {
+      const matchingTrip = (route.steps || []).some(step => step.type === "transit" &&
+        String(step.agency) === String(vehicle.agency) && String(step.trip_id) === String(vehicle.trip_id));
+      if (matchingTrip && validLatLon([vehicle.lat, vehicle.lon])) {
+        marker([vehicle.lat, vehicle.lon], vehicle.route ? String(vehicle.route) : "BUS", "bus",
+          vehicle.estimated ? "#64748B" : "#D97706", vehicle);
+      }
     }
     viewer.scene.requestRender();
-  }, [ready, route, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive]);
+  }, [ready, route, mode, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive]);
 
   useEffect(() => {
     const current = scene.current;
@@ -634,15 +729,30 @@ export default function Scene3D({
           if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
           callbacks.current.onLayerStatus?.(kind, payload.message || "");
           for (const item of (payload.items || []).slice(0, 150)) {
-            if (!validLatLon(item.point)) continue;
             const color = { incidents: "#f26c65", construction: "#e3ac58", cameras: "#6ca7ff", winter: "#90b7df" }[kind];
-            current.dynamic.push(viewer.entities.add({
-              position: degreesPoint(C, item.point, 1),
-              point: { pixelSize: 9, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-              label: { text: (item.title || kind).slice(0, 32), font: "11px system-ui", pixelOffset: new C.Cartesian2(0, -15), fillColor: C.Color.WHITE,
-                style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 2, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 8000) },
-              description: item.summary || item.details || item.title || kind,
-            }));
+            for (const line of item.lines || []) {
+              const positions = coordsToCartesians(C, line);
+              if (positions.length < 2) continue;
+              const route = viewer.entities.add({
+                polyline: { positions, clampToGround: true, width: kind === "winter" ? 5 : 4,
+                  material: css(C, color).withAlpha(0.82) },
+              });
+              route.kmapsReport = { item, position: line[Math.floor(line.length / 2)] };
+              current.dynamic.push(route);
+            }
+            if (!validLatLon(item.point)) continue;
+            const position = [Number(item.point[0]), Number(item.point[1])];
+            const report = viewer.entities.add({
+              position: degreesPoint(C, position),
+              point: { pixelSize: 10, color: css(C, color), outlineColor: C.Color.WHITE,
+                outlineWidth: 2, heightReference: C.HeightReference.CLAMP_TO_GROUND },
+              label: { text: (item.title || kind).slice(0, 32), font: "11px system-ui", pixelOffset: new C.Cartesian2(0, -18),
+                fillColor: C.Color.WHITE, style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK,
+                outlineWidth: 2, heightReference: C.HeightReference.CLAMP_TO_GROUND,
+                distanceDisplayCondition: new C.DistanceDisplayCondition(0, 8000) },
+            });
+            report.kmapsReport = { item, position };
+            current.dynamic.push(report);
           }
         } catch (e) {
           if (!cancelled && !current.disposed && !viewer.isDestroyed() && e.name !== "AbortError")
@@ -680,6 +790,14 @@ export default function Scene3D({
     return () => { if (traffic && !viewer.isDestroyed()) viewer.imageryLayers.remove(traffic); };
   }, [ready, layersKey, darkMode, mapStyle]);
 
+  useEffect(() => {
+    const current = scene.current;
+    if (current && !current.disposed && !current.viewer.isDestroyed()) {
+      current.followPopup?.();
+      current.viewer.scene.requestRender();
+    }
+  }, [popup]);
+
   // Nearby transit stops remain usable in the Cesium scene at street-level zoom.
   useEffect(() => {
     const current = scene.current;
@@ -703,12 +821,19 @@ export default function Scene3D({
           const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lon), radius: "900" });
           const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
           if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
-          for (const stop of (result.stops || []).slice(0, 120)) {
-            if (!validLatLon(stop.coordinates)) continue;
+          // Mirror the 2D map: always include the selected route's stops
+          // alongside nearby stops, without duplicating the same stop ID.
+          const selectedStops = route?.transit_stops || [];
+          const candidates = [...selectedStops, ...(result.stops || [])];
+          const stopIds = new Set();
+          for (const stop of candidates.slice(0, 180)) {
+            if (!validLatLon(stop.coordinates) || stopIds.has(stop.id)) continue;
+            stopIds.add(stop.id);
             const entity = viewer.entities.add({
-              position: degreesPoint(C, stop.coordinates, 2),
-              point: { pixelSize: 7, color: C.Color.fromCssColorString("#a888f2"),
-                outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+              position: degreesPoint(C, stop.coordinates),
+              point: { pixelSize: 9, color: C.Color.fromCssColorString("#a888f2"),
+                outlineColor: C.Color.WHITE, outlineWidth: 1.5,
+                heightReference: C.HeightReference.CLAMP_TO_GROUND },
             });
             entity.kmapsStop = stop;
             current.stops.push(entity);
@@ -732,7 +857,7 @@ export default function Scene3D({
       }
       current.stops = [];
     };
-  }, [ready, mode]);
+  }, [ready, mode, route]);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: darkMode ? "#101b27" : "#e2eef7" }}>
@@ -754,12 +879,36 @@ export default function Scene3D({
           )}
         </div>
       )}
-      {tip && <div role="status" style={{ position: "absolute", bottom: 48, left: 12, zIndex: 490, ...floatingStyles(darkMode) }}>{tip}</div>}
-      {menu && <div style={{ position: "absolute", left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 90), zIndex: 491, ...floatingStyles(darkMode), display: "grid", gap: 4 }}>
-        <button type="button" onClick={() => { callbacks.current.onSetMapStart?.(menu.point); setMenu(null); }}>Set as start</button>
-        <button type="button" onClick={() => { callbacks.current.onSetMapDestination?.(menu.point); setMenu(null); }}>Set as destination</button>
-        <button type="button" onClick={() => setMenu(null)}>Cancel</button>
-      </div>}
+      {popup && (
+        <div ref={popupElement} className="cesium-location-popup"
+          style={{ position: "absolute", visibility: "hidden", zIndex: 650, width: "min(320px, calc(100% - 24px))",
+            maxHeight: "min(380px, 65vh)", overflowY: "auto", transform: "translate(-50%, -100%)",
+            background: "white", borderRadius: 12, boxShadow: "0 8px 28px #0005", color: "#17202b",
+            padding: "14px 15px", pointerEvents: "auto" }}>
+          <button type="button" onClick={() => setPopup(null)} aria-label="Close popup"
+            style={{ position: "absolute", top: 5, right: 8, fontSize: 19, lineHeight: 1,
+              border: 0, background: "transparent", cursor: "pointer", color: "#475569" }}>×</button>
+          <div style={{ paddingRight: 12 }}>
+            {popup.kind === "stop" && <StopBoard stop={popup.stop} />}
+            {popup.kind === "bus" && <BusDetails vehicle={popup.vehicle} />}
+            {popup.kind === "report" && <Ontario511Info item={popup.item} />}
+            {popup.kind === "marker" && <div className="text-sm font-semibold">{popup.title}</div>}
+            {popup.kind === "picker" && (
+              <div className="min-w-[150px] text-slate-900">
+                <div className="mb-2 text-xs font-semibold">Use this location</div>
+                <div className="grid gap-1.5">
+                  <button type="button" className="rounded-md bg-slate-100 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-green/15"
+                    onClick={() => { callbacks.current.onSetMapStart?.(popup.location); setPopup(null); }}>Set as start</button>
+                  <button type="button" className="rounded-md bg-slate-100 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-green/15"
+                    onClick={() => { callbacks.current.onSetMapDestination?.(popup.location); setPopup(null); }}>Set as destination</button>
+                </div>
+                <div className="mt-2 text-[10px] opacity-60">{Number(popup.location[0]).toFixed(5)}, {Number(popup.location[1]).toFixed(5)}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

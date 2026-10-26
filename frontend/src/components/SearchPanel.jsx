@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { BsPersonWalking } from "react-icons/bs";
-import { GoDot } from "react-icons/go";
+import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline } from "react-icons/io5";
+import { IoCarOutline, IoClose } from "react-icons/io5";
 import {
   MdDirectionsTransit,
   MdMyLocation,
@@ -184,6 +184,9 @@ function LocationInput({
   skipLookup = false,
   bias = null,
   onSelectLocation = () => {},
+  recentSearches = [],
+  recentField,
+  removeRecentLocation,
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -191,11 +194,7 @@ function LocationInput({
   const suppressNextLookup = useRef(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const moreController = useRef(null);
-
-
-                                                                                  
-                                                                                     
-                                                                          
+  const recentLocations = [...new Set(recentSearches.map(search => recentField === "start" ? search.start : search.destination))]                                        
   const biasRef = useRef(null);
   useEffect(() => {
     biasRef.current = roundedBias(bias);
@@ -232,8 +231,8 @@ function LocationInput({
         );
         const json = response.ok ? await response.json() : null;
         const local = json?.success ? json.results ?? [] : [];
-                                                             
-        const external = local.filter(item => item.source !== "tomtom").length < 3
+                                                         
+        const external = local.length < 3
           ? await extraPlaces(query, proximity, controller.signal)
           : [];
         if (controller.signal.aborted) return;
@@ -273,6 +272,11 @@ function LocationInput({
     } finally {
       if (moreController.current === controller) setMoreLoading(false);
     }
+  }
+
+  function chooseCurrentLocation(location) {
+    onChange(location);
+    setOpen(false);
   }
 
   function chooseSuggestion(item) {
@@ -346,7 +350,11 @@ function LocationInput({
           }
         }}
         onKeyDown={handleKeyDown}
-        onFocus={() => suggestions.length && setOpen(true)}
+        onFocus={() => {
+          if (suggestions.length > 0 || (value.trim() === "" && recentLocations.length > 0)) {
+            setOpen(true);
+          }
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
@@ -369,7 +377,9 @@ function LocationInput({
         </div>
       )}
 
-      {!skipLookup && open && (suggestions.length > 0 || MAPTILER_KEY) && (
+      {!skipLookup && open  && (
+        suggestions.length > 0 || (MAPTILER_KEY && value.trim() !== "") || (value.trim() === "" && recentLocations.length > 0)
+        ) && (
         <div
           className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
@@ -377,6 +387,34 @@ function LocationInput({
               : "border-button-light bg-white"
           }`}
         >
+          {value.trim() === "" && recentLocations.map((location, index) => (
+            <div key={index} className={`flex items-center gap-3 border-b last:border-b-0 px-3 py-3 text-sm ${
+              darkMode
+                ? "border-button/40 text-darkmode-gray"
+                : "border-button-light/50 text-charcoal"
+            }`}>
+              
+              <button
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                type="button"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => chooseCurrentLocation(location)}
+              >
+                <GoHistory className="opacity-70" />
+                <span className="truncate">{location}</span>
+              </button>
+
+              <button 
+                className="ml-auto p-1.5 text-red-400 transition hover:text-red-700 active:scale-90" 
+                type="button"
+                onClick={() => removeRecentLocation(location)}
+                aria-label= "Remove location from recent locations"
+                onMouseDown={event => event.preventDefault()}
+              >
+                <IoClose />
+              </button>
+            </div>
+          ))}
           {suggestions.map((item, index) => (
             <button
               type="button"
@@ -403,7 +441,7 @@ function LocationInput({
               </span>
             </button>
           ))}
-          {MAPTILER_KEY && (
+          {MAPTILER_KEY && value.trim() !== "" && (
             <button
               type="button"
               onMouseDown={event => event.preventDefault()}
@@ -429,6 +467,7 @@ export default function SearchPanel({
   setStart,
   setDestination,
   mode,
+  removeRecentLocation,
   cyclingType,
   onModeChange,
   onCyclingTypeChange,
@@ -462,9 +501,12 @@ export default function SearchPanel({
   }`;
 
   return (
-    <div className="px-6 pb-5 max-[760px]:px-4 max-[760px]:pb-3">
-      <div className="space-y-3 max-[760px]:space-y-2">
+    <div className="px-5  max-[760px]:px-4 max-[760px]:pb-3">
+      <div className="space-y-2 max-[760px]:space-y-2">
         <LocationInput
+          recentSearches={recentSearches}
+          removeRecentLocation={removeRecentLocation}
+          recentField="start"
           key={usingCurrentLocation ? "current-location" : "typed-start"}
           value={start}
           mapStyle={mapStyle}
@@ -520,6 +562,9 @@ export default function SearchPanel({
         />
 
         <LocationInput
+          recentSearches={recentSearches}
+          removeRecentLocation={removeRecentLocation}
+          recentField="destination"
           value={destination}
           onChange={setDestination}
           onSearch={onSearch}
@@ -587,16 +632,16 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* recent searches  */}
+      {/* recent searches 
       {recentSearches.length > 0 && (
-        <div className={`mt-2 rounded-xl border ${
+        <details className={`ml-9 mt-3.5 rounded-xl border ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
               : "border-button bg-charcoal-light"
             : "border-button-light bg-white"
         }`}>
-          <p className={`text-xs font-semibold mb-2 ${
+          <summary className={`cursor-pointer px-3 py-2.5 text-xs font-semibold ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "text-hybrid-purple-light"
@@ -604,15 +649,19 @@ export default function SearchPanel({
                   ? "text-blue-lighter"
                   : "text-green-lighter"                  
             : "text-charcoal"
-          }`}>Recent Searches</p>
+          }`}>Recent Locations</summary>
           {recentSearches.map((search, index) => (
-            <div className="mt-4 pt-3">
-              <p>{search.start}</p>
-              <p>{search.mode}</p>
+            <div key={index} className={`mx-3 mb-1.5 rounded-lg border p-2 ${
+              darkMode
+                ? "border-button text-darkmode-gray "
+                : "border-button-light text-charcoal"
+            }`}>
+              <p className="text-xs font-medium">{search.start}</p>
+              <p className="mt-1 text-[11px] opacity-70">{search.mode}</p>
             </div>
           ))}
-        </div>
-      )}
+        </details>
+      )} */}
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <span
@@ -641,7 +690,7 @@ export default function SearchPanel({
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-4 gap-2">
+      <div className="mt-2 max-[760px]:mt-4 grid grid-cols-4 gap-2">
         {MODES.map(({ id, label, Icon }) => (
           <Button
             type="button"
@@ -660,7 +709,7 @@ export default function SearchPanel({
       </div>
 
       {mode === "cycling" && (
-        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5">
+        <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5 @container">
           {BIKE_TYPES.map(option => (
             <button
               type="button"
@@ -668,7 +717,7 @@ export default function SearchPanel({
               disabled={loading}
               mapStyle={mapStyle}
               onClick={() => onCyclingTypeChange(option.id)}
-              className={`rounded-lg border px-2 py-1.5 text-center text-[11px] font-semibold transition disabled:opacity-50 ${
+              className={`rounded-lg border px-1 py-1 text-center text-[12px] @max-[280px]:text-[10px] font-semibold transition disabled:opacity-50 ${
                 cyclingType === option.id
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -749,7 +798,7 @@ export default function SearchPanel({
         onClick={() => onSearch()}
         darkMode={darkMode}
         mapStyle={mapStyle}
-        className={`mt-4 h-11 w-full shadow-md active:scale-[0.99] 
+        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] 
         ${darkMode 
           ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
         }`}>

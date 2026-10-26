@@ -1,561 +1,161 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const MAPTILER_KEY = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
-const FREE = "https://tiles.openfreemap.org/styles/";
-const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-const TERRAIN_MIN_ZOOM = 7;
-const MAX_FREE_PITCH = 85;
-function safeCameraPitch(zoom, pitch) {
-  const limit = zoom >= 10 ? 80 : MAX_FREE_PITCH;
-  return Math.max(0, Math.min(limit, Number.isFinite(pitch) ? pitch : 0));
-}
+// Production Cesium 3D scene. Building positions are not shifted to match imagery.
+// CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
+// Toronto 2025 is loaded only as real hosted 3D Tiles or I3S, never synthesized footprints.
+const CESIUM_VERSION = "1.146";
+const CESIUM_CDN = `https://cesium.com/downloads/cesiumjs/releases/${CESIUM_VERSION}/Build/Cesium/`;
+const ESRI_MAPSERVER = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer";
+const ESRI_IMAGERY = `${ESRI_MAPSERVER}/tile/{z}/{y}/{x}`;
+const TORONTO = [-79.3832, 43.6525];
+const TORONTO_BOUNDS = { west: -79.64, south: 43.58, east: -79.10, north: 43.86 };
+const COLORS = { driving: "#70a9f2", walking: "#e5f4ea", cycling: "#7fdab2", transit: "#c099ff" };
+const DEFAULT_CAMERA = { center: TORONTO, zoom: 14, pitch: 48, bearing: 0 };
+const CESIUM_ION_TOKEN = (import.meta.env.VITE_CESIUM_ION_TOKEN || "").trim();
+const TORONTO_TILES_ENV = (import.meta.env.VITE_TORONTO_2025_TILES_URL || "").trim();
+const TORONTO_I3S_ENV = (import.meta.env.VITE_TORONTO_2025_I3S_URL || "").trim();
 
-// keep weaker devices from loading too much at once
-function deviceProfile() {
-  const memory = typeof navigator === "undefined" ? 0 : Number(navigator.deviceMemory) || 0;
-  const cores = typeof navigator === "undefined" ? 0 : Number(navigator.hardwareConcurrency) || 0;
-  const mobile = typeof navigator !== "undefined" &&
-    (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") || navigator.userAgentData?.mobile === true);
-  const tier = mobile || (memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)
-    ? "low" : (memory > 0 && memory <= 8) || (cores > 0 && cores <= 8)
-      ? "medium" : "high";
-  const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  return {
-    tier,
-    pixelRatio: Math.min(ratio, tier === "low" ? 1 : tier === "medium" ? 1.2 : 1.4),
-    tileCache: tier === "low" ? 8 : tier === "medium" ? 14 : 22,
-    buildingZoom: tier === "low" ? 15.6 : tier === "medium" ? 15.2 : 14.8,
-    demZoom: tier === "low" ? 9 : tier === "medium" ? 10 : 11,
-    shadeZoom: tier === "low" ? 8 : 6,
-  };
-}
-
-function applyAtmosphere(map, darkMode, globe) {
-  const nextSky = globe ? {
-    "sky-color": darkMode ? "#0c202f" : "#8dc5ed",
-    "horizon-color": darkMode ? "#091521" : "#e1f3ff",
-    "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 9, 0.95, 15, 0.65, 22, 0.38],
-  } : {
-    "sky-color": darkMode ? "#17304b" : "#79b8e6",
-    "horizon-color": darkMode ? "#779ab7" : "#edf8ff",
-    "fog-color": darkMode ? "#54738c" : "#c3e1f5",
-    "sky-horizon-blend": 0.7,
-    "horizon-fog-blend": 0.72,
-    "fog-ground-blend": 0.12,
-    "atmosphere-blend": 0,
-  };
-  const id = `${globe ? "globe" : "flat"}:${darkMode ? "dark" : "light"}`;
-  if (map.__kmSkyKey === id) return;
-  map.setSky(nextSky);
-  map.__kmSkyKey = id;
-}
-
-const DEFAULT_CAMERA = { center: [-80.5249, 43.4829], zoom: 13, pitch: 58, bearing: 0 };
-const COLOR = { driving: "#62876d", walking: "#e9f3ec", cycling: "#81b686", transit: "#b99aff" };
-const FEED_COLORS = { incidents: "#db544d", construction: "#eb9d3c", cameras: "#478cc5", winter: "#7299cd" };
-const freeStyleCache = new Map();
-let maptilerUnavailable = false;
-
-let loader;
-function loadMapLibre() {
-  if (!loader) {
-    loader = (async () => {
-      if (!document.querySelector('link[data-km-3d]')) {
-        const css = document.createElement("link");
-        css.rel = "stylesheet";
-        css.dataset.km3d = "true";
-        css.href = "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.css";
-        document.head.appendChild(css);
-      }
-      const url = "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.mjs";
-      const gl = await import(/* @vite-ignore */ url);
-      if (!gl?.Map) throw new Error("3D renderer unavailable");
-      return gl;
-    })().catch(error => { loader = null; throw error; });
-  }
-  return loader;
-}
-
-function geoLine(points) {
-  const coords = (points || []).filter(p => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
-    .map(p => [Number(p[1]), Number(p[0])]);
-  return coords.length > 1 ? { type: "LineString", coordinates: coords } : null;
-}
-function collection(features) { return { type: "FeatureCollection", features }; }
-function setData(map, id, features) {
-  const source = map.getSource(id);
-  if (source) source.setData(collection(features));
-}
-function addGeo(map, id) {
-  if (!map.getSource(id)) map.addSource(id, { type: "geojson", data: collection([]) });
-}
-function validCoord(value) {
-  return Array.isArray(value) && value.length >= 2 && value.every(v => Number.isFinite(Number(v)));
-}
-function lineFeature(points, color, routeNumber, walking = false, chosen = false) {
-  const geometry = geoLine(points);
-  return geometry ? { type: "Feature", geometry, properties: { color, routeNumber: String(routeNumber), walking: walking ? 1 : 0, chosen: chosen ? 1 : 0 } } : null;
-}
-
-function buildingSourceFromStyle(style) {
-  const sources = style?.sources || {};
-  const layer = (style?.layers || []).find(item => item["source-layer"] === "building" &&
-    sources[item.source]?.type === "vector");
-  return (layer && sources[layer.source]) || sources.openmaptiles || sources.openfreemap || null;
-}
-
-// api styles first, free tiles if that doesnt work
-async function getStyle(mapStyle, darkMode, signal) {
-  const freeName = darkMode ? "dark" : "liberty";
-  let freeStyle = freeStyleCache.get(freeName);
-  if (!freeStyle) {
-    const response = await fetch(`${FREE}${freeName}`, { signal });
-    if (!response.ok) throw new Error("The free map provider isn't responding");
-    freeStyle = await response.json();
-    if (freeStyle.version === 8 && buildingSourceFromStyle(freeStyle))
-      freeStyleCache.set(freeName, freeStyle);
-  }
-  freeStyle = structuredClone(freeStyle);
-  if (freeStyle.version !== 8 || !freeStyle.sources) throw new Error("Unexpected map style data");
-  const freeBuildingSource = buildingSourceFromStyle(freeStyle);
-  const dedicatedBuildingSource = freeBuildingSource;
-
-  const keyAllowed = MAPTILER_KEY && !maptilerUnavailable && import.meta.env.VITE_MAP_PROVIDER !== "openfreemap";
-  const satelliteFallback = mapStyle === "hybrid" ? {
-    version: 8, glyphs: freeStyle.glyphs, sprite: freeStyle.sprite,
-    sources: { ...freeStyle.sources, "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
-    layers: [
-      { id: "km-imagery", type: "raster", source: "km-satellite", paint: darkMode ? { "raster-brightness-max": 0.82 } : {} },
-      ...freeStyle.layers.filter(layer => ["line", "symbol"].includes(layer.type) && /road|street|highway|rail|bridge|tunnel|place|poi|label|boundary|waterway|transport/i.test(layer.id)),
-    ],
-  } : freeStyle;
-
-  if (keyAllowed && mapStyle !== "satellite") {
-    const styleName = mapStyle === "hybrid" ? (darkMode ? "hybrid-v4-dark" : "hybrid-v4") : (darkMode ? "streets-v4-dark" : "streets-v4");
-    try {
-      const key = encodeURIComponent(MAPTILER_KEY);
-      const result = await fetch(`https://api.maptiler.com/maps/${styleName}/style.json?key=${key}`, { signal });
-      if (result.status === 401 || result.status === 403) maptilerUnavailable = true;
-      if (result.ok && result.headers.get("content-type")?.includes("json")) {
-        const style = await result.json();
-        if (style.version === 8 && style.sources && Array.isArray(style.layers)) {
-          return {
-            style: { ...style, sources: {
-              ...style.sources,
-              ...(freeBuildingSource ? { "km-building-vectors": freeBuildingSource } : {}),
-            } },
-            buildingSource: freeBuildingSource,
-            fallback: satelliteFallback,
-          };
-        }
-      }
-    } catch (error) { if (signal.aborted) throw error; }
-  }
-
-  if (mapStyle === "street") return { style: freeStyle, buildingSource: freeBuildingSource, fallback: freeStyle };
-
-  const imagery = {
-    id: "km-imagery", type: "raster", source: "km-satellite",
-    paint: darkMode ? { "raster-brightness-max": 0.82 } : {},
-  };
-  const roadLabels = mapStyle === "hybrid" ? satelliteFallback.layers.slice(1) : [];
-  return {
-    style: {
-      version: 8,
-      glyphs: freeStyle.glyphs,
-      sprite: freeStyle.sprite,
-      sources: { ...(mapStyle === "hybrid" ? freeStyle.sources : {}),
-        ...(dedicatedBuildingSource ? { "km-building-vectors": dedicatedBuildingSource } : {}),
-        "km-satellite": { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri" } },
-      layers: [imagery, ...roadLabels],
-    },
-    buildingSource: freeBuildingSource,
-    fallback: freeStyle,
-  };
-}
-
-function syncTerrain(map, enabled, profile) {
-  if (!map.isStyleLoaded() || !map.getSource("km-elevation")) return;
-  const shouldRender = enabled && map.getZoom() >= TERRAIN_MIN_ZOOM && map.getPitch() <= 89;
-  const current = map.getTerrain();
-  if (shouldRender && !current) map.setTerrain({ source: "km-elevation", exaggeration: profile.tier === "low" ? 1.25 : 1.45 });
-  else if (!shouldRender && current) map.setTerrain(null);
-  if (map.getLayer("km-terrain-shading")) {
-    map.setLayoutProperty("km-terrain-shading", "visibility", enabled ? "visible" : "none");
-  }
-}
-
-function pickBuildingSource(map, buildingSource) {
-  const style = map.getStyle();
-  const sources = style.sources || {};
-  if (sources["km-building-vectors"]?.type === "vector" && map.getSource("km-building-vectors")) {
-    return "km-building-vectors";
-  }
-  const usedByBuildings = (style.layers || [])
-    .filter(layer => layer["source-layer"] === "building" && sources[layer.source]?.type === "vector")
-    .map(layer => layer.source);
-  const candidates = [...new Set(["km-building-vectors", ...usedByBuildings, "openmaptiles", "openfreemap", "maptiler_planet"])]
-    .filter(id => sources[id]?.type === "vector" && map.getSource(id));
-  if (candidates.length) {
-    return candidates.find(id => map.isSourceLoaded(id)) || candidates[0];
-  }
-  const sourceId = "km-buildings";
-  if (!map.getSource(sourceId)) {
-    const supplied = buildingSource?.type === "vector" ? buildingSource : {
-      type: "vector", url: "https://tiles.openfreemap.org/planet",
-    };
-    map.addSource(sourceId, { ...supplied, type: "vector" });
-  }
-  return sourceId;
-}
-
-function buildingLayerInsertionPoint(map) {
-  const layers = map.getStyle().layers || [];
-  let lastGroundIndex = -1;
-  for (let i = 0; i < layers.length; i++) {
-    if (["raster", "hillshade", "background"].includes(layers[i].type)) lastGroundIndex = i;
-  }
-  return layers.slice(lastGroundIndex + 1)
-    .find(layer => layer.type === "symbol")?.id;
-}
-
-// actual mapped colours first, then the material, then beige
-function buildingMaterialColor(darkMode) {
-  const neutral = darkMode ? "#aeb5bb" : "#d1c8ba";
-  const material = ["downcase", ["to-string", ["coalesce",
-    ["get", "render_material"], ["get", "building:material"], ["get", "material"], ""]]];
-  const byMaterial = ["match", material,
-    "brick", darkMode ? "#9d786e" : "#bb8e7e",
-    "glass", darkMode ? "#759baa" : "#9bbec9",
-    "concrete", darkMode ? "#9b9ea1" : "#c2bfba",
-    "stone", darkMode ? "#b1aaa0" : "#d4c9b6",
-    "metal", darkMode ? "#8497a1" : "#a9b7ba",
-    "wood", darkMode ? "#997c67" : "#c6a88d",
-    "plaster", darkMode ? "#b8b2a7" : "#e1d7c8",
-    neutral];
-  return ["to-color",
-    ["get", "render_colour"], ["get", "building:colour"],
-    ["get", "building:color"], ["get", "colour"], ["get", "color"],
-    byMaterial];
-}
-
-function ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile) {
-  if (map.getLayer("km-buildings-3d")) {
-    map.setLayoutProperty("km-buildings-3d", "visibility", "visible");
-    return true;
-  }
-  const diagnostic = map.__kmBuildingInfo || (map.__kmBuildingInfo = { attempts: 0, lastError: null });
-  diagnostic.attempts++;
-  let sourceId;
-  try {
-    sourceId = pickBuildingSource(map, buildingSource);
-  } catch (error) {
-    diagnostic.lastError = `Source: ${String(error?.message || error)}`;
-    console.warn("3D building source setup failed", error);
-    return false;
-  }
-  diagnostic.sourceId = sourceId;
-  if (!sourceId || !map.getSource(sourceId)) {
-    diagnostic.lastError = "Vector source not registered in map style";
-    return false;
-  }
-  const startZoom = Math.min(profile.buildingZoom, 15.3);
-  const layer = {
-    id: "km-buildings-3d", type: "fill-extrusion", source: sourceId,
-    "source-layer": "building", minzoom: startZoom,
-    layout: { visibility: "visible" },
-    filter: ["!=", ["get", "hide_3d"], true],
-    paint: {
-      "fill-extrusion-color": buildingMaterialColor(darkMode),
-      "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5,
-        ["max", 3, ["to-number", ["get", "render_height"], ["get", "height"], 12]]],
-      "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"],
-        startZoom, 0, startZoom + 0.5,
-        ["max", 0, ["to-number", ["get", "render_min_height"], ["get", "min_height"], 0]]],
-      "fill-extrusion-opacity": 1,
-    },
-  };
-  const before = buildingLayerInsertionPoint(map);
-  try {
-    map.addLayer(layer, before);
-  } catch (error) {
-    diagnostic.lastError = `Layer: ${String(error?.message || error)}`;
-    console.warn("3D building extrusion failed to install", error);
-    return false;
-  }
-  diagnostic.lastError = null;
-  return Boolean(map.getLayer("km-buildings-3d"));
-}
-
-// dont draw the provider buildings on top of our own
-function syncNativeBuildings(map, buildingsEnabled) {
-  const layer = map.getLayer("km-buildings-3d");
-  const source = buildingsEnabled ? layer?.source : null;
-  let customReady = false;
-  if (source) {
-    const sourceLoaded = (() => {
-      try { return map.isSourceLoaded(source); }
-      catch { return false; }
-    })();
-    const cachedCheck = map.__kmBuildingCheck;
-    const checkedAt = performance.now();
-    const center = map.getCenter();
-    const viewKey = `${source}:${map.getZoom().toFixed(1)}:${center.lng.toFixed(3)}:${center.lat.toFixed(3)}`;
-    if (sourceLoaded && (!cachedCheck || cachedCheck.view !== viewKey || checkedAt - cachedCheck.checkedAt > 1500 || !cachedCheck.loaded)) {
-      const hasBuildings = (() => {
-        try { return map.querySourceFeatures(source, { sourceLayer: "building" }).length > 0; }
-        catch { return false; }
-      })();
-      map.__kmBuildingCheck = { view: viewKey, checkedAt, loaded: true, hasBuildings };
+let cesiumPromise;
+function loadCesium() {
+  if (window.Cesium?.Viewer) return Promise.resolve(window.Cesium);
+  if (cesiumPromise) return cesiumPromise;
+  cesiumPromise = new Promise((resolve, reject) => {
+    if (!document.querySelector('link[data-kmaps-cesium]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = `${CESIUM_CDN}Widgets/widgets.css`;
+      link.dataset.kmapsCesium = "true";
+      document.head.appendChild(link);
     }
-    if (!sourceLoaded) map.__kmBuildingCheck = null;
-    customReady = sourceLoaded && Boolean(map.__kmBuildingCheck?.hasBuildings);
-  }
-  const styled = map.__kmStyledNativeBuildings || (map.__kmStyledNativeBuildings = new Set());
-  const lastSync = map.__kmNativeBuildingSync;
-  const now = performance.now();
-  if (lastSync && lastSync.ready === customReady && lastSync.enabled === buildingsEnabled &&
-      now - lastSync.checkedAt < 1000) return customReady;
-  map.__kmNativeBuildingSync = { ready: customReady, enabled: buildingsEnabled, checkedAt: now };
-  for (const nativeLayer of map.getStyle()?.layers || []) {
-    if (nativeLayer.type !== "fill-extrusion" || nativeLayer.id === "km-buildings-3d") continue;
-    if (buildingsEnabled && !customReady && !styled.has(nativeLayer.id)) {
-      try {
-        if (map.getPaintProperty(nativeLayer.id, "fill-extrusion-pattern") != null) {
-          map.setPaintProperty(nativeLayer.id, "fill-extrusion-pattern", null);
-        }
-        map.setPaintProperty(nativeLayer.id, "fill-extrusion-color", buildingMaterialColor(map.__kmBuildingDarkMode || false));
-        map.setPaintProperty(nativeLayer.id, "fill-extrusion-opacity", 1);
-        styled.add(nativeLayer.id);
-      } catch (error) { console.warn("Building colour fallback unavailable", error); }
-    }
-    const visibility = buildingsEnabled && !customReady ? "visible" : "none";
-    if (map.getLayoutProperty(nativeLayer.id, "visibility") !== visibility) {
-      map.setLayoutProperty(nativeLayer.id, "visibility", visibility);
-    }
-  }
-  return customReady;
+    const script = document.createElement("script");
+    script.src = `${CESIUM_CDN}Cesium.js`;
+    script.async = true;
+    script.onload = () => window.Cesium?.Viewer ? resolve(window.Cesium) : reject(new Error("CesiumJS failed to initialise"));
+    script.onerror = () => reject(new Error("Cannot load CesiumJS from the Cesium CDN. Check network or content blocking."));
+    document.head.appendChild(script);
+  }).catch(error => { cesiumPromise = null; throw error; });
+  return cesiumPromise;
 }
 
-function removeLegacyLandmarks(map) {
-  for (const id of ["km-real-landmarks", "km-landmark-models-3d"]) {
-    if (!map.getLayer(id)) continue;
-    try { map.removeLayer(id); }
-    catch (error) { console.warn("Could not clean up old landmark layer", error); }
-  }
-  const filters = map.__kmStoredBuildingFilters;
-  if (filters) {
-    for (const [id, filter] of Object.entries(filters)) {
-      if (!map.getLayer(id)) continue;
-      try { map.setFilter(id, filter); }
-      catch (error) { console.warn("Could not restore building filter", error); }
-    }
-    delete map.__kmStoredBuildingFilters;
-  }
+function validLatLon(value) {
+  return Array.isArray(value) && value.length >= 2 && Number.isFinite(Number(value[0])) && Number.isFinite(Number(value[1])) &&
+    Math.abs(Number(value[0])) <= 90 && Math.abs(Number(value[1])) <= 180;
 }
-
-// near-horizon buildings look like they float once ground tiles stop rendering.
-// cut off distant extrusions instead of changing the entire city's height.
-function buildingRangeMeters(zoom, pitch) {
-  const meters = Math.min(8500, Math.max(1400, 3700 * 2 ** ((16 - zoom) * 0.65)));
-  return Math.round(meters * (pitch >= 68 ? 0.62 : pitch >= 50 ? 0.82 : 1));
+function degreesPoint(C, pair, altitude = 0) {
+  return C.Cartesian3.fromDegrees(Number(pair[1]), Number(pair[0]), altitude);
 }
-
-function limitFarBuildings(map) {
-  if (!map.isStyleLoaded() || !map.__kmBuildingRangeFilters) return;
-  const center = map.getCenter();
-  const zoom = map.getZoom();
-  const pitch = map.getPitch();
-  const previous = map.__kmBuildingRangeView;
-  const distanceMoved = previous ? Math.hypot(
-    (center.lng - previous.lng) * 111320 * Math.cos(center.lat * Math.PI / 180),
-    (center.lat - previous.lat) * 111320,
-  ) : Infinity;
-  const layers = (map.getStyle()?.layers || []).filter(layer => layer.type === "fill-extrusion");
-  const originals = map.__kmBuildingRangeFilters;
-  const newLayers = layers.some(layer => !originals.has(layer.id));
-  if (!newLayers && previous && distanceMoved < 100 &&
-      Math.abs(zoom - previous.zoom) < 0.18 && Math.abs(pitch - previous.pitch) < 8) return;
-
-  const maxDistance = buildingRangeMeters(zoom, pitch);
-  const nearby = ["<=", ["distance", {
-    type: "Point", coordinates: [center.lng, center.lat],
-  }], maxDistance];
-  for (const layer of layers) {
-    if (!originals.has(layer.id)) originals.set(layer.id, map.getFilter(layer.id) ?? null);
-    const original = originals.get(layer.id);
-    try {
-      map.setFilter(layer.id, original ? ["all", original, nearby] : nearby);
-    } catch (error) {
-      console.warn("Could not limit distant buildings", error);
-    }
-  }
-  map.__kmBuildingRangeView = { lng: center.lng, lat: center.lat, zoom, pitch };
-  map.__kmBuildingRangeMeters = maxDistance;
+function cameraHeight(zoom) {
+  return Math.max(65, Math.min(17_000_000, 23_000_000 / 2 ** (Math.min(22, Math.max(1, zoom)) - 1)));
 }
-
-function addSceneLayers(map, buildingSource, darkMode, mapStyle, buildingsEnabled, terrainEnabled, profile) {
-  map.__kmBuildingDarkMode = darkMode;
-  map.__kmBuildingCheck = null;
-  map.__kmNativeBuildingSync = null;
-  map.__kmStyledNativeBuildings = new Set();
-  removeLegacyLandmarks(map);
-  map.__kmBuildingRangeFilters = new Map();
-  map.__kmBuildingRangeView = null;
-  if (buildingsEnabled) ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
-  syncNativeBuildings(map, buildingsEnabled);
-  limitFarBuildings(map);
-  if (map.getSource("km-hillshade-dem") && !map.getLayer("km-terrain-shading")) {
-    const before = map.getStyle().layers.find(l => ["line", "symbol", "fill-extrusion"].includes(l.type))?.id;
-    try { map.addLayer({
-      id: "km-terrain-shading", type: "hillshade", source: "km-hillshade-dem",
-      minzoom: profile.shadeZoom, maxzoom: 16,
-      layout: { visibility: terrainEnabled ? "visible" : "none" },
-      paint: {
-        "hillshade-exaggeration": profile.tier === "low" ? 0.45 : mapStyle === "satellite" ? 0.56 : 0.7,
-        "hillshade-shadow-color": darkMode ? "#111c2c" : "#374b55",
-        "hillshade-highlight-color": darkMode ? "#a4bdd7" : "#fff3dc",
-        "hillshade-accent-color": darkMode ? "#30475d" : "#758b78",
-        "hillshade-illumination-direction": 315,
-      },
-    }, before); } catch (error) {
-      console.warn("3D hillshade unavailable; buildings remain enabled", error);
-    }
-  }
-
-  addGeo(map, "km-stops");
-  map.addLayer({ id: "km-stops-points", type: "circle", source: "km-stops", minzoom: 16,
-    paint: { "circle-color": "#9b734b", "circle-radius": 7, "circle-opacity": 0.96,
-      "circle-pitch-alignment": "viewport", "circle-pitch-scale": "viewport",
-      "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
-
-  addGeo(map, "km-routes");
-  map.addLayer({ id: "km-route-casing", type: "line", source: "km-routes", paint: { "line-color": "#17212a", "line-opacity": 0.58, "line-width": ["case", ["==", ["get", "chosen"], 1], 10, 6] }, layout: { "line-join": "round", "line-cap": "round" } });
-  map.addLayer({ id: "km-route-lines", type: "line", source: "km-routes", filter: ["==", ["get", "walking"], 0], paint: { "line-color": ["get", "color"], "line-opacity": ["case", ["==", ["get", "chosen"], 1], 1, 0.5], "line-width": ["case", ["==", ["get", "chosen"], 1], 6, 4] }, layout: { "line-join": "round", "line-cap": "round" } });
-  map.addLayer({ id: "km-route-walk", type: "line", source: "km-routes", filter: ["==", ["get", "walking"], 1], paint: { "line-color": "#f8fafc", "line-width": 5, "line-dasharray": [0.5, 1.8] }, layout: { "line-cap": "round" } });
-
-  for (const kind of Object.keys(FEED_COLORS)) {
-    const name = `km-511-${kind}`;
-    addGeo(map, name);
-    map.addLayer({ id: `${name}-lines`, type: "line", source: name, filter: ["==", ["geometry-type"], "LineString"], paint: { "line-color": FEED_COLORS[kind], "line-width": 4, "line-opacity": 0.85 } });
-    map.addLayer({ id: `${name}-points`, type: "circle", source: name, filter: ["==", ["geometry-type"], "Point"], paint: { "circle-color": FEED_COLORS[kind], "circle-radius": 6, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
-  }
+function inferredZoom(height) {
+  return Math.max(1, Math.min(22, 1 + Math.log2(23_000_000 / Math.max(65, height))));
 }
-
-function popupElement(title, subtitle = "") {
-  const content = document.createElement("div");
-  content.className = "km-3d-info";
-  const heading = document.createElement("div");
-  heading.className = "km-3d-info-title";
-  heading.textContent = title || "Map information";
-  content.append(heading);
-  if (subtitle) {
-    const sub = document.createElement("div");
-    sub.className = "km-3d-subtitle";
-    sub.textContent = subtitle;
-    content.append(sub);
-  }
-  return content;
+function coordsToCartesians(C, points) {
+  return (points || []).filter(validLatLon).map(item => degreesPoint(C, item, 5));
 }
-function popupText(text, className = "km-3d-body-text") {
-  const el = document.createElement("div");
-  el.className = className;
-  el.textContent = text;
-  return el;
+function css(C, value, fallback = "#71b0d4") {
+  try { return C.Color.fromCssColorString(value || fallback) || C.Color.fromCssColorString(fallback); }
+  catch { return C.Color.fromCssColorString(fallback); }
 }
-function scenePopup(gl, map, coordinates, content, options = {}) {
-  map.__kmOpenPopup?.remove();
-  const popup = new gl.Popup({
-    className: "km-3d-popup", maxWidth: "330px", offset: 13,
-    anchor: "bottom", closeOnClick: false, closeButton: true,
-    focusAfterOpen: false, ...options,
-  }).setLngLat(coordinates).setDOMContent(content).addTo(map);
-  map.__kmOpenPopup = popup;
-  popup.on("close", () => {
-    if (map.__kmOpenPopup === popup) map.__kmOpenPopup = null;
+function insideToronto(lon, lat) {
+  return lon >= TORONTO_BOUNDS.west && lon <= TORONTO_BOUNDS.east && lat >= TORONTO_BOUNDS.south && lat <= TORONTO_BOUNDS.north;
+}
+function centerOfCamera(C, viewer) {
+  const canvas = viewer.scene.canvas;
+  const pixel = new C.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+  const ray = viewer.camera.getPickRay(pixel);
+  const ground = ray && viewer.scene.globe.pick(ray, viewer.scene);
+  // A sky click is not a map location. Never use the camera's position as
+  // a fake ground target: that made long-distance globe navigation drift.
+  const point = ground || viewer.camera.pickEllipsoid(pixel);
+  if (!point) return null;
+  const c = C.Cartographic.fromCartesian(point);
+  return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
+}
+function initialFocus(C, viewer, camera) {
+  const [lon, lat] = Array.isArray(camera?.center) ? camera.center : TORONTO;
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+  const pitch = Number.isFinite(camera?.pitch) ? camera.pitch : 48;
+  const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
+  viewer.camera.setView({
+    destination: C.Cartesian3.fromDegrees(lon, lat, cameraHeight(camera?.zoom ?? 13)),
+    orientation: { heading: C.Math.toRadians(bearing), pitch: C.Math.toRadians(Math.max(-75, Math.min(-42, pitch - 90))), roll: 0 },
   });
-  return popup;
 }
-function stopPopupContent(props) {
-  const agency = String(props.agency || "grt").toLowerCase();
-  const label = props.agency_label || agency.toUpperCase();
-  const body = popupElement(props.name || "Transit stop", `${label} · Departures`);
-  const board = document.createElement("div");
-  board.className = "km-3d-board";
-  board.append(popupText("Loading times…"));
-  body.append(board);
-  return { body, board };
+function flyTo(C, viewer, pair, range = 550, seconds = 1) {
+  if (!validLatLon(pair)) return;
+  viewer.camera.flyToBoundingSphere(new C.BoundingSphere(degreesPoint(C, pair), 1), {
+    offset: new C.HeadingPitchRange(viewer.camera.heading, C.Math.toRadians(-48), range), duration: seconds,
+  });
 }
-function renderStopDepartures(board, info) {
-  board.replaceChildren();
-  if (info?.error) {
-    board.append(popupText(info.error, "km-3d-board-error"));
-    return;
-  }
-  const departures = info?.departures || [];
-  if (!departures.length) {
-    board.append(popupText("No departures listed for this stop right now."));
-    return;
-  }
-  const list = document.createElement("div");
-  list.className = "km-3d-board-list";
-  for (const item of departures) {
-    const card = document.createElement("div");
-    card.className = "km-3d-board-card";
-    const header = document.createElement("div");
-    header.className = "km-3d-board-row";
-    const route = document.createElement("span");
-    route.textContent = `${item.route || "Transit"}${item.direction ? ` → ${item.direction}` : ""}`;
-    const time = document.createElement("span");
-    time.className = "km-3d-board-time";
-    time.textContent = item.expected_time || item.scheduled_time || "";
-    header.append(route, time);
-    card.append(header);
-    if (item.boarding_stop) card.append(popupText(`Nearby boarding stop: ${item.boarding_stop}`, "km-3d-board-meta"));
-    const state = item.cancelled ? "Cancelled" : item.realtime ? "Live" : "Scheduled";
-    const delay = Number(item.delay_min);
-    const until = Number(item.minutes_until);
-    card.append(popupText(`${state}${delay >= 1 ? ` · +${Math.round(delay)} min` : ""}` +
-      `${item.minutes_until != null && Number.isFinite(until) ? ` · in ${Math.max(0, until)} min` : ""}`, "km-3d-board-meta"));
-    list.append(card);
-  }
-  board.append(list);
-}
-function nearestStopOnScreen(map, point, radius = 34) {
-  let closest = null;
-  let best = radius * radius;
-  for (const stop of map.__kmNearbyStops || []) {
-    const projected = map.project(stop.geometry.coordinates);
-    if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y)) continue;
-    const dx = projected.x - point.x;
-    const dy = projected.y - point.y;
-    const distance = dx * dx + dy * dy;
-    if (distance < best) { closest = stop; best = distance; }
-  }
-  return closest;
+function fitPath(C, viewer, points) {
+  const filtered = (points || []).filter(validLatLon);
+  if (filtered.length < 2) return;
+  const lats = filtered.map(p => Number(p[0]));
+  const lons = filtered.map(p => Number(p[1]));
+  const rectangle = C.Rectangle.fromDegrees(Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats));
+  viewer.camera.flyTo({ destination: rectangle, duration: 1.0 });
 }
 
-function cameraMarker(gl, map, latLng, label, onMove) {
-  const element = document.createElement("div");
-  element.className = "km-3d-pin-anchor";
-  const shell = document.createElement("div");
-  shell.className = "km-3d-pin-shell";
-  const shape = document.createElement("span");
-  shape.className = "km-3d-pin-shape";
-  shape.setAttribute("aria-hidden", "true");
-  const glyph = document.createElement("span");
-  glyph.className = "km-3d-pin-glyph";
-  glyph.textContent = label;
-  shell.append(shape, glyph);
-  element.append(shell);
-  return new gl.Marker({
-    element, draggable: Boolean(onMove), anchor: "bottom",
-    pitchAlignment: "viewport", rotationAlignment: "viewport", rotation: 0,
-  })
-    .setLngLat([Number(latLng[1]), Number(latLng[0])])
-    .addTo(map);
+// Return imagery providers in bottom-to-top order for the selected map style.
+async function imageryFor(C, style) {
+  if (style === "street") {
+    return [new C.OpenStreetMapImageryProvider({ url: "https://tile.openstreetmap.org/" })];
+  }
+  let aerial;
+  try {
+    // Read the ArcGIS service metadata and its real tiling scheme rather than
+    // assuming the tile URL's coordinate system.
+    aerial = await C.ArcGisMapServerImageryProvider.fromUrl(ESRI_MAPSERVER);
+  } catch (error) {
+    console.warn("Native ArcGIS imagery unavailable; using WebMercator tile fallback", error);
+    aerial = new C.UrlTemplateImageryProvider({
+      url: ESRI_IMAGERY, maximumLevel: 19, tilingScheme: new C.WebMercatorTilingScheme(),
+      credit: new C.Credit("Imagery © Esri, Maxar, Earthstar Geographics and the GIS User Community"),
+    });
+  }
+  const providers = [aerial];
+  if (style === "hybrid") providers.push(new C.UrlTemplateImageryProvider({
+    url: "https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png", maximumLevel: 19,
+    tilingScheme: new C.WebMercatorTilingScheme(),
+    credit: new C.Credit("Labels © CARTO, © OpenStreetMap contributors"),
+  }));
+  return providers;
+}
+
+function safeTorontoUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (value.startsWith("/") && !value.startsWith("//")) return value;
+  try { const parsed = new URL(value); return parsed.protocol === "https:" ? value : ""; }
+  catch { return ""; }
+}
+function TorontoProviderType(url) {
+  return /SceneServer|\/layers\/\d+/i.test(url) ? "i3s" : "tiles";
+}
+
+// Cesium OSM Buildings are positioned against Cesium World Terrain.
+// Showing them over an ellipsoid (zero-elevation ground) causes floating boxes.
+function syncBuildings(context) {
+  if (!context) return;
+  const center = centerOfCamera(context.C, context.viewer);
+  const inside = center && insideToronto(center.lon, center.lat);
+  const useCity = Boolean(context.cityLoaded && inside);
+  // At regional/globe scale a single building is far smaller than a pixel.
+  // Avoid loading and drawing thousands of useless 3D tiles in orbit.
+  const height = context.viewer.camera.positionCartographic?.height ?? Infinity;
+  const showBuildings = context.buildingsEnabled && Number.isFinite(height) && height < 180_000;
+  if (context.city) context.city.show = showBuildings && useCity;
+  if (context.osm) context.osm.show = showBuildings && context.terrainReady && !useCity;
+  context.viewer.scene.requestRender();
+}
+
+function floatingStyles(darkMode) {
+  return {
+    background: darkMode ? "rgba(16,24,32,.94)" : "rgba(250,251,251,.94)",
+    color: darkMode ? "#e7f3ef" : "#21342b", border: "1px solid rgba(155,183,173,.35)",
+    borderRadius: 12, padding: "10px 12px", boxShadow: "0 6px 22px #0003", fontSize: 12,
+  };
 }
 
 export default function Scene3D({
@@ -563,694 +163,567 @@ export default function Scene3D({
   currentLocation, navigationActive, startCoordinate, destinationCoordinate, startLabel, destinationLabel,
   startDraggable, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination,
   locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
-  mapStyle, darkMode, globe, initialCamera, onCameraChange, onDisable3D,
+  mapStyle = "street", darkMode = true, globe, initialCamera, onCameraChange, onDisable3D,
   enabledLayers = [], onLayerStatus = () => {},
 }) {
   const holder = useRef(null);
-  const mapRef = useRef(null);
-  const glRef = useRef(null);
-  const stylesRef = useRef(0);
-  const markers = useRef([]);
-  const callbackRef = useRef({});
-  const [problem, setProblem] = useState("");
+  const scene = useRef(null);
+  const callbacks = useRef({});
+  const routeData = useRef({});
+  const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
-  const [zoom, setZoom] = useState(() => initialCamera?.zoom ?? DEFAULT_CAMERA.zoom);
-  const [profile] = useState(deviceProfile);
-  const buildingStyleRef = useRef(null);
-  const [terrainEnabled, setTerrainEnabled] = useState(true);
-  const terrainRef = useRef(true);
-  const [buildingsEnabled, setBuildingsEnabled] = useState(true);
-  const buildingsRef = useRef(buildingsEnabled);
-  const globeRef = useRef(globe);
-  useEffect(() => {
-    buildingsRef.current = buildingsEnabled;
-    globeRef.current = globe;
-    terrainRef.current = terrainEnabled;
-  }, [buildingsEnabled, globe, terrainEnabled]);
+  const [terrainProblem, setTerrainProblem] = useState("");
+  const [buildingProblem, setBuildingProblem] = useState("");
+  const [imageryProblem, setImageryProblem] = useState("");
+  const ionToken = CESIUM_ION_TOKEN;
+  const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
+  const lastGlobeMode = useRef(null);
+  const [menu, setMenu] = useState(null);
+  const [tip, setTip] = useState("");
+  const layersKey = enabledLayers.join("|");
   const mode = displayedMode || data?.mode || "driving";
-  const modeRef = useRef(mode);
-  useEffect(() => { modeRef.current = mode; }, [mode]);
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
-  const camera = useRef(initialCamera || DEFAULT_CAMERA);
-  const previousGlobe = useRef(null);
-  const newestLines = useRef([]);
-  useEffect(() => {
-    callbackRef.current = { onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute };
-  }, [onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute]);
-
-// draw the other route options underneath the chosen one
-  const features = useMemo(() => {
-    const result = [];
-    for (const item of data?.routes || []) {
-      if (item.route_number === route?.route_number) continue;
-      const line = lineFeature(item.route_coordinates, "#8c9caa", item.route_number);
-      if (line) result.push(line);
-    }
-    if (mode === "transit" && route?.segments?.length) {
-      for (const segment of route.segments) {
-        const isWalk = segment.type === "walking";
-        const gtfsColor = /^#[0-9a-fA-F]{6}$/.test(segment.color || "") ? segment.color : COLOR.transit;
-        const line = lineFeature(segment.coordinates, isWalk ? COLOR.walking : gtfsColor, route.route_number, isWalk, true);
-        if (line) result.push(line);
-      }
-    } else if (route) {
-      const line = lineFeature(route.route_coordinates, COLOR[mode] || COLOR.driving, route.route_number, mode === "walking", true);
-      if (line) result.push(line);
-    }
-    return result;
-  }, [data, route, mode]);
-
-  useEffect(() => { newestLines.current = features; }, [features]);
+  const initialCameraRef = useRef(initialCamera || DEFAULT_CAMERA);
+  const focusKey = useRef([locationFocusKey, routeFocusKey, stepFocusKey]);
 
   useEffect(() => {
-    let active = true;
-    let map;
-    loadMapLibre().then(gl => {
-      if (!active || !holder.current) return;
-      glRef.current = gl;
-      const initial = camera.current;
-      map = new gl.Map({
-        container: holder.current,
-        style: { version: 8, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#d9e3de" } }] },
-        center: initial.center, zoom: initial.zoom,
-        pitch: safeCameraPitch(initial.zoom, initial.pitch ?? 58),
-        bearing: initial.bearing || 0, roll: initial.roll || 0,
-        maxZoom: 20, minZoom: 0, maxPitch: MAX_FREE_PITCH,
-        centerClampedToGround: true,
-        transformCameraUpdate: next => {
-          const pitch = safeCameraPitch(next.zoom, next.pitch);
-          return pitch === next.pitch ? {} : { pitch };
-        },
-        dragPan: true, dragRotate: true, touchZoomRotate: true, touchPitch: true,
-        rollEnabled: true, aroundCenter: false, bearingSnap: 0,
-        cooperativeGestures: false,
-        rotateSpeed: 0.56, pitchSpeed: -0.4,
-        antialias: false, fadeDuration: 0,
-        renderWorldCopies: !globeRef.current,
-        maxTileCacheSize: profile.tileCache, maxTileCacheZoomLevels: 2,
-        pixelRatio: profile.pixelRatio, crossSourceCollisions: false,
-        anisotropicFilterPitch: profile.tier === "low" ? 180 : 75,
-        maxCanvasSize: [2048, 2048], reduceMotion: profile.tier === "low",
-        canvasContextAttributes: { alpha: true, antialias: false,
-          powerPreference: profile.tier === "low" ? "low-power" : "high-performance" },
-        cancelPendingTileRequestsWhileZooming: true,
-        attributionControl: true,
-      });
-      mapRef.current = map;
-      map.addControl(new gl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true, visualizeRoll: true }), "top-right");
-      map.dragRotate.enable();
-      map.touchZoomRotate.enableRotation();
-      map.touchPitch?.enable();
-      map.getCanvasContainer().style.touchAction = "none";
-      const syncGestures = () => {
-        map.dragPan.enable();
-        map.dragRotate.enable();
-        map.touchZoomRotate.enable();
-        map.touchZoomRotate.enableRotation();
-        map.touchPitch?.enable();
-        map.setRenderWorldCopies(!globeRef.current);
-        map.setCenterClampedToGround(true);
-        const pitch = safeCameraPitch(map.getZoom(), map.getPitch());
-        if (pitch !== map.getPitch()) map.setPitch(pitch);
-      };
-      map.__kmSyncGlobeGestures = syncGestures;
-      map.__kmSpinCleanup = () => {
-        delete map.__kmSyncGlobeGestures;
-        delete map.__kmNotifyCamera;
-      };
-      syncGestures();
-// sample fps while moving, not while the map is idle
-      let lastFrame = 0;
-      let samples = 0;
-      let totalFrameMs = 0;
-      let lastAdjustment = 0;
-      let slowWindows = 0;
-      map.on("render", () => {
-        const now = performance.now();
-        if (!map.isMoving()) { lastFrame = 0; return; }
-        if (lastFrame) {
-          const delta = now - lastFrame;
-          if (delta > 2 && delta < 200) { samples++; totalFrameMs += delta; }
-        }
-        lastFrame = now;
-        if (samples < 30) return;
-        const mean = totalFrameMs / samples;
-        if (typeof window !== "undefined") window.__kmaps3DStats = {
-          tier: profile.tier, frameMs: Math.round(mean * 10) / 10,
-          movingFps: Math.round(1000 / mean), pixelRatio: map.getPixelRatio(),
-          samples, projection: globeRef.current ? "globe" : "flat",
-          terrain: Boolean(map.getTerrain()),
-          buildingLayer: Boolean(map.getLayer("km-buildings-3d") &&
-            map.getLayoutProperty("km-buildings-3d", "visibility") !== "none"),
-        };
-        slowWindows = mean > 28 ? slowWindows + 1 : 0;
-        if (slowWindows >= 2 && now - lastAdjustment > 3000 && map.getPixelRatio() > 0.76) {
-          map.setPixelRatio(Math.max(0.75, Math.round((map.getPixelRatio() - 0.2) * 100) / 100));
-          lastAdjustment = now;
-          slowWindows = 0;
-        }
-        samples = 0; totalFrameMs = 0;
-      });
-      let rangeTimer;
-      const updateBuildingRange = () => {
-        if (rangeTimer) return;
-        rangeTimer = setTimeout(() => {
-          rangeTimer = null;
-          limitFarBuildings(map);
-        }, 300);
-      };
-      const finishBuildingRange = () => {
-        clearTimeout(rangeTimer);
-        rangeTimer = null;
-        limitFarBuildings(map);
-      };
-      map.on("move", updateBuildingRange);
-      map.on("moveend", finishBuildingRange);
-      map.__kmBuildingRangeCleanup = () => {
-        clearTimeout(rangeTimer);
-        map.off("move", updateBuildingRange);
-        map.off("moveend", finishBuildingRange);
-      };
-      map.on("pitchend", () => syncTerrain(map, terrainRef.current, profile));
-      map.on("zoomend", () => {
-        setZoom(map.getZoom());
-        syncTerrain(map, terrainRef.current, profile);
-      });
-      map.on("styleimagemissing", event => {
-        const id = event.id;
-        if ((id === " " || id === "transportation:road_") && !map.hasImage(id)) {
-          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
-        }
-      });
-      map.__kmNotifyCamera = () => {
-        callbackRef.current.onCameraChange?.({
-          center: [map.getCenter().lng, map.getCenter().lat], zoom: map.getZoom(),
-          bearing: map.getBearing(), pitch: map.getPitch(), roll: map.getRoll(),
-        });
-      };
-      map.on("moveend", map.__kmNotifyCamera);
-      map.__kmBuildingErrors = [];
-      map.on("error", event => {
-        const message = String(event?.error?.message || event?.message || "");
-        if (!message || /abort/i.test(message)) return;
-        const list = map.__kmBuildingErrors;
-        list.push(message.slice(0, 360));
-        if (list.length > 12) list.shift();
-      });
-      if (typeof window !== "undefined") window.__kmaps3DBuildings = () => {
-        const layer = map.getLayer("km-buildings-3d");
-        const sourceId = layer?.source;
-        const style = map.getStyle();
-        const candidateSources = Object.entries(style?.sources || {})
-          .filter(([, source]) => source.type === "vector").map(([id]) => id);
-        let sourceFeatures = null;
-        if (sourceId && map.isSourceLoaded(sourceId)) {
-          try { sourceFeatures = map.querySourceFeatures(sourceId, { sourceLayer: "building" }).length; }
-          catch (error) { console.warn("3D building query", error); }
-        }
-        return {
-          source: sourceId || null,
-          sourceLoaded: sourceId ? (() => {
-            try { return map.isSourceLoaded(sourceId); } catch { return false; }
-          })() : false,
-          sourceFeatures,
-          zoom: Number(map.getZoom().toFixed(1)),
-          visible: layer ? map.getLayoutProperty("km-buildings-3d", "visibility") !== "none" : false,
-          candidateSources,
-          layerInstalled: Boolean(layer),
-          attempts: map.__kmBuildingInfo?.attempts ?? 0,
-          lastError: map.__kmBuildingInfo?.lastError ?? null,
-          lastSource: map.__kmBuildingInfo?.sourceId ?? null,
-          style: style?.name ?? null,
-          providerErrors: (map.__kmBuildingErrors || []).slice(-4),
-          buildingRangeMeters: map.__kmBuildingRangeMeters ?? null,
-        };
-      };
-      let lastRotateAt = -Infinity;
-      map.on("rotate", () => { lastRotateAt = performance.now(); });
-      map.on("contextmenu", event => {
-        event.preventDefault();
-        if (performance.now() - lastRotateAt < 350) return;
-        const root = document.createElement("div");
-        root.className = "km-3d-picker";
-        for (const [label, action] of [["Set as start", "onSetMapStart"], ["Set as destination", "onSetMapDestination"]]) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = label;
-          button.onclick = () => { callbackRef.current[action]?.([event.lngLat.lat, event.lngLat.lng]); popup.remove(); };
-          root.append(button);
-        }
-        root.append(popupText(`${event.lngLat.lat.toFixed(5)}, ${event.lngLat.lng.toFixed(5)}`, "km-3d-coordinates"));
-        const popup = scenePopup(gl, map, event.lngLat, root, { maxWidth: "235px" });
-      });
-// popups request departures only after someone clicks a stop
-      const openStop = feature => {
-        const props = feature.properties || {};
-        const coordinates = feature.geometry?.coordinates;
-        if (!Array.isArray(coordinates)) return;
-        const { body, board } = stopPopupContent(props);
-        const popup = scenePopup(gl, map, coordinates, body, { className: "km-3d-popup km-3d-transit-popup" });
-        const req = new AbortController();
-        popup.on("close", () => req.abort());
-        fetch(`/api/transit/stop-board?${new URLSearchParams({ stop_id: props.stop_id, limit: "8" })}`, { signal: req.signal })
-          .then(async r => {
-            const data = await r.json();
-            return r.ok ? data : { error: data.error || "Departures unavailable" };
-          })
-          .then(info => { if (!req.signal.aborted) renderStopDepartures(board, info); })
-          .catch(() => { if (!req.signal.aborted) renderStopDepartures(board, { error: "Could not load departures" }); });
-      };
-      map.on("click", event => {
-        const ids = ["km-stops-points", "km-route-lines",
-          ...Object.keys(FEED_COLORS).flatMap(kind => [`km-511-${kind}-points`, `km-511-${kind}-lines`])]
-          .filter(id => map.getLayer(id));
-        if (!ids.length) return;
-        const point = event.point;
-        const hits = map.queryRenderedFeatures([
-          [point.x - 13, point.y - 13], [point.x + 13, point.y + 13],
-        ], { layers: ids });
-        const stopHit = hits.find(hit => hit.layer?.id === "km-stops-points");
-        const stop = modeRef.current === "transit" && map.getZoom() >= 16
-          ? nearestStopOnScreen(map, point)
-          : null;
-        if (stop || stopHit) {
-          openStop(stop || stopHit);
-          return;
-        }
-        const hit = hits[0];
-        if (!hit) return;
-        const props = hit.properties || {};
-        if (hit.layer.id === "km-route-lines") {
-          const number = Number(props.routeNumber);
-          if (Number.isFinite(number)) callbackRef.current.onSelectRoute?.(number);
-          return;
-        }
-        const body = popupElement(props.title || "Road update", props.direction || "");
-        if (props.closure) body.append(popupText("Road closed", "km-3d-board-error"));
-        if (props.details) body.append(popupText(props.details));
-        if (props.impact && props.impact !== props.details) body.append(popupText(props.impact, "km-3d-subtitle"));
-        if (props.lanes) body.append(popupText(props.lanes, "km-3d-subtitle"));
-        const coordinates = hit.geometry.type === "Point" ? hit.geometry.coordinates : event.lngLat;
-        if (props.kind === "cameras") {
-          let images = [];
-          try { images = JSON.parse(props.images || "[]"); } catch { images = []; }
-          if (images.length) {
-            let index = 0;
-            const photo = document.createElement("img"); photo.className = "km-3d-photo";
-            const caption = document.createElement("small");
-            const bar = document.createElement("div"); bar.className = "km-3d-camera-controls";
-            const previous = document.createElement("button"); previous.textContent = "‹";
-            const next = document.createElement("button"); next.textContent = "›";
-            const show = () => {
-              try {
-                const url = new URL(images[index].url);
-                url.searchParams.set("_km_refresh", String(Math.floor(Date.now() / 30000)));
-                photo.src = url.toString();
-              } catch { photo.src = images[index].url; }
-              photo.alt = images[index].label || "Highway camera";
-              caption.textContent = images[index].label || `View ${index + 1}`;
-            };
-            previous.onclick = () => { index = (index - 1 + images.length) % images.length; show(); };
-            next.onclick = () => { index = (index + 1) % images.length; show(); };
-            bar.append(previous, caption, next);
-            body.append(photo, bar); show();
-            const timer = setInterval(show, 30000);
-            const popup = scenePopup(gl, map, coordinates, body);
-            popup.on("close", () => clearInterval(timer));
-            return;
-          }
-        }
-        scenePopup(gl, map, coordinates, body);
-      });
-      setReady(true);
-    }).catch(error => { if (active) setProblem(error.message); });
-    const styles = stylesRef;
-    return () => {
-      active = false; styles.current++;
-      markers.current.forEach(marker => marker.remove()); markers.current = [];
-      map?.__kmBuildingRangeCleanup?.();
-      map?.__kmSpinCleanup?.();
-      map?.__kmOpenPopup?.remove();
-      map?.remove();
-      if (typeof window !== "undefined") {
-        delete window.__kmaps3DStats;
-        delete window.__kmaps3DBuildings;
-      }
-      if (mapRef.current === map) mapRef.current = null;
-    };
-  }, [profile]);
+    callbacks.current = { onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute, onLayerStatus };
+    routeData.current = { data, route, mode, startCoordinate, destinationCoordinate, currentLocation };
+  }, [onCameraChange, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination, onSelectRoute, onLayerStatus, data, route, mode, startCoordinate, destinationCoordinate, currentLocation]);
 
+  // Loading CesiumJS is independent of ion; the renderer itself does not require billing.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    const controller = new AbortController();
-    const version = ++stylesRef.current;
-    let onProviderError;
-    let styleInstall;
-    const repairTimers = [];
-    setProblem("");
-    getStyle(mapStyle, darkMode, controller.signal).then(({ style, buildingSource, fallback }) => {
-      if (controller.signal.aborted || stylesRef.current !== version) return;
-      const install = () => {
-        if (controller.signal.aborted || stylesRef.current !== version) return;
-        try {
-          try { map.setProjection({ type: globeRef.current ? "globe" : "mercator" }); }
-          catch (error) { console.warn("Projection unavailable", error); }
-          try { map.__kmSyncGlobeGestures?.(); }
-          catch (error) { console.warn("Gesture sync unavailable", error); }
-          map.__kmSkyKey = null;
-          try { applyAtmosphere(map, darkMode, globeRef.current); }
-          catch (error) { console.warn("3D atmosphere unavailable", error); }
-          buildingStyleRef.current = { buildingSource, darkMode, mapStyle };
-          addSceneLayers(map, buildingSource, darkMode, mapStyle,
-            buildingsRef.current, terrainRef.current, profile);
-          if (typeof map.setLight === "function") {
-            try { map.setLight({ anchor: "map", color: "#fff7e8",
-              intensity: darkMode ? 0.42 : 0.58, position: [1.15, 305, 48] }); }
-            catch { console.debug("Using default map lighting"); }
-          }
-          setData(map, "km-routes", newestLines.current);
-          syncTerrain(map, terrainRef.current, profile);
-        } catch (error) { console.warn("3D map layers:", error); setProblem("Some 3D layers couldn't load"); }
-        for (const delay of [700, 2400]) {
-          repairTimers.push(setTimeout(() => {
-            if (controller.signal.aborted || stylesRef.current !== version ||
-                !buildingsRef.current || map.getLayer("km-buildings-3d") ||
-                (map.__kmBuildingInfo?.attempts || 0) >= 4) return;
-            ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
-            syncNativeBuildings(map, buildingsRef.current);
-            limitFarBuildings(map);
-          }, delay));
-        }
-      };
-      styleInstall = install;
-      map.on("style.load", install);
-      const repairBuildings = () => {
-        if (controller.signal.aborted || stylesRef.current !== version) return;
-        if (buildingsRef.current && !map.getLayer("km-buildings-3d") &&
-            buildingStyleRef.current && (map.__kmBuildingInfo?.attempts || 0) < 4) {
-          ensureBuildingLayer(map, buildingSource, darkMode, mapStyle, profile);
-        }
-        syncNativeBuildings(map, buildingsRef.current);
-        limitFarBuildings(map);
-      };
-      map.on("idle", repairBuildings);
-      const oldCleanup = map.__kmBuildingRepairCleanup;
-      oldCleanup?.();
-      map.__kmBuildingRepairCleanup = () => map.off("idle", repairBuildings);
-      let styleFailures = 0;
-      const providerFailure = event => {
-        const description = String(event.error?.message || event.message || "");
-        if (style === fallback || !/maptiler/i.test(description)) return;
-        if (/403|401|forbidden|unauthori[sz]ed/i.test(description)) maptilerUnavailable = true;
-        styleFailures++;
-        if (styleFailures < 2) return;
-        map.off("error", providerFailure);
-        map.setStyle(prepare(fallback), { diff: false });
-      };
-      onProviderError = providerFailure;
-      map.on("error", providerFailure);
-      const prepare = base => ({
-        ...base,
-        layers: (base.layers || []).filter(layer => {
-          if (profile.tier !== "low" || layer.type !== "symbol") return true;
-          return !/poi|housenumber|house.number|address.label/i.test(layer.id);
-        }).map(layer => {
-          if (layer.id !== "Sea labels" || !layer.layout?.["text-size"]) return layer;
-          const fixSize = value => Array.isArray(value) ? value.map(fixSize) : value == null ? 16 : value;
-          return { ...layer, layout: { ...layer.layout,
-            "text-size": fixSize(layer.layout["text-size"]) } };
-        }),
-        sources: { ...base.sources,
-          "km-elevation": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
-            maxzoom: profile.demZoom, encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
-          "km-hillshade-dem": { type: "raster-dem", tiles: [TERRAIN], tileSize: 256,
-            maxzoom: Math.min(9, profile.demZoom), encoding: "terrarium", attribution: "Terrain: AWS Open Data" },
-        },
-      });
-      try { map.setStyle(prepare(style), { diff: false }); }
-      catch (error) {
-        map.off("style.load", install);
-        if (style !== fallback) map.setStyle(prepare(fallback), { diff: false });
-        else setProblem(error.message);
-      }
-    }).catch(error => { if (!controller.signal.aborted) setProblem(error.message); });
-    return () => {
-      controller.abort();
-      repairTimers.forEach(clearTimeout);
-      if (onProviderError) map.off("error", onProviderError);
-      if (styleInstall) map.off("style.load", styleInstall);
-      map.__kmBuildingRepairCleanup?.();
-      delete map.__kmBuildingRepairCleanup;
-    };
-  }, [ready, mapStyle, darkMode, profile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    let cancelled = false;
-    const apply = () => {
-      if (cancelled || !map.isStyleLoaded()) return;
+    let disposed = false;
+    let viewer;
+    let handler;
+    let changed;
+    (async () => {
       try {
-        if (previousGlobe.current !== globe) {
-          previousGlobe.current = globe;
-          const view = { center: map.getCenter(), zoom: map.getZoom(),
-            pitch: map.getPitch(), bearing: map.getBearing(), roll: map.getRoll() };
-          map.setProjection({ type: globe ? "globe" : "mercator" });
-          map.__kmSyncGlobeGestures?.();
-          map.__kmSkyKey = null;
-          if (Math.abs(map.getZoom() - view.zoom) > 0.001) map.jumpTo(view);
-        }
-        applyAtmosphere(map, darkMode, globe);
-        syncTerrain(map, terrainRef.current, profile);
-      } catch (error) {
-        console.warn("3D camera change deferred", error);
+        const C = await loadCesium();
+        if (disposed || !holder.current) return;
+        C.Ion.defaultAccessToken = ionToken || "";
+        viewer = new C.Viewer(holder.current, {
+          animation: false, timeline: false, baseLayerPicker: false, geocoder: false, homeButton: false,
+          navigationHelpButton: false, sceneModePicker: false, fullscreenButton: false, infoBox: false,
+          selectionIndicator: false, baseLayer: false, terrainProvider: new C.EllipsoidTerrainProvider(),
+          sceneMode: C.SceneMode.SCENE3D, scene3DOnly: true,
+          skyAtmosphere: new C.SkyAtmosphere(),
+          requestRenderMode: true, maximumRenderTimeChange: Infinity,
+          // Cesium's on-demand renderer saves GPU work between interactions.
+          useBrowserRecommendedResolution: true,
+          contextOptions: { webgl: { antialias: false, powerPreference: "high-performance" } },
+        });
+        viewer.scene.globe.enableLighting = false;
+        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true;
+        if (viewer.scene.skyBox) viewer.scene.skyBox.show = true;
+        viewer.scene.fog.enabled = true;
+        viewer.scene.backgroundColor = C.Color.fromCssColorString("#c8ddeb");
+        viewer.scene.screenSpaceCameraController.enableCollisionDetection = true;
+        // Previous setting allowed 1.5x pixel scaling (2.25x fragment work).
+        // Render at CSS pixel resolution; keep the atmosphere and 3D terrain.
+        viewer.resolutionScale = 1.0;
+        if (viewer.scene.msaaSupported) viewer.scene.msaaSamples = 2;
+        viewer.scene.globe.maximumScreenSpaceError = 3.5;
+        viewer.scene.globe.tileCacheSize = 80;
+        const controls = viewer.scene.screenSpaceCameraController;
+        controls.minimumZoomDistance = 8;
+        controls.maximumZoomDistance = 23_000_000;
+        controls.enableCollisionDetection = true;
+        // Stop free-looking into space and large residual movement after mouseup.
+        controls.enableLook = false;
+        controls.minimumTrackBallHeight = Number.POSITIVE_INFINITY;
+        controls.inertiaSpin = 0.18;
+        controls.inertiaTranslate = 0.18;
+        controls.inertiaZoom = 0.18;
+        controls.zoomFactor = 2.6;
+        controls.maximumMovementRatio = 0.07;
+        controls.maximumTiltAngle = C.Math.toRadians(89);
+
+        initialFocus(C, viewer, initialCameraRef.current);
+        scene.current = { C, viewer, osm: null, city: null, cityLoaded: false,
+          currentCityUrl: null, overlays: [], markers: [], dynamic: [], cityLoading: false,
+          buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false,
+          terrainGen: 0, stops: [], baseImageryLayers: [] };
+
+        const groundCoordinate = pixel => {
+          const ray = viewer.camera.getPickRay(pixel);
+          const cartesian = ray && viewer.scene.globe.pick(ray, viewer.scene);
+          const actual = cartesian || viewer.camera.pickEllipsoid(pixel);
+          if (!actual) return null;
+          const c = C.Cartographic.fromCartesian(actual);
+          return [C.Math.toDegrees(c.latitude), C.Math.toDegrees(c.longitude)];
+        };
+        handler = new C.ScreenSpaceEventHandler(viewer.scene.canvas);
+        handler.setInputAction(evt => {
+          const coord = groundCoordinate(evt.position);
+          if (!coord) return;
+          setMenu({ x: evt.position.x, y: evt.position.y, point: coord });
+        }, C.ScreenSpaceEventType.RIGHT_CLICK);
+        handler.setInputAction(evt => {
+          setMenu(null);
+          const picked = viewer.scene.pick(evt.position);
+          const entity = picked?.id;
+          if (entity?.kmapsRoute) callbacks.current.onSelectRoute?.(entity.kmapsRoute);
+          if (entity?.kmapsStop) {
+            const label = entity.kmapsStop.name || "Transit stop";
+            setTip(`${label} · ${entity.kmapsStop.agency || "Transit"}`);
+          }
+        }, C.ScreenSpaceEventType.LEFT_CLICK);
+        let drag = null;
+        handler.setInputAction(evt => {
+          const hit = viewer.scene.pick(evt.position)?.id;
+          if (hit?.kmapsMarker === "start" && startDraggable) drag = "start";
+          else if (hit?.kmapsMarker === "end") drag = "end";
+          if (drag) viewer.scene.screenSpaceCameraController.enableRotate = false;
+        }, C.ScreenSpaceEventType.LEFT_DOWN);
+        handler.setInputAction(evt => {
+          if (!drag) return;
+          const pos = groundCoordinate(evt.endPosition);
+          if (pos) setTip(`Move ${drag === "start" ? "start" : "destination"}`);
+        }, C.ScreenSpaceEventType.MOUSE_MOVE);
+        handler.setInputAction(evt => {
+          if (!drag) return;
+          const pos = groundCoordinate(evt.position);
+          if (pos) (drag === "start" ? callbacks.current.onMoveStart : callbacks.current.onMoveDestination)?.(pos);
+          drag = null;
+          viewer.scene.screenSpaceCameraController.enableRotate = true;
+          setTip("");
+        }, C.ScreenSpaceEventType.LEFT_UP);
+        changed = () => {
+          const current = scene.current;
+          if (!current || current.viewer !== viewer) return;
+          const center = centerOfCamera(C, viewer);
+          const height = C.Cartographic.fromCartesian(viewer.camera.positionWC)?.height;
+          if (center && Number.isFinite(height)) {
+            callbacks.current.onCameraChange?.({ center: [center.lon, center.lat], zoom: inferredZoom(height),
+              pitch: C.Math.toDegrees(viewer.camera.pitch) + 90, bearing: C.Math.toDegrees(viewer.camera.heading) });
+            syncBuildings(current);
+          }
+        };
+        viewer.camera.moveEnd.addEventListener(changed);
+        setReady(true);
+        setError("");
+      } catch (e) { if (!disposed) setError(String(e.message || e)); }
+    })();
+    return () => {
+      disposed = true;
+      setReady(false);
+      if (handler && !handler.isDestroyed()) handler.destroy();
+      if (viewer) {
+        if (changed) viewer.camera.moveEnd.removeEventListener(changed);
+        if (!viewer.isDestroyed()) viewer.destroy();
       }
+      if (scene.current?.viewer === viewer) scene.current = null;
     };
-    map.on("style.load", apply);
-    map.on("idle", apply);
-    apply();
-    return () => { cancelled = true; map.off("style.load", apply); map.off("idle", apply); };
-  }, [ready, globe, darkMode, profile]);
+    // Vite environment values are loaded at build/startup; no in-browser token entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Cesium OSM Buildings are built against Cesium World Terrain (ion asset 1).
+  // Do not show them over an ellipsoid: that is the root of the floating-box issue.
   useEffect(() => {
-    const map = mapRef.current;
-    if (ready && map) syncTerrain(map, terrainEnabled, profile);
-  }, [ready, terrainEnabled, profile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map || !map.isStyleLoaded()) return;
-    if (!buildingsEnabled) {
-      for (const layer of map.getStyle().layers) {
-        if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", "none");
-      }
+    const context = scene.current;
+    if (!ready || !context) return;
+    const { C, viewer } = context;
+    const version = ++context.terrainGen;
+    context.terrainReady = false;
+    context.terrainProviderReady = false;
+    syncBuildings(context);
+    if (!ionToken) {
+      setTerrainProblem("Cesium token required for 3D buildings and terrain.");
       return;
     }
-    if (buildingStyleRef.current) {
-      const { buildingSource, darkMode: styleDark, mapStyle: styleName } = buildingStyleRef.current;
-      ensureBuildingLayer(map, buildingSource, styleDark, styleName, profile);
-    }
-    syncNativeBuildings(map, true);
-    limitFarBuildings(map);
-  }, [ready, buildingsEnabled, profile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (ready && map?.getSource("km-routes")) setData(map, "km-routes", features);
-  }, [ready, features]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map || !navigationActive || !validCoord(currentLocation)) return;
-    map.easeTo({ center: [currentLocation[1], currentLocation[0]],
-      zoom: Math.max(16, map.getZoom()), pitch: 60, duration: 450 });
-  }, [ready, navigationActive, currentLocation]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const gl = glRef.current;
-    if (!ready || !map || !gl) return;
-    markers.current.forEach(m => m.remove());
-    markers.current = [];
-    const pin = (point, text, onDrag) => {
-      if (!validCoord(point)) return;
-      const marker = cameraMarker(gl, map, point, text, onDrag);
-      if (onDrag) marker.on("dragend", () => { const p = marker.getLngLat(); onDrag([p.lat, p.lng]); });
-      markers.current.push(marker);
-    };
-    if (!navigationActive) pin(startCoordinate || data?.start?.coordinates, "A", startDraggable ? callbackRef.current.onMoveStart : null);
-    pin(destinationCoordinate || data?.end?.coordinates, "B", callbackRef.current.onMoveDestination);
-    if (validCoord(currentLocation)) pin(currentLocation, "●");
-    for (const vehicle of route?.live_vehicles || []) {
-      if (!Number.isFinite(Number(vehicle.lat)) || !Number.isFinite(Number(vehicle.lon))) continue;
-      if (!(route?.steps || []).some(step => step.type === "transit" && String(step.trip_id) === String(vehicle.trip_id))) continue;
-      pin([vehicle.lat, vehicle.lon], "🚌");
-    }
-  }, [ready, route, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive, startDraggable, startLabel, destinationLabel]);
-
-  const previousFocus = useRef([locationFocusKey, routeFocusKey, stepFocusKey]);
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    const old = previousFocus.current;
-    previousFocus.current = [locationFocusKey, routeFocusKey, stepFocusKey];
-    if (stepFocusKey !== old[2] && validCoord(stepFocusCoordinate)) {
-      map.flyTo({ center: [stepFocusCoordinate[1], stepFocusCoordinate[0]], zoom: Math.max(17, map.getZoom()), essential: true });
-    } else if (locationFocusKey !== old[0] && validCoord(currentLocation)) {
-      map.flyTo({ center: [currentLocation[1], currentLocation[0]], zoom: 15, essential: true });
-    } else if (routeFocusKey !== old[1]) {
-      const line = route?.route_coordinates?.filter(validCoord) || [];
-      if (line.length > 1) {
-        const box = line.reduce((bounds, p) => bounds.extend([p[1], p[0]]), new glRef.current.LngLatBounds([line[0][1], line[0][0]], [line[0][1], line[0][0]]));
-        map.fitBounds(box, { padding: 95, maxZoom: 16, duration: 850 });
-      }
-    }
-  }, [ready, locationFocusKey, routeFocusKey, stepFocusKey, stepFocusCoordinate, currentLocation, route]);
-
-  const layerList = enabledLayers.join(",");
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    const selected = new Set(layerList.split(",").filter(Boolean));
-    let timer;
-    let dead = false;
-    let controller;
-    const refreshed = new Map();
-    const refresh = () => {
-      if (dead || !map.getSource("km-routes")) return;
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        controller?.abort();
-        controller = new AbortController();
-        const signal = controller.signal;
-        const bounds = map.getBounds();
-        const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-          .map(n => n.toFixed(4)).join(",");
-        const zoom = map.getZoom();
-        const tasks = Object.keys(FEED_COLORS).map(async kind => {
-          const id = `km-511-${kind}`;
-          if (!map.getSource(id)) return;
-          if (!selected.has(kind) || zoom < (kind === "cameras" ? 12 : 9)) {
-            if (refreshed.has(kind)) { setData(map, id, []); refreshed.delete(kind); }
-            return;
-          }
-          const key = `${kind}:${bbox}`;
-          const previous = refreshed.get(kind);
-          if (previous && previous.key === key && Date.now() - previous.when < 20000) return;
-          try {
-            const res = await fetch(`/api/layers/ontario511?${new URLSearchParams({ kind, bbox })}`, { signal });
-            if (!res.ok) throw new Error("Layer unavailable");
-            const payload = await res.json();
-            if (dead || signal.aborted || !map.getSource(id)) return;
-            onLayerStatus(kind, payload.message || "");
-            const features511 = [];
-            for (const item of payload.items || []) {
-              const properties = { id: item.id, title: item.title || kind,
-                details: item.summary || item.details || "", direction: item.direction || "",
-                impact: item.impact || "", lanes: item.lanes || "",
-                closure: Boolean(item.closure), kind,
-                images: kind === "cameras" ? JSON.stringify(item.images || []) : "[]" };
-              if (validCoord(item.point)) features511.push({ type: "Feature",
-                geometry: { type: "Point", coordinates: [item.point[1], item.point[0]] }, properties });
-              for (const line of item.lines || []) {
-                const geometry = geoLine(line);
-                if (geometry) features511.push({ type: "Feature", geometry, properties });
-              }
-            }
-            setData(map, id, features511);
-            refreshed.set(kind, { key, when: Date.now() });
-          } catch {
-            if (!signal.aborted && !dead) onLayerStatus(kind, "Unable to load this layer");
-          }
-        });
-        await Promise.all(tasks);
-      }, profile.tier === "low" ? 650 : 350);
-    };
-    map.on("moveend", refresh);
-    map.on("style.load", refresh);
-    refresh();
-    return () => { dead = true; clearTimeout(timer); controller?.abort();
-      map.off("moveend", refresh); map.off("style.load", refresh); };
-  }, [ready, layerList, mapStyle, darkMode, onLayerStatus, profile]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    let controller;
-    let timer;
-    const fetchStops = () => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        controller?.abort(); controller = new AbortController();
-        if (!map.getSource("km-stops")) return;
-        if (mode !== "transit" || map.getZoom() < 16) {
-          map.__kmNearbyStops = [];
-          setData(map, "km-stops", []); return;
-        }
-        const center = map.getCenter();
-        const radius = map.getZoom() < 17 ? 1500 : map.getZoom() < 18 ? 1100 : 800;
-        const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lng), radius: String(radius) });
-        try {
-          const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
-          if (controller.signal.aborted || !map.getSource("km-stops")) return;
-          const stops = (result.stops || []).filter(s => validCoord(s.coordinates)).slice(0, 150).map(stop => ({
-            type: "Feature", geometry: { type: "Point", coordinates: [stop.coordinates[1], stop.coordinates[0]] },
-            properties: { stop_id: stop.id, name: stop.name, agency: stop.agency || "grt", agency_label: stop.agency_label },
-          }));
-          map.__kmNearbyStops = stops;
-          setData(map, "km-stops", stops);
-        } catch (error) {
-          if (error.name !== "AbortError") console.debug("Nearby stops unavailable", error);
-        }
-      }, 250);
-    };
-    map.on("moveend", fetchStops); map.on("style.load", fetchStops);
-    fetchStops();
-    return () => { controller?.abort(); clearTimeout(timer); map.off("moveend", fetchStops); map.off("style.load", fetchStops); };
-  }, [ready, mode, mapStyle, darkMode]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map || !enabledLayers.includes("traffic")) return;
     let cancelled = false;
-    let addTraffic;
-    fetch("/api/layers/traffic/status").then(r => r.json()).then(info => {
-      if (cancelled || !info.enabled) { if (!cancelled) onLayerStatus("traffic", info.message || "Unavailable"); return; }
-      const add = () => {
-        if (!map.getSource("km-routes") || map.getSource("km-traffic")) return;
-        map.addSource("km-traffic", { type: "raster", tiles: [`/api/layers/traffic/tile/{z}/{x}/{y}.png?style=${darkMode ? "dark" : "light"}`], tileSize: 256, maxzoom: 20 });
-        const before = map.getLayer("km-buildings-3d") ? "km-buildings-3d" : undefined;
-        map.addLayer({ id: "km-traffic", type: "raster", source: "km-traffic", minzoom: 8, paint: { "raster-opacity": 0.85 } }, before);
-      };
-      addTraffic = add;
-      map.on("style.load", add);
-      add();
-    }).catch(() => { if (!cancelled) onLayerStatus("traffic", "Unavailable"); });
+    let removeLoadListener = null;
+    let removePostListener = null;
+    let removeTerrainError = null;
+    setTerrainProblem("");
+    (async () => {
+      try {
+        const provider = await C.CesiumTerrainProvider.fromIonAssetId(1, { requestVertexNormals: false });
+        if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+        viewer.terrainProvider = provider;
+        removeTerrainError = provider.errorEvent?.addEventListener(error => {
+          if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+          context.terrainProviderReady = false;
+          context.terrainReady = false;
+          setTerrainProblem("Terrain couldn't load. Buildings are hidden to prevent floating geometry.");
+          console.warn("Cesium terrain tile error", error);
+          syncBuildings(context);
+        });
+        context.terrainProviderReady = true;
+        // Wait until the ground tiles are actually displayed before revealing OSM buildings.
+        const finishIfLoaded = () => {
+          if (cancelled || scene.current !== context || version !== context.terrainGen || !context.terrainProviderReady) return;
+          if (!viewer.scene.globe.tilesLoaded) return;
+          context.terrainReady = true;
+          setTerrainProblem("");
+          syncBuildings(context);
+          removeLoadListener?.(); removeLoadListener = null;
+          removePostListener?.(); removePostListener = null;
+        };
+        removeLoadListener = viewer.scene.globe.tileLoadProgressEvent.addEventListener(() => finishIfLoaded());
+        removePostListener = viewer.scene.postRender.addEventListener(() => finishIfLoaded());
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (cancelled || scene.current !== context || version !== context.terrainGen) return;
+        context.terrainProviderReady = false;
+        context.terrainReady = false;
+        setTerrainProblem("Terrain unavailable. Buildings are hidden to prevent floating geometry.");
+        console.warn("Cesium World Terrain unavailable", e);
+        syncBuildings(context);
+      }
+    })();
     return () => {
       cancelled = true;
-      if (addTraffic) map.off("style.load", addTraffic);
-      if (map.getLayer("km-traffic")) map.removeLayer("km-traffic");
-      if (map.getSource("km-traffic")) map.removeSource("km-traffic");
+      context.terrainGen++;
+      removeLoadListener?.(); removePostListener?.(); removeTerrainError?.();
     };
-  }, [ready, enabledLayers, darkMode, onLayerStatus]);
+  }, [ready, ionToken]);
+
+  // OSM Buildings globally. No photorealistic/Google assets are requested.
+  useEffect(() => {
+    const context = scene.current;
+    if (!ready || !context) return;
+    const { C, viewer } = context;
+    const version = ++context.buildingGen;
+    C.Ion.defaultAccessToken = ionToken || "";
+    if (!ionToken) {
+      if (context.osm) { viewer.scene.primitives.remove(context.osm); context.osm = null; }
+      setBuildingProblem("Add VITE_CESIUM_ION_TOKEN to frontend/.env to enable buildings.");
+      return;
+    }
+    setBuildingProblem("");
+    (async () => {
+      try {
+        const previous = context.osm;
+        const next = await C.createOsmBuildingsAsync();
+        if (scene.current !== context || version !== context.buildingGen) { next.destroy(); return; }
+        if (previous) viewer.scene.primitives.remove(previous);
+        context.osm = viewer.scene.primitives.add(next);
+        // Trade a little distant facade detail for responsive camera movement.
+        next.maximumScreenSpaceError = 24;
+        next.dynamicScreenSpaceError = true;
+        next.cullRequestsWhileMoving = true;
+        next.preloadFlightDestinations = false;
+        next.show = false;
+        syncBuildings(context);
+        setBuildingProblem("");
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (scene.current === context && version === context.buildingGen) {
+          setBuildingProblem("OSM buildings couldn't load. Check your Cesium ion token and asset access.");
+          console.warn("Cesium OSM Buildings unavailable", e);
+        }
+      }
+    })();
+    return () => { context.buildingGen++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, ionToken]);
+
+  // Toronto 2025 must be a real tiled city dataset supplied by the user/host.
+  // raw SHP multipatch is not a 3D Tiles file. Don't silently fall back to fake buildings.
+  useEffect(() => {
+    const context = scene.current;
+    if (!ready || !context) return;
+    const { C, viewer } = context;
+    const cityUrl = safeTorontoUrl(torontoUrl);
+    if (!cityUrl) return;
+    let cancelled = false;
+    const currentUrl = cityUrl;
+    context.currentCityUrl = cityUrl;
+    (async () => {
+      try {
+        const type = TorontoProviderType(cityUrl);
+        if (cityUrl.startsWith("/") || type === "tiles") {
+          const head = await fetch(cityUrl, { method: "GET", cache: "no-store" });
+          if (!head.ok) throw new Error(`${head.status} (tileset not hosted)`);
+          const doc = await head.json();
+          if (type === "tiles" && !doc.asset?.version && !doc.root) throw new Error("Not a 3D Tiles tileset.json");
+        }
+        if (cancelled || scene.current !== context) return;
+        const tiles = type === "i3s"
+          ? await C.I3SDataProvider.fromUrl(cityUrl)
+          : await C.Cesium3DTileset.fromUrl(cityUrl, { maximumScreenSpaceError: 18,
+              cullRequestsWhileMoving: true, preloadFlightDestinations: false });
+        if (cancelled || scene.current !== context || context.currentCityUrl !== currentUrl) {
+          tiles.destroy?.(); return;
+        }
+        if (context.city) viewer.scene.primitives.remove(context.city);
+        context.city = viewer.scene.primitives.add(tiles);
+        context.cityLoaded = true;
+        syncBuildings(context);
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (cancelled || scene.current !== context) return;
+        context.cityLoaded = false;
+        console.warn("Toronto 2025 model unavailable; using OSM buildings", e);
+        const old = context.city;
+        context.city = null;
+        if (old) viewer.scene.primitives.remove(old);
+        syncBuildings(context);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, torontoUrl]);
+
+  // Keep imagery matched to the user's selected basemap style.
+  useEffect(() => {
+    const context = scene.current;
+    if (!ready || !context) return;
+    const { viewer, C } = context;
+    let cancelled = false;
+    (async () => {
+      try {
+        const providers = await imageryFor(C, mapStyle);
+        if (cancelled || scene.current !== context || viewer.isDestroyed()) return;
+        // Swap only after provider setup finishes to avoid stale layer changes.
+        // Replace ONLY the basemap layers. removeAll() also discarded
+        // separate overlays (notably live traffic) during a style change.
+        for (const layer of context.baseImageryLayers || []) {
+          if (viewer.imageryLayers.contains(layer)) viewer.imageryLayers.remove(layer, true);
+        }
+        context.baseImageryLayers = providers.map((provider, index) =>
+          viewer.imageryLayers.addImageryProvider(provider, index));
+        setImageryProblem("");
+        viewer.scene.requestRender();
+      } catch (e) {
+        if (cancelled) return;
+        setImageryProblem("Map imagery couldn't load. Check your network connection.");
+        console.warn("Cesium imagery unavailable", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, mapStyle]);
+
+  // The globe is already spherical in Cesium SCENE3D. Changing the parent
+  // Globe/Flat preference must not teleport the user millions of metres away.
+  // Keep the location, height, tilt and heading exactly as they were.
+  // Natural wheel/pinch zoom reveals the full Earth; Cesium's trackball controls
+  // keep it centred when the pointer starts over space.
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current || lastGlobeMode.current === globe) return;
+    const previous = lastGlobeMode.current;
+    lastGlobeMode.current = globe;
+    // If already high enough to see the planet, re-centre Earth without
+    // changing altitude. Never fly millions of metres away on toggle.
+    const altitude = current.viewer.camera.positionCartographic?.height ?? 0;
+    if (globe && previous === false && altitude > 750_000) {
+      current.viewer.camera.setView({
+        destination: current.C.Cartesian3.clone(current.viewer.camera.positionWC),
+        orientation: { heading: 0, pitch: -current.C.Math.PI_OVER_TWO, roll: 0 },
+      });
+    }
+    current.viewer.scene.requestRender();
+  }, [ready, globe]);
+
+  // Routes are displayed as georeferenced Cesium polylines (no MapLibre canvas).
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const { C, viewer } = current;
+    for (const entity of current.overlays) viewer.entities.remove(entity);
+    current.overlays = [];
+    function addLine(points, color, routeNumber, selected = false, walk = false) {
+      const positions = coordsToCartesians(C, points);
+      if (positions.length < 2) return;
+      const entity = viewer.entities.add({
+        polyline: { positions, clampToGround: true, width: selected ? 6 : 3,
+          material: walk ? new C.PolylineDashMaterialProperty({ color: css(C, color), dashLength: 18 }) : css(C, color).withAlpha(selected ? 1 : 0.55) },
+      });
+      entity.kmapsRoute = routeNumber;
+      current.overlays.push(entity);
+    }
+    for (const item of data?.routes || []) {
+      if (item.route_number === route?.route_number) continue;
+      addLine(item.route_coordinates, "#a2aab7", item.route_number, false);
+    }
+    if (mode === "transit" && Array.isArray(route?.segments)) {
+      for (const segment of route.segments) {
+        const walk = segment.type === "walking" || segment.mode === "walking";
+        addLine(segment.coordinates, walk ? COLORS.walking : segment.color || COLORS.transit, route.route_number, true, walk);
+      }
+    } else if (route) {
+      addLine(route.route_coordinates, COLORS[mode] || COLORS.driving, route.route_number, true, mode === "walking");
+    }
+    viewer.scene.requestRender();
+  }, [ready, data, route, mode]);
+
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const { C, viewer } = current;
+    for (const entity of current.markers) viewer.entities.remove(entity);
+    current.markers = [];
+    function marker(pair, text, kind, color) {
+      if (!validLatLon(pair)) return;
+      const entity = viewer.entities.add({
+        position: degreesPoint(C, pair, 3),
+        point: { pixelSize: 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
+          heightReference: C.HeightReference.RELATIVE_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        label: { text, font: "bold 13px system-ui", fillColor: C.Color.WHITE,
+          style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 3,
+          pixelOffset: new C.Cartesian2(0, -23), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      });
+      entity.kmapsMarker = kind;
+      current.markers.push(entity);
+    }
+    if (!navigationActive) marker(startCoordinate || data?.start?.coordinates, "A", "start", "#5cb78a");
+    marker(destinationCoordinate || data?.end?.coordinates, "B", "end", "#ee6d5e");
+    marker(currentLocation, "●", "location", "#4ba4fc");
+    for (const vehicle of route?.live_vehicles || []) {
+      if (Number.isFinite(Number(vehicle.lat)) && Number.isFinite(Number(vehicle.lon))) marker([vehicle.lat, vehicle.lon], "BUS", "bus", "#f2aa66");
+    }
+    viewer.scene.requestRender();
+  }, [ready, route, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive]);
+
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const before = focusKey.current;
+    focusKey.current = [locationFocusKey, routeFocusKey, stepFocusKey];
+    if (stepFocusKey !== before[2] && validLatLon(stepFocusCoordinate)) flyTo(current.C, current.viewer, stepFocusCoordinate, 320);
+    else if (locationFocusKey !== before[0] && validLatLon(currentLocation)) flyTo(current.C, current.viewer, currentLocation, 1400);
+    else if (routeFocusKey !== before[1]) fitPath(current.C, current.viewer, route?.route_coordinates);
+  }, [ready, locationFocusKey, routeFocusKey, stepFocusKey, stepFocusCoordinate, currentLocation, route]);
+
+  // Preserve Ontario 511 markers with the same API used by the old 3D mode.
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const { C, viewer } = current;
+    const active = new Set(layersKey.split("|").filter(Boolean));
+    const kinds = ["incidents", "construction", "cameras", "winter"];
+    let cancelled = false, timer = null, controller = null;
+    const redraw = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      const center = centerOfCamera(C, viewer);
+      if (!center) return;
+      const cameraAltitude = viewer.camera.positionCartographic?.height ?? Infinity;
+      if (!Number.isFinite(cameraAltitude) || cameraAltitude > 120_000 || !kinds.some(kind => active.has(kind))) return;
+      const span = Math.max(0.05, Math.min(1.0, cameraAltitude / 30000));
+      const bbox = [center.lon-span,center.lat-span*0.7,center.lon+span,center.lat+span*0.7].map(n=>n.toFixed(4)).join(",");
+      for (const entity of current.dynamic) viewer.entities.remove(entity);
+      current.dynamic = [];
+      for (const kind of kinds) {
+        if (!active.has(kind)) continue;
+        try {
+          const response = await fetch(`/api/layers/ontario511?${new URLSearchParams({kind,bbox})}`, {signal:controller.signal});
+          if (!response.ok) throw new Error("Unavailable");
+          const payload = await response.json();
+          if (cancelled || !scene.current || controller.signal.aborted) return;
+          callbacks.current.onLayerStatus?.(kind, payload.message || "");
+          for (const item of (payload.items || []).slice(0, 150)) {
+            if (!validLatLon(item.point)) continue;
+            const color = { incidents: "#f26c65", construction: "#e3ac58", cameras: "#6ca7ff", winter: "#90b7df" }[kind];
+            current.dynamic.push(viewer.entities.add({
+              position: degreesPoint(C, item.point, 1),
+              point: { pixelSize: 9, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+              label: { text: (item.title || kind).slice(0, 32), font: "11px system-ui", pixelOffset: new C.Cartesian2(0, -15), fillColor: C.Color.WHITE,
+                style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 2, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 8000) },
+              description: item.summary || item.details || item.title || kind,
+            }));
+          }
+        } catch (e) { if (e.name !== "AbortError") callbacks.current.onLayerStatus?.(kind, "Unavailable in 3D"); }
+      }
+      viewer.scene.requestRender();
+    };
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(redraw, 550); };
+    viewer.camera.moveEnd.addEventListener(schedule);
+    schedule();
+    return () => { cancelled = true; clearTimeout(timer); controller?.abort(); viewer.camera.moveEnd.removeEventListener(schedule);
+      for (const entity of current.dynamic) if (!viewer.isDestroyed()) viewer.entities.remove(entity); current.dynamic = []; };
+  }, [ready, layersKey]);
+
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const { C, viewer } = current;
+    let traffic = null;
+    if (layersKey.split("|").includes("traffic")) {
+      traffic = viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+        url: `/api/layers/traffic/tile/{z}/{x}/{y}.png?style=${darkMode ? "dark" : "light"}`, maximumLevel: 20,
+      }));
+      traffic.alpha = 0.77;
+    }
+    return () => { if (traffic && !viewer.isDestroyed()) viewer.imageryLayers.remove(traffic); };
+  }, [ready, layersKey, darkMode, mapStyle]);
+
+  // Nearby transit stops remain usable in the Cesium scene at street-level zoom.
+  useEffect(() => {
+    const current = scene.current;
+    if (!ready || !current) return;
+    const { C, viewer } = current;
+    let cancelled = false, timeout, controller;
+    const refresh = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(async () => {
+        controller?.abort();
+        controller = new AbortController();
+        for (const entity of current.stops) viewer.entities.remove(entity);
+        current.stops = [];
+        if (mode !== "transit") return;
+        const center = centerOfCamera(C, viewer);
+        const range = C.Cartographic.fromCartesian(viewer.camera.positionWC).height;
+        if (!center || range > 1750) return;
+        try {
+          const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lon), radius: "900" });
+          const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
+          if (cancelled || controller.signal.aborted) return;
+          for (const stop of (result.stops || []).slice(0, 120)) {
+            if (!validLatLon(stop.coordinates)) continue;
+            const entity = viewer.entities.add({
+              position: degreesPoint(C, stop.coordinates, 2),
+              point: { pixelSize: 7, color: C.Color.fromCssColorString("#a888f2"),
+                outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+            });
+            entity.kmapsStop = stop;
+            current.stops.push(entity);
+          }
+          viewer.scene.requestRender();
+        } catch (e) { if (e.name !== "AbortError") console.warn("3D transit stops unavailable", e); }
+      }, 350);
+    };
+    viewer.camera.moveEnd.addEventListener(refresh);
+    refresh();
+    return () => { cancelled = true; clearTimeout(timeout); controller?.abort();
+      viewer.camera.moveEnd.removeEventListener(refresh);
+      if (!viewer.isDestroyed()) for (const entity of current.stops) viewer.entities.remove(entity);
+      current.stops = [];
+    };
+  }, [ready, mode]);
 
   return (
-    <div className={`km-3d-scene absolute inset-0 ${darkMode ? "km-3d-dark" : ""}`}>
-      <div ref={holder} className={`km-3d-map h-full w-full ${globe ? "km-3d-globe" : "km-3d-flat"}`} style={{backgroundColor: globe ? (darkMode ? "#000000" : "#8dc5ed") : undefined}} aria-label="Interactive 3D map" />
-      {problem && <div className="km-3d-error"><span>{problem}</span><button onClick={onDisable3D} type="button">Back to 2D</button></div>}
-      <div className="km-3d-tools" role="group" aria-label="3D map controls">
-        <button type="button" className="km-3d-toggle" aria-pressed={terrainEnabled}
-          title={`True 3D terrain elevation loads at map zoom ${TERRAIN_MIN_ZOOM}+`}
-          onClick={() => setTerrainEnabled(value => !value)}>
-          Terrain {terrainEnabled ? (zoom >= TERRAIN_MIN_ZOOM ? "On" : "Zoom in") : "Off"}
-        </button>
-        <button type="button" className="km-3d-toggle" aria-pressed={buildingsEnabled}
-          title={`3D buildings appear from zoom ${profile.buildingZoom} (move closer to see them)`}
-          onClick={() => setBuildingsEnabled(value => !value)}>
-          Buildings {buildingsEnabled ? (zoom >= profile.buildingZoom ? "On" : "Zoom in") : "Off"}
-        </button>
-      </div>
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: darkMode ? "#101b27" : "#e2eef7" }}>
+      <div ref={holder} style={{ position: "absolute", inset: 0 }} aria-label="Cesium 3D globe and Toronto building massing" />
+      {/* Production UI: only loading, actionable errors, and contextual map interactions. */}
+      {(!ready || error || (ready && (terrainProblem || buildingProblem || imageryProblem))) && (
+        <div role={error || terrainProblem || buildingProblem || imageryProblem ? "alert" : "status"}
+          style={{ position: "absolute", right: 12, top: 14, zIndex: 490,
+            maxWidth: "min(320px, calc(100vw - 24px))", ...floatingStyles(darkMode) }}>
+          {error ? (
+            <>
+              <div>{error}</div>
+              <button type="button" onClick={onDisable3D} style={{ marginTop: 8, textDecoration: "underline" }}>Return to 2D</button>
+            </>
+          ) : !ready ? (
+            <span>Loading 3D map…</span>
+          ) : (
+            <span>{terrainProblem || buildingProblem || imageryProblem}</span>
+          )}
+        </div>
+      )}
+      {tip && <div role="status" style={{ position: "absolute", bottom: 48, left: 12, zIndex: 490, ...floatingStyles(darkMode) }}>{tip}</div>}
+      {menu && <div style={{ position: "absolute", left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 90), zIndex: 491, ...floatingStyles(darkMode), display: "grid", gap: 4 }}>
+        <button type="button" onClick={() => { callbacks.current.onSetMapStart?.(menu.point); setMenu(null); }}>Set as start</button>
+        <button type="button" onClick={() => { callbacks.current.onSetMapDestination?.(menu.point); setMenu(null); }}>Set as destination</button>
+        <button type="button" onClick={() => setMenu(null)}>Cancel</button>
+      </div>}
     </div>
   );
 }

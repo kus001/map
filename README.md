@@ -8,94 +8,36 @@
 <details>
   <summary>Street View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Street 2D Dark](assets/darkmode.png) | ![Street 2D Light](assets/lightmode.png) |
+| ![Street 3D Dark](assets/street_3d_dark.png) | ![Street 3D Light](assets/street_3d_light.png) |
+| ![Street globe dark](assets/street_globe_dark.png) | ![Street globe light](assets/street_globe_light.png) |
 
-![Street 2D Dark](assets/darkmode.png)
-
-![Street 2D Light](assets/lightmode.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Street 3D Dark](assets/street_3d_dark.png)
-
-![Street 3D Light](assets/street_3d_light.png)
-
-  </details>
-
-  <details>
-    <summary>Globe</summary>
-
-![Street globe dark](assets/street_globe_dark.png)
-![Street globe light](assets/street_globe_light.png)
-
-  </details>
 </details>
 
 <!-- satellite -->
 <details>
   <summary>Satellite View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Satellite 2D Dark](assets/dark_sat.png) | ![Satellite 2D Light](assets/light_sat.png) |
+| ![Satellite 3D Dark](assets/satellite_3d_dark.png) | ![Satellite 3D Light](assets/satellite_3d_light.png) |
+| ![Satellite Globe Dark](assets/satellite_globe_dark.png) | ![Satellite Globe Light](assets/satellite_globe_light.png) |
 
-![Satellite 2D Dark](assets/dark_sat.png)
-
-![Satellite 2D Light](assets/light_sat.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Satellite 3D Dark](assets/satellite_3d_dark.png)
-
-![Satellite 3D Light](assets/satellite_3d_light.png)
-
-  </details>
-
-  <details>
-  <summary>Globe</summary>
-
-![Satellite Globe Dark](assets/satellite_globe_dark.png)
-
-![Satellite Globe Light](assets/satellite_globe_light.png)
-
-  </details>
 </details>
 
 <!-- hybrid -->
 <details>
   <summary>Hybrid View</summary>
 
-  <details>
-    <summary>2D Maps</summary>
+| Dark Mode | Light Mode |
+|:---:|:---:|
+| ![Hybrid 2D Dark](assets/hybrid_dark.png) | ![Hybrid 2D Light](assets/hybrid_light.png) |
+| ![Hybrid 3D Dark](assets/hybrid_3d_dark.png) | ![Hybrid 3D Light](assets/hybrid_3d_light.png) |
+| ![Hybrid globe dark](assets/hybrid_globe_dark.png) | ![Hybrid globe light](assets/hybrid_globe_light.png) |
 
-![Hybrid 2D Dark](assets/hybrid_dark.png)
-
-![Hybrid 2D Light](assets/hybrid_light.png)
-
-  </details>
-
-  <details>
-    <summary>3D Maps</summary>
-
-![Hybrid 3D Dark](assets/hybrid_3d_dark.png)
-
-![Hybrid 3D Light](assets/hybrid_3d_light.png)
-
-  </details>
-
-  <details>
-  <summary>Globe</summary>
-
-![Hybrid globe dark](assets/hybrid_globe_dark.png)
-![Hybrid globe light](assets/hybrid_globe_light.png)
-
-  </details>
 </details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)

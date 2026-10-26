@@ -358,7 +358,7 @@ function LocationInput({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
-        className={`h-12 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:ring-2 disabled:opacity-60 ${
+        className={`h-11 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:ring-2 disabled:opacity-60 ${
           endAction ? "pr-12" : ""
         } ${
           darkMode
@@ -381,7 +381,7 @@ function LocationInput({
         suggestions.length > 0 || (MAPTILER_KEY && value.trim() !== "") || (value.trim() === "" && recentLocations.length > 0)
         ) && (
         <div
-          className={`map-scrollbar absolute left-9 right-0 top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
+          className={`map-scrollbar absolute left-9 right-0 top-[48px] max-[760px]:top-[52px] z-[2000] max-h-72 overflow-y-auto rounded-xl border shadow-xl ${
             darkMode
               ? "border-button bg-charcoal"
               : "border-button-light bg-white"

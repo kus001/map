@@ -1978,9 +1978,22 @@ export default function App() {
           </div>
         )}
 
-        {threeD
-          ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
-          : <MapView {...mapProps} />}
+        {/* Keep Leaflet's live map and overlays mounted when 3D is active.
+            Visibility preserves layout dimensions and Leaflet tile state. */}
+        <div
+          aria-hidden={threeD}
+          inert={threeD}
+          style={{ position: "absolute", inset: 0,
+            visibility: threeD ? "hidden" : "visible",
+            pointerEvents: threeD ? "none" : "auto" }}
+        >
+          <MapView {...mapProps} />
+        </div>
+        {threeD && (
+          <div style={{ position: "absolute", inset: 0 }}>
+            <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
+          </div>
+        )}
 
         <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => setThreeD(v => !v)}

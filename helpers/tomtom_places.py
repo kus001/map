@@ -34,6 +34,7 @@ PLACES = {
 
 SUGGEST_URL = "https://api.tomtom.com/maps/orbis/places/suggest"
 DETAILS_URL = "https://api.tomtom.com/maps/orbis/places/details/{type}/{id}"
+REVERSE_URL = "https://api.tomtom.com/search/2/reverseGeocode/{position}.json?key={KEY}&radius={radius}"
 
 # Which kinds of result to ask for: "poi", "address", "street", "intersection", "area".
 # Civic addresses and streets in Waterloo Region are already covered by the local index,
@@ -218,7 +219,7 @@ def _label(result):
     return title or subtitle
 
 
-def search(query, limit=3, bias=None):
+def search(query, limit=4, bias=None):
     """Autocomplete-style place search.
 
     ``bias`` is an optional ``(lat, lon)``; closer places rank higher but nothing is
@@ -267,7 +268,33 @@ def search(query, limit=3, bias=None):
     return [dict(item) for item in results]
 
 
+def reverse_search(long, lat, radius=100, responses=1) -> str | list[str]:
+    url = REVERSE_URL.format(
+        position=",".join(map(str, (lat, long))),
+        KEY= _api_key(),
+        radius=radius,
+    )
+
+    response = requests.get(url).json()
+
+    if not isinstance(response, dict):
+        return None
+    if not "numResults" in response["summary"]:
+        return None
+    if response["summary"]["numResults"] == 0:
+        return None
+
+    raw_addresses = response["addresses"]
+    addresses = []
+
+    for raw_address in raw_addresses:
+        addresses.append(raw_address["address"]["streetNameAndNumber"])
+
+    return addresses[:responses] if responses>1 else addresses[0]
+
 if __name__ == "__main__":
+    print(reverse_search(*testcoords))
+    exit()
     text = " ".join(sys.argv[1:]) or "coffee"
     if not available():
         sys.exit("Set TOMTOM_API_KEY (in .env or the environment) first.")

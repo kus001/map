@@ -68,6 +68,8 @@ _NETWORK_CACHE_MAX = 500
 _network_cache = OrderedDict()
 _network_lock = threading.Lock()
 
+_TOMTOM_MAX_EXTRA = 5
+
 
 def _bias_bucket(bias):
     point = _valid_point(bias) if bias else None
@@ -122,6 +124,7 @@ def _write_coordinate_map(data, path=GEOCODE_CACHE_PATH, reload=True):
         global _cached_places, _saved_aliases
         _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
         _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
+
 
 def _km(a, b):
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
@@ -486,6 +489,10 @@ def _sort_options(options, bias):
     return options
 
 
+def reverse_geocode(lat, long, responses=1):
+    return tomtom_places.reverse_search(lat, long, responses=responses)
+
+
 def resolve_address(address, bias=None, allow_network=True):
     """Resolve typed text to a place, explaining failures instead of guessing.
 
@@ -626,9 +633,6 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
             break
 
     return tuple(merged)
-
-
-_TOMTOM_MAX_EXTRA = 3
 
 
 def _tomtom_extras(query, limit, bias):

@@ -1,13 +1,14 @@
 """TomTom (Orbis) place search, used as an extra autocomplete source.
 
-TomTom's Suggest endpoint returns titles but *no coordinates*, so each suggestion is
-followed by a Details call that fetches its position. Results are cached (positions
-for good, suggestion lists for a few minutes) to keep the number of billable calls low.
+TomTom is only used for the *suggestions* (title + address text). It is never asked
+where a suggestion is, and ``search`` never waits on anyone else to find out either:
+results come back at once with ``lat``/``lon`` set to None. Positioning is the caller's
+job (the local address index, then Nominatim) -- see ``helpers.geocoding.locate_place``
+and the ``/api/locate-place`` route.
 
-All coordinates TomTom sends or expects are GeoJSON order, ``[lon, lat]``. The rest of
-this project uses ``(lat, lon)``, so the conversion happens only inside this file.
-
-Run ``python -m helpers.tomtom_places "tim hortons"`` to try it against the live API.
+The one coordinate TomTom still receives is the optional ``bias`` point, sent in
+GeoJSON order ``[lon, lat]``. The rest of this project uses ``(lat, lon)``, so that
+conversion happens only inside this file.
 """
 
 import os
@@ -15,7 +16,6 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from json import dumps
 
 import requests
@@ -27,13 +27,13 @@ load_dotenv()
 testcoords = list(map(float, os.getenv("testcoords", "43.65373,-79.38403").split(",")))
 
 PLACES = {
+    "food": {}
     # "bathroom": "public_bathroom",
     # "bicycle_parking": "bicycle_parking",
     # "religious_site": ("church", "gurudwara", "mosque", "pagoda", "synagog", "temple"),
 }
 
 SUGGEST_URL = "https://api.tomtom.com/maps/orbis/places/suggest"
-DETAILS_URL = "https://api.tomtom.com/maps/orbis/places/details/{type}/{id}"
 REVERSE_URL = "https://api.tomtom.com/search/2/reverseGeocode/{position}.json?key={KEY}&radius={radius}"
 
 # Which kinds of result to ask for: "poi", "address", "street", "intersection", "area".
@@ -47,22 +47,11 @@ MIN_QUERY_LENGTH = 3
 MAX_RESULTS = 5
 TIMEOUT = (1.5, 2.5)  # connect, read (seconds) -- autocomplete must never hang
 
-# Details path segment for each result type (used when a result has no ``more`` link)
-_DETAILS_TYPE = {
-    "poi": "pois",
-    "address": "addresses",
-    "street": "streets",
-    "intersection": "intersections",
-    "area": "areas",
-}
-
-_SUGGEST_TTL = 10 * 60
+_SUGGEST_TTL = 15 * 60
 _SUGGEST_CACHE_MAX = 300
-_POSITION_CACHE_MAX = 2000
 
 _lock = threading.Lock()
 _suggest_cache = OrderedDict()  # (query, bias bucket) -> (expires, results)
-_position_cache = OrderedDict()  # place id -> (lat, lon)
 _paused_until = 0.0  # set after the key is rejected or the quota is hit
 
 
@@ -118,7 +107,7 @@ def _remember(cache, key, value, limit):
 
 
 def _suggest(query, bias, limit):
-    """Raw Suggest results (a list of dicts, no coordinates yet), or [] on any failure."""
+    """Raw Suggest results (a list of dicts, no coordinates), or [] on any failure."""
     body = {
         "query": query,
         "maxResults": max(1, min(int(limit), 10)),
@@ -137,7 +126,7 @@ def _suggest(query, bias, limit):
         response = requests.post(
             SUGGEST_URL,
             headers={
-                **_headers("results(id,type,title,subtitles,more)"),
+                **_headers("results(id,type,title,subtitles)"),
                 "Content-Type": "application/json",
             },
             json=body,
@@ -156,58 +145,6 @@ def _suggest(query, bias, limit):
         return []
 
 
-def _details_path(result):
-    """(type, id) for the Details URL, taken from the result's ``more`` link if it has one."""
-    arguments = {}
-    for item in (result.get("more") or {}).get("pathParameters") or []:
-        arguments[item.get("parameter")] = item.get("argument")
-    if arguments.get("type") and arguments.get("id"):
-        return arguments["type"], arguments["id"]
-
-    place_type = _DETAILS_TYPE.get(result.get("type"))
-    if place_type and result.get("id"):
-        return place_type, result["id"]
-    return None
-
-
-def _position(result):
-    """(lat, lon) for a Suggest result via Details, or None."""
-    path = _details_path(result)
-    if path is None:
-        return None
-
-    place_type, place_id = path
-    with _lock:
-        known = _position_cache.get(place_id)
-    if known is not None:
-        return known
-
-    try:
-        response = requests.get(
-            DETAILS_URL.format(type=place_type, id=place_id),
-            headers=_headers("id,type,title,position"),
-            timeout=TIMEOUT,
-        )
-    except requests.RequestException:
-        return None
-
-    if not response.ok:
-        _pause_for(response)
-        return None
-
-    try:
-        lon, lat = response.json()["position"]["coordinates"][:2]
-        point = (float(lat), float(lon))
-    except (ValueError, KeyError, TypeError):
-        return None
-
-    if not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
-        return None
-
-    _remember(_position_cache, place_id, point, _POSITION_CACHE_MAX)
-    return point
-
-
 def _label(result):
     """'Title, first subtitle'. The subtitle (usually the street address) keeps different
     branches of the same chain from looking like duplicates in the dropdown."""
@@ -219,12 +156,19 @@ def _label(result):
     return title or subtitle
 
 
+def _address_of(result):
+    """The street-address part of a suggestion (first subtitle), or ''."""
+    subtitles = result.get("subtitles") or []
+    return str(subtitles[0]).strip() if subtitles else ""
+
+
 def search(query, limit=4, bias=None):
     """Autocomplete-style place search.
 
     ``bias`` is an optional ``(lat, lon)``; closer places rank higher but nothing is
     excluded by distance. Returns up to ``limit`` dicts shaped like the other search
-    sources: ``{"label", "lat", "lon", "source": "tomtom", "kind"}``. Never raises:
+    sources: ``{"label", "lat": None, "lon": None, "source": "tomtom", "kind", "title", "address"}``
+    (coordinates are filled in later by the caller). Never raises:
     a missing key, a network error or a rejected request just gives ``[]``.
     """
     query = " ".join(str(query).split())
@@ -244,31 +188,33 @@ def search(query, limit=4, bias=None):
     if not suggestions:
         return []
 
-    with ThreadPoolExecutor(max_workers=len(suggestions)) as pool:
-        points = list(pool.map(_position, suggestions))
-
     results = []
-    for suggestion, point in zip(suggestions, points):
+    for suggestion in suggestions:
         label = _label(suggestion)
-        if point is None or not label:
+        if not label:
             continue
         results.append(
             {
                 "label": label,
-                "lat": point[0],
-                "lon": point[1],
+                "lat": None,
+                "lon": None,
                 "source": "tomtom",
                 "kind": suggestion.get("type"),
+                "title": str(suggestion.get("title") or "").strip(),
+                "address": _address_of(suggestion),
             }
         )
 
-    # Only remember complete answers, so a hiccup in a Details call isn't cached.
-    if len(results) == len(suggestions):
+    if results:
         _remember(_suggest_cache, cache_key, (time.monotonic() + _SUGGEST_TTL, results), _SUGGEST_CACHE_MAX)
     return [dict(item) for item in results]
 
 
 def reverse_search(long, lat, radius=100, responses=1) -> str | list[str]:
+    """coords -> address (in the format of 123 example street)"""
+    if not available():
+        return None
+
     url = REVERSE_URL.format(
         position=",".join(map(str, (lat, long))),
         KEY= _api_key(),

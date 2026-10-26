@@ -184,6 +184,8 @@ def get_transit_route(
             requested_departure, arrive_search_path = found
             mark("arrive_by_search")
 
+        astar_stats = {}
+
         path, search_time, best_start, best_end = search_transit(
             start_options,
             end_options,
@@ -193,9 +195,10 @@ def get_transit_route(
             walk_penalty=preference["walk_penalty"],
             max_nearby_stops=preference["max_nearby_stops"],
             excluded_route_keys=excluded_route_keys,
+            _stats=astar_stats,
         )
 
-
+        print(f"A* stats: {astar_stats}")
 
         if requested_arrival is not None:
             if (path is None or requested_departure + timedelta(minutes=float(search_time))

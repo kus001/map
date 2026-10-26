@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BsPersonWalking } from "react-icons/bs";
 import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
@@ -90,7 +90,27 @@ function roundedBias(bias) {
   return { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100 };
 }
 
+// A TomTom suggestion arrives with no coordinates; /api/locate-place finds them later.
+function hasPoint(item) {
+  return item?.lat != null && item?.lon != null &&
+    Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon));
+}
+
+function isPending(item) {
+  return item?.source === "tomtom" && !hasPoint(item) && !item.failed;
+}
+
+function locateParams(item, bias) {
+  const params = new URLSearchParams({ title: item.title ?? "", address: item.address ?? "" });
+  if (bias) {
+    params.set("lat", bias.lat);
+    params.set("lon", bias.lon);
+  }
+  return params;
+}
+
 function sourceLabel(item) {
+  if (isPending(item)) return "Place · locating…";
   if (item.source === "known") return "Location";
   if (item.source === "local") return "Local address";
   if (item.source === "street") return "Street";
@@ -127,18 +147,20 @@ function mergeSuggestions(serverResults, mapTilerResults, limit = 6) {
   const addressPoints = [];
 
   for (const item of prioritized) {
-    const lat = Number(item?.lat);
-    const lon = Number(item?.lon);
-    if (!item?.label || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    // (Number(null) is 0, so a missing coordinate has to be checked for explicitly)
+    const pending = isPending(item);
+    if (!item?.label || (!pending && !hasPoint(item))) {
       continue;
     }
+    const lat = pending ? NaN : Number(item.lat);
+    const lon = pending ? NaN : Number(item.lon);
 
     const labelKey = item.label.trim().toLowerCase();
     if (seenLabels.has(labelKey)) {
       continue;
     }
 
-    const addressLike = item.source === "local" || item.kind === "address";
+    const addressLike = !pending && (item.source === "local" || item.kind === "address");
     if (
       addressLike &&
       addressPoints.some(
@@ -196,9 +218,50 @@ function LocationInput({
   const moreController = useRef(null);
   const recentLocations = [...new Set(recentSearches.map(search => recentField === "start" ? search.start : search.destination))]                                        
   const biasRef = useRef(null);
+  // label -> in-flight /api/locate-place promise, so a click joins the background lookup
+  const locating = useRef(new Map());
   useEffect(() => {
     biasRef.current = roundedBias(bias);
   });
+
+  // Resolves to [lat, lon], or null when the server couldn't place it.
+  const locateItem = useCallback(item => {
+    const key = item.label;
+    const running = locating.current.get(key);
+    if (running) return running;
+
+    const request = fetch(`/api/locate-place?${locateParams(item, biasRef.current)}`)
+      .then(response => (response.ok ? response.json() : null))
+      .then(json => (json?.success ? [Number(json.lat), Number(json.lon)] : null))
+      .catch(() => null)
+      .then(point => {
+        // Failures are forgotten so a later click can retry; successes stay cached.
+        if (!point) locating.current.delete(key);
+        return point;
+      });
+    locating.current.set(key, request);
+    return request;
+  }, []);
+
+  const applyLocation = useCallback((label, point) => {
+    setSuggestions(current => current.map(entry => {
+      if (entry.label !== label || entry.source !== "tomtom") return entry;
+      return point
+        ? { ...entry, lat: point[0], lon: point[1] }
+        : { ...entry, failed: true };
+    }));
+  }, []);
+
+  // One at a time (Nominatim is rate limited server side), nearest-to-top first.
+  const locatePending = useCallback(async (items, signal) => {
+    for (const item of items) {
+      if (signal.aborted) return;
+      if (!isPending(item)) continue;
+      const point = await locateItem(item);
+      if (signal.aborted) return;
+      applyLocation(item.label, point);
+    }
+  }, [locateItem, applyLocation]);
 
   useEffect(() => {
     if (skipLookup) {
@@ -240,6 +303,7 @@ function LocationInput({
         setSuggestions(merged);
         setOpen(merged.length > 0 || Boolean(MAPTILER_KEY));
         setActiveIndex(-1);
+        locatePending(merged, controller.signal);
       } catch (lookupError) {
         if (lookupError.name !== "AbortError") {
           setSuggestions([]);
@@ -252,7 +316,7 @@ function LocationInput({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [value, skipLookup]);
+  }, [value, skipLookup, locatePending]);
 
   async function findMorePlaces() {
     const query = value.trim();
@@ -279,22 +343,30 @@ function LocationInput({
     setOpen(false);
   }
 
-  function chooseSuggestion(item) {
+  async function chooseSuggestion(item) {
     suppressNextLookup.current = true;
     onChange(item.label);
-    onSelectLocation([Number(item.lat), Number(item.lon)], item.label);
     setSuggestions([]);
     setOpen(false);
     setActiveIndex(-1);
 
+    let point = hasPoint(item) ? [Number(item.lat), Number(item.lon)] : null;
+    if (!point && item.source === "tomtom") {
+      // Still being located (or the background try failed): wait for / retry it now.
+      point = await locateItem(item);
+    }
+
+    if (!point) {
+      // Couldn't pin it down here; the text is in the box and the normal search
+      // will geocode it when the user submits.
+      return;
+    }
+
+    onSelectLocation(point, item.label);
     fetch("/api/remember-place", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        label: item.label,
-        lat: item.lat,
-        lon: item.lon,
-      }),
+      body: JSON.stringify({ label: item.label, lat: point[0], lon: point[1] }),
     }).catch(() => {});
   }
 

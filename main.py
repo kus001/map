@@ -17,6 +17,7 @@ from helpers import approx_location
 from helpers.geocoding import (
     address_options,
     explain_address_problem,
+    locate_place,
     remember_place,
     search_places,
 )
@@ -233,6 +234,33 @@ def search():
         app.logger.exception("Local place search failed")
         return jsonify({"success": False, "error": "Place search is temporarily unavailable."}), 503
     return jsonify({"success": True, "results": results})
+
+
+@app.route("/api/locate-place", methods=["GET"])
+def locate():
+    """Position one TomTom suggestion (it arrives without coordinates).
+
+    Local address index first, then Nominatim, so this can take a second or two; the
+    browser calls it in the background after the suggestion list is already showing.
+    """
+    title = request.args.get("title", "").strip()
+    address = request.args.get("address", "").strip()
+    if not (title or address):
+        return jsonify({"success": False, "error": "Nothing to locate."}), 400
+    if len(title) > 200 or len(address) > 200:
+        return jsonify({"success": False, "error": "Place is too long."}), 400
+
+    bias = request_bias([request.args.get("lat"), request.args.get("lon")])
+
+    try:
+        point = locate_place(title, address, bias)
+    except Exception:
+        app.logger.exception("Locating place failed")
+        return jsonify({"success": False, "error": "Place lookup is temporarily unavailable."}), 503
+
+    if point is None:
+        return jsonify({"success": False, "error": "Couldn't place that."}), 404
+    return jsonify({"success": True, "lat": point[0], "lon": point[1]})
 
 
 @app.route("/api/remember-place", methods=["POST"])

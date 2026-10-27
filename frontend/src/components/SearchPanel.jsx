@@ -543,6 +543,10 @@ export default function SearchPanel({
   cyclingType,
   onModeChange,
   onCyclingTypeChange,
+  evEnabled = false,
+  onEvEnabledChange = () => {},
+  evProfile = {},
+  onEvProfileChange = () => {},
   onSearch,
   onSwap,
   loading,
@@ -779,6 +783,42 @@ export default function SearchPanel({
           </Button>
         ))}
       </div>
+
+      {mode === "driving" && (
+        <div className={`mt-2 rounded-xl border px-3 py-2 text-xs ${darkMode ? "border-white/15 text-slate-200" : "border-black/10 text-slate-700"}`}>
+          <label className="flex cursor-pointer items-center gap-2 font-semibold">
+            <input type="checkbox" checked={evEnabled} disabled={loading} onChange={e => onEvEnabledChange(e.target.checked)} />
+            EV route · TomTom traffic + charging
+          </label>
+          {evEnabled && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                ["battery_kwh", "Battery (kWh)", 10, 200],
+                ["charge_percent", "Charge (%)", 1, 100],
+                ["reserve_percent", "Reserve (%)", 0, 40],
+                ["consumption_kwh_100km", "Use (kWh/100 km)", 8, 50],
+                ["max_charge_kw", "Charging (kW)", 10, 350],
+              ].map(([key, label, min, max]) => (
+                <label key={key} className="flex flex-col gap-1">
+                  <span className="opacity-80">{label}</span>
+                  <input className={fieldClass} type="number" min={min} max={max} step="any"
+                    value={evProfile[key] ?? ""} disabled={loading}
+                    onChange={e => onEvProfileChange({ [key]: e.target.value })} />
+                </label>
+              ))}
+              <label className="flex flex-col gap-1">
+                <span className="opacity-80">Charge plug</span>
+                <select className={fieldClass} value={evProfile.plug || "ccs1"}
+                  disabled={loading} onChange={e => onEvProfileChange({ plug: e.target.value })}>
+                  <option value="ccs1">CCS1</option><option value="ccs2">CCS2</option>
+                  <option value="chademo">CHAdeMO</option><option value="tesla">Tesla</option>
+                </select>
+              </label>
+              <p className="col-span-2 text-[10px] opacity-70">Approximate EV model; check actual battery/plug compatibility. Requires server TOMTOM_API_KEY.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {mode === "cycling" && (
         <div className="soft-enter mt-2 grid grid-cols-4 gap-1.5 @container">

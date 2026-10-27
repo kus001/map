@@ -340,7 +340,6 @@ export default function App() {
     setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));
   }
 
-  console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false)
   const overlayRef = useRef(null);
@@ -382,6 +381,12 @@ export default function App() {
     sharedRoute.mode ||
     validSavedValue(savedPreferences.mode, VALID_MODES, "driving")
   );
+  const [evEnabled, setEvEnabled] = useState(() => savedPreferences.evEnabled === true);
+  const [evProfile, setEvProfile] = useState(() => ({
+    battery_kwh: 60, charge_percent: 80, reserve_percent: 10,
+    consumption_kwh_100km: 18, max_charge_kw: 120, plug: "ccs1",
+    ...(savedPreferences.evProfile || {}),
+  }));
   const [cyclingType, setCyclingType] = useState(() =>
     sharedRoute.cyclingType ||
     validSavedValue(
@@ -490,6 +495,8 @@ export default function App() {
         JSON.stringify({
           mode,
           cyclingType,
+          evEnabled,
+          evProfile,
           startUsesCurrentLocation,
           darkMode,
           mapStyle,
@@ -505,6 +512,8 @@ export default function App() {
   }, [
     mode,
     cyclingType,
+    evEnabled,
+    evProfile,
     startUsesCurrentLocation,
     darkMode,
     mapStyle,
@@ -531,7 +540,7 @@ export default function App() {
     const searchId = searchRequestId.current;
     let cancelled = false;
     const controllers = [];
-    const timers = [650, 1700, 4100, 7100].map(delay => window.setTimeout(async () => {
+    const timers = [1450, 3000, 5400].map(delay => window.setTimeout(async () => {
       if (cancelled || searchId !== searchRequestId.current) return;
       const controller = new AbortController();
       controllers.push(controller);
@@ -692,6 +701,8 @@ export default function App() {
           start: cleanStart,
           destination: cleanDestination,
           mode: requestedMode,
+          ev_enabled: requestedMode === "driving" && evEnabled,
+          ev_profile: requestedMode === "driving" && evEnabled ? evProfile : undefined,
           route_type: requestedMode === "walking"
             ? "regular"
             : requestedCyclingType,
@@ -705,7 +716,6 @@ export default function App() {
           // typed places resolve to the closest match to this
           bias: currentLocation || approxLocation || undefined,
       };
-      console.log("ROUTE REQUEST:", routeRequest);
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -782,6 +792,41 @@ export default function App() {
         alternativesAbortController.current = altController;
                                                                           
         window.setTimeout(async () => {
+          if (requestId !== searchRequestId.current || altController.signal.aborted) return;
+          // The primary transit route renders immediately. Prefer its detailed
+          // sidewalk shapes before issuing the more expensive alternatives search.
+          // The API only reads completed geometry; it never blocks on a new walk request.
+          const primary = result.routes?.[0];
+          if (primary?.pending_walks?.length) {
+            let pending = primary.pending_walks.slice();
+            const deadline = performance.now() + 1150;
+            while (pending.length && performance.now() < deadline &&
+                   requestId === searchRequestId.current && !altController.signal.aborted) {
+              try {
+                const walkResponse = await fetch("/api/transit/walk-shapes", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  signal: altController.signal, body: JSON.stringify({ pairs: pending }),
+                });
+                if (walkResponse.ok) {
+                  const body = await walkResponse.json();
+                  if (body.success && Object.keys(body.shapes || {}).length) {
+                    const completed = applyWalkShapes(primary, body.shapes);
+                    pending = completed.pending_walks || [];
+                    if (requestId !== searchRequestId.current || altController.signal.aborted) return;
+                    setData(current => current?.mode === "transit"
+                      ? { ...current, routes: current.routes.map((r, i) =>
+                          i === 0 ? applyWalkShapes(r, body.shapes) : r) } : current);
+                  }
+                }
+              } catch (error) {
+                if (error.name === "AbortError") return;
+                break;
+              }
+              if (pending.length && performance.now() < deadline) {
+                await new Promise(resolve => window.setTimeout(resolve, 170));
+              }
+            }
+          }
           if (requestId !== searchRequestId.current || altController.signal.aborted) return;
           const existing = [result.routes[0]];
           try {
@@ -1802,6 +1847,10 @@ export default function App() {
           cyclingType={cyclingType}
           onModeChange={changeMode}
           onCyclingTypeChange={changeCyclingType}
+          evEnabled={evEnabled}
+          onEvEnabledChange={setEvEnabled}
+          evProfile={evProfile}
+          onEvProfileChange={patch => setEvProfile(current => ({ ...current, ...patch }))}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}

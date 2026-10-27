@@ -8,7 +8,7 @@ from heapq import heappop, heappush
 from itertools import count
 
 from . import agencies
-from .realtime import adjusted_arrival, adjusted_departure, trip_update
+from .realtime import adjusted_arrival, adjusted_departure
 
 from . import store
 from .config import (
@@ -17,12 +17,14 @@ from .config import (
     MAX_NEARBY_STOPS,
     TRANSFER_BUFFER_MIN,
     TRANSIT_ALT_BUDGET_SECONDS,
+    TRANSIT_GRAPH_HEURISTIC,
     TRANSIT_PREFERENCES,
 )
 from .display import route_details
+from .lower_bound import lower_bounds_to_goal
 from .geo import access_walk_minutes, raw_stop_id, stop_agency
 from .paths import _alt_signature, _transit_groups, is_transit_edge, route_keys_for_path
-from .schedule import _active_services, schedule_info, trip_active
+from .schedule import active_mask, schedule_info, trip_active
 from .timeutil import gtfs_service_clock, normalize_departure_datetime
 
 
@@ -65,48 +67,79 @@ def _candidate_trip_realtime_compact(trips, agency, from_stop, to_stop, earliest
     the single winner.
     """
     deps, arrs, tids = trips.deps, trips.arrs, trips.tids
-    trip_ids = trips.pools.trip_ids
+    pools = trips.pools
     limit = earliest + 2 * 3600
     from_raw, to_raw = raw_stop_id(from_stop), raw_stop_id(to_stop)
     best = None
     best_departure = float("inf")
-    active_services = _active_services(date)
-    service_of = store._data.trip_to_service.get
+    running = active_mask(pools, date)  # running[trip_index] == 1 if the trip runs today
+    live = _live_trip_indexes(realtime, pools)  # trips that have a realtime update / cancellation
 
-    for i in range(bisect_left(deps, earliest - 2 * 3600), len(deps)):
+    def live_candidate(i):
+        trip = trips._edge(i)
+        departure, dep_delay, live_dep = adjusted_departure(realtime, agency, trip, from_raw)
+        if departure is None or departure < earliest or departure >= best_departure:
+            return None
+        arrival, arr_delay, live_arr = adjusted_arrival(realtime, agency, trip, to_raw)
+        return (i, departure, arrival, dep_delay, live_dep or live_arr, arr_delay)
+
+    first = bisect_left(deps, earliest)
+
+    # Trips scheduled up to 2 h before `earliest` only matter if live data says they are running
+    # late; a trip with no update would just be skipped as "already left".
+    if live:
+        for i in range(bisect_left(deps, earliest - 2 * 3600), first):
+            tid = tids[i]
+            if tid in live and running[tid]:
+                found = live_candidate(i)
+                if found is not None:
+                    best = found
+                    best_departure = found[1]
+
+    for i in range(first, len(deps)):
         static_departure = deps[i]
         if static_departure > limit and best is not None:
             break
 
-        trip_id = trip_ids[tids[i]]
-        if active_services is not None:
-            service_id = service_of(trip_id)
-            if service_id is not None and service_id not in active_services:
-                continue
+        tid = tids[i]
+        if not running[tid]:
+            continue
 
-        if trip_update(realtime, agency, trip_id) is None:
-            departure, dep_delay, live_dep = float(static_departure), 0.0, False
-            if departure < earliest or departure >= best_departure:
-                continue
-            arrival, arr_delay, live_arr = float(arrs[i]), 0.0, False
-        else:
-            trip = trips._edge(i)
-            departure, dep_delay, live_dep = adjusted_departure(
-                realtime, agency, trip, from_raw
-            )
-            if departure is None or departure < earliest or departure >= best_departure:
-                continue
-            arrival, arr_delay, live_arr = adjusted_arrival(
-                realtime, agency, trip, to_raw
-            )
-
-        best_departure = departure
-        best = (i, departure, arrival, dep_delay, live_dep or live_arr, arr_delay)
+        if tid in live:
+            found = live_candidate(i)
+            if found is not None:
+                best = found
+                best_departure = found[1]
+        elif static_departure < best_departure:
+            best_departure = float(static_departure)
+            best = (i, best_departure, float(arrs[i]), 0.0, False, 0.0)
 
     if best is None:
         return None
     i, departure, arrival, dep_delay, live, arr_delay = best
     return (trips._edge(i), departure, arrival, dep_delay, live, arr_delay)
+
+
+_NO_UPDATES = {}
+
+
+def _live_trip_indexes(realtime, pools):
+    """Indexes (within one agency's TripPools) of trips that have a realtime update.
+
+    Cached on the per-request realtime dict, keyed to the identity of its trip_updates dict,
+    so it is rebuilt automatically whenever the updates are swapped out.
+    """
+    updates = realtime.get("trip_updates") or _NO_UPDATES
+    memo = realtime.get("_live_trip_indexes")
+    if memo is None or memo[0] is not updates:
+        memo = (updates, {})
+        realtime["_live_trip_indexes"] = memo
+    live = memo[1].get(id(pools))
+    if live is None:
+        index = pools.index
+        live = {index[trip_id] for _agency, trip_id in updates if trip_id in index}
+        memo[1][id(pools)] = live
+    return live
 
 
 def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realtime) -> tuple|None:
@@ -154,17 +187,12 @@ def _candidate_trip(schedule, agency, from_stop, to_stop, earliest, date, realti
 
     trips = schedule["trips"]
     if hasattr(trips, "tids"):
-        active = _active_services(date)
-        ids = trips.pools.trip_ids
-        service_of = store._data.trip_to_service.get if active is not None else None
+        running = active_mask(trips.pools, date)
+        tids = trips.tids
         for i in range(bisect_left(trips.deps, earliest), len(trips.deps)):
-            trip_id = ids[trips.tids[i]]
-            if active is not None:
-                service = service_of(trip_id)
-                if service is not None and service not in active:
-                    continue
-            return (trips._edge(i), float(trips.deps[i]),
-                    float(trips.arrs[i]), 0.0, False, 0.0)
+            if running[tids[i]]:
+                return (trips._edge(i), float(trips.deps[i]),
+                        float(trips.arrs[i]), 0.0, False, 0.0)
         return None
     
     index = bisect_left(times, earliest)
@@ -251,7 +279,17 @@ def search_transit(
         end_real, end_pen = access_walk_cost(option[0], soft_walk_m, walk_penalty)
         goal_terms.append((rad(lat), rad(lon), end_real + end_pen))
 
-    def heuristic(stop_id):
+    # Preferred heuristic: exact fastest-possible time to the goal over the graph (no waits).
+    # Far tighter than straight-line distance, so the search expands far fewer states.
+    lower_bounds = None
+    if TRANSIT_GRAPH_HEURISTIC and store.reverse_min is not None:
+        lower_bounds = lower_bounds_to_goal(
+            store.reverse_min,
+            {goal_id: sum(access_walk_cost(option[0], soft_walk_m, walk_penalty))
+             for goal_id, option in ends.items()},
+        )
+
+    def straight_line_heuristic(stop_id):
         cached = heuristic_cache.get(stop_id)
         if cached is not None:
             return cached
@@ -266,6 +304,15 @@ def search_transit(
                 best = optimistic
         heuristic_cache[stop_id] = best
         return best
+
+    if lower_bounds is not None:
+        _inf = float("inf")
+        _lb_get = lower_bounds.get
+
+        def heuristic(stop_id):
+            return _lb_get(stop_id, _inf)  # absent = cannot reach the goal at all
+    else:
+        heuristic = straight_line_heuristic
 
     queue = []
     costs = {}
@@ -342,6 +389,15 @@ def search_transit(
         is_seed = state in seed_costs and abs(seed_costs[state] - current_g) < 1e-9
         agency = stop_agency(stop_id)
 
+        # Route of the trip we are riding. A trip only appears in edge lists of its own route, so
+        # lists for any other route can't contain it and the (linear) trip lookup is skipped.
+        current_route_key = None
+        if current_trip is not None:
+            ridden = parent.get(state)
+            route_info = ridden[1].get("route") if ridden is not None else None
+            if isinstance(route_info, dict):
+                current_route_key = route_info.get("route")
+
         for neighbor_id, route_options in store.graph.get(stop_id, {}).items():
             for route_key, trips in route_options.items():
                 if _stats is not None:
@@ -365,11 +421,11 @@ def search_transit(
                         _stats["schedule_info_seconds"] += (
                             time.perf_counter() - schedule_started
                         )
-                    continuing = (
-                        schedule["by_trip"].get(str(current_trip))
-                        if current_trip is not None
-                        else None
-                    )
+                    continuing = None
+                    if current_trip is not None and (
+                        current_route_key is None or route_key == current_route_key
+                    ):
+                        continuing = schedule["by_trip"].get(str(current_trip))
                     if continuing is not None:
                         departure, dep_delay, live_dep = adjusted_departure(
                             realtime, agency, continuing, raw_stop_id(stop_id)

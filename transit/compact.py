@@ -148,6 +148,19 @@ class CompactTrips:
                 yield self._edge(i)
 
 
+def unique_pools(graph):
+    """Each distinct TripPools used by a graph's compact edge lists (one per agency)."""
+    found = {}
+    for neighbors in graph.values():
+        for route_options in neighbors.values():
+            for key, trips in route_options.items():
+                if key != "__walk__":
+                    pools = getattr(trips, "pools", None)
+                    if pools is not None:
+                        found[id(pools)] = pools
+    return list(found.values())
+
+
 def is_compact(graph):
     for neighbors in graph.values():
         for route_options in neighbors.values():

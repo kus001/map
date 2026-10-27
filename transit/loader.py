@@ -7,7 +7,9 @@ from .go_realtime import start_gtfs_background_refresh
 from .make_graph import make_graph
 from .realtime import start_background_refresh
 from .config import AGENCY_LINK_RADIUS_M, AGENCY_LINK_WALK_M_PER_MIN
+from .compact import unique_pools
 from .geo import dist_m
+from .lower_bound import build_reverse_min_graph
 from .pickle_compat import load_cache
 from .store import _ACTIVE_SERVICE_CACHE, _transit_load_lock
 
@@ -72,11 +74,18 @@ def ensure_transit_loaded(verbose: bool=False) -> float:
             if agency.cache_path.exists():
                 _merge_agency(agency, loaded)
         _ACTIVE_SERVICE_CACHE.clear()
+        try:
+            reverse_min = build_reverse_min_graph(loaded.graph)
+        except Exception as error:  # the search falls back to the straight-line heuristic
+            print(f"Lower-bound graph failed ({error}); using straight-line heuristic.", flush=True)
+            reverse_min = None
         load_seconds = time.perf_counter() - load_started
 
         store._data = loaded
         store.graph = loaded.graph
         store.stops = loaded.node_positions
+        store.reverse_min = reverse_min
+        store.trip_pools = unique_pools(loaded.graph)
 
         if not store._realtime_started:
             start_background_refresh()

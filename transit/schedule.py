@@ -63,8 +63,41 @@ def _active_services(date):
     return entry[0]
 
 
+_MASK_DATES_KEPT = 4
+
+
+def active_mask(pools, date):
+    """bytearray with mask[trip_index] == 1 when that trip runs on `date`.
+
+    Feeds carry every calendar (weekday/Saturday/Sunday/holiday/future), so on any given day
+    most trips in an edge's departure list are not running. Checking one byte per trip is much
+    cheaper than trip_id -> service_id -> set lookups, and the search does it millions of times.
+    Cached on the agency's TripPools object (trip indexes are per agency).
+    """
+    masks = pools.__dict__.get("_active_masks")
+    if masks is None:
+        masks = pools.__dict__.setdefault("_active_masks", {})
+    mask = masks.get(date)
+    if mask is None:
+        active = _active_services(date)
+        trip_ids = pools.trip_ids
+        if active is None:
+            mask = bytearray(b"\x01") * len(trip_ids)
+        else:
+            service_of = store._data.trip_to_service.get
+            mask = bytearray(len(trip_ids))
+            for index, trip_id in enumerate(trip_ids):
+                service_id = service_of(trip_id)
+                if service_id is None or service_id in active:
+                    mask[index] = 1
+        if len(masks) >= _MASK_DATES_KEPT:
+            masks.clear()
+        masks[date] = mask
+    return mask
+
+
 def warm_schedule_caches(days_ahead: int = 1) -> int:
-    """Pre-compute the per-date active-service sets (today and the next days).
+    """Pre-compute the per-date active-service sets and trip masks (today and the next days).
 
     IMPORTANT: only run after all agencies are loaded.
     """
@@ -74,6 +107,8 @@ def warm_schedule_caches(days_ahead: int = 1) -> int:
     for offset in range(max(0, int(days_ahead)) + 1):
         service_date, _seconds = gtfs_service_clock(now + timedelta(days=offset))
         _active_services(service_date)
+        for pools in store.trip_pools:
+            active_mask(pools, service_date)
         warmed += 1
     return warmed
 

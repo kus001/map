@@ -13,6 +13,7 @@ load_dotenv()
 
 from cycling import get_cycling_route
 from driving import get_driving_route
+from ev_routing import get_ev_route
 from helpers import approx_location
 from helpers.geocoding import (
     address_options,
@@ -673,11 +674,18 @@ def routes():
     timing = {"start": request_started}
     try:
         if mode == "driving":
-            result = get_driving_route(
-                start, destination, start_coordinates=start_coordinates,
-                end_coordinates=destination_coordinates,
-                timing=timing, bias=bias,
-            )
+            if payload.get("ev_enabled") is True:
+                result = get_ev_route(
+                    start, destination, start_coordinates=start_coordinates,
+                    end_coordinates=destination_coordinates,
+                    options=payload.get("ev_profile"), timing=timing, bias=bias,
+                )
+            else:
+                result = get_driving_route(
+                    start, destination, start_coordinates=start_coordinates,
+                    end_coordinates=destination_coordinates,
+                    timing=timing, bias=bias,
+                )
         elif mode == "walking":
             route_type = str(payload.get("route_type", "regular")).strip().lower()
             if route_type not in VALID_WALKING_TYPES:

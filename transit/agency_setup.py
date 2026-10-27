@@ -6,6 +6,7 @@
     python -m transit.agency_setup all                # set up every configured agency
     python -m transit.agency_setup all --redownload   # refresh every agency
     python -m transit.agency_setup all --skip-installed # leave ready caches alone
+    python -m transit.agency_setup ttc --source surface --redownload # TTC BusTime schedules (no subway)
 """
 import argparse
 import csv
@@ -203,6 +204,12 @@ MAX_NESTED_ZIP_BYTES = 350 * 1024 * 1024
 MAX_TOTAL_EXTRACT_BYTES = 1_000 * 1024 * 1024
 TTC_DATASET_ID = "7795b45e-e65a-4465-81fc-c36b9dfff169"
 TTC_CKAN_API = "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/package_show"
+TTC_SURFACE_DATASET_ID = "bd4809dd-e289-4de8-bbde-c5c00dafbf4f"
+TTC_SURFACE_URL = (
+    "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/"
+    "bd4809dd-e289-4de8-bbde-c5c00dafbf4f/resource/"
+    "28514055-d011-4ed7-8bb0-97961dfe2b66/download/SurfaceGTFS.zip"
+)
 TTC_LEGACY_URL = (
     "https://opendata.toronto.ca/toronto.transit.commission/"
     "ttc-routes-and-schedules/OpenData_TTC_Schedules.zip"
@@ -228,8 +235,8 @@ def _zip_gtfs_files(archive):
             continue
         normalized = info.filename.replace("\\", "/")
         parts = normalized.split("/")
-        basename = parts[-1]
-        if (not basename.lower().endswith(".txt") or not basename or
+        basename = parts[-1].lower()  # GTFS table filenames are case-insensitive in ZIPs
+        if (not basename.endswith(".txt") or not basename or
                 any(part in ("", ".", "..") for part in parts) or
                 parts[0].startswith("__MACOSX")):
             continue
@@ -334,8 +341,13 @@ def _extract_files(agency, source, target, wanted=None):
                 selected_archive.close()
 
 
-def _candidate_download_urls(agency):
+def _candidate_download_urls(agency, source_kind="full"):
     """Yield official GTFS URLs. CKAN lookup is lazy when TTC's direct link fails."""
+    if source_kind == "surface":
+        if agency.id != "ttc":
+            raise ValueError("Surface GTFS only applies to TTC")
+        yield TTC_SURFACE_URL
+        return
     yield agency.feed_url
     if agency.id != "ttc":
         return
@@ -362,12 +374,12 @@ def _candidate_download_urls(agency):
         yield TTC_LEGACY_URL
 
 
-def _download(agency):
+def _download(agency, source_kind="full"):
     """Download a validated GTFS ZIP; never overwrite a previously usable ZIP."""
     GTFS_ROOT.mkdir(parents=True, exist_ok=True)
-    destination = GTFS_ROOT / f"{agency.id}_download.zip"
+    destination = GTFS_ROOT / (f"{agency.id}_surface_download.zip" if source_kind == "surface" else f"{agency.id}_download.zip")
     failures = []
-    for url in _candidate_download_urls(agency):
+    for url in _candidate_download_urls(agency, source_kind=source_kind):
         print(f"Downloading {agency.label} GTFS from {urlparse(url).netloc}...", flush=True)
         with tempfile.NamedTemporaryFile(dir=GTFS_ROOT, prefix=f".{agency.id}_download_",
                                          suffix=".zip", delete=False) as output:
@@ -394,8 +406,17 @@ def _download(agency):
             return destination
         except (requests.RequestException, OSError, ValueError, RuntimeError,
                 zipfile.BadZipFile) as error:
-            failures.append(f"{urlparse(url).netloc}: {error}")
-            print(f"  Source failed: {error}", flush=True)
+            details = ""
+            if zipfile.is_zipfile(temporary):
+                try:
+                    with zipfile.ZipFile(temporary) as archive:
+                        members = [item.filename for item in archive.infolist()
+                                   if not item.is_dir()][:12]
+                    details = f"; first ZIP entries: {members!r}"
+                except (OSError, ValueError, zipfile.BadZipFile):
+                    pass
+            failures.append(f"{urlparse(url).netloc}: {error}{details}")
+            print(f"  Source failed: {error}{details}", flush=True)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -454,20 +475,38 @@ def install_shapes(agency, source=None):
     return path
 
 
-def install_agency(agency, source=None, redownload=False):
+def install_agency(agency, source=None, redownload=False, source_kind="full"):
     """Download, validate, and build an agency without destroying a good old feed."""
     agency = _agency(agency)
     folder = GTFS_ROOT / agency.id
     GTFS_ROOT.mkdir(parents=True, exist_ok=True)
+    if source_kind == "surface" and agency.id != "ttc":
+        raise ValueError("--source surface is only valid for TTC")
+    if source_kind == "surface":
+        print("WARNING: TTC Surface GTFS has buses/streetcars but NO SUBWAY. "
+              "Existing TTC full schedule will be backed up before replacement.", flush=True)
 
     if source is None:
-        if not redownload and _already_downloaded(agency):
+        if source_kind == "full" and not redownload and _already_downloaded(agency):
             print(f"{agency.label}: using existing GTFS (add --redownload for fresh data).",
                   flush=True)
             source = folder
         else:
-            source = _download(agency)
+            source = _download(agency, source_kind=source_kind)
     source = Path(source)
+
+    # Never replace a working full TTC router without preserving a usable backup.
+    # A surface-only feed is a deliberately explicit emergency fallback, not the default.
+    if source_kind == "surface":
+        saved = GTFS_ROOT / "ttc_full_backup"
+        if folder.is_dir() and not saved.exists():
+            print(f"Backing up full TTC GTFS to {saved}...", flush=True)
+            shutil.copytree(folder, saved)
+        old_cache = agency.cache_path
+        cache_backup = old_cache.with_name(old_cache.stem + "_full_backup" + old_cache.suffix)
+        if old_cache.is_file() and not cache_backup.exists():
+            print(f"Backing up full TTC routing cache to {cache_backup}...", flush=True)
+            shutil.copy2(old_cache, cache_backup)
 
     if source.resolve() == folder.resolve() and _has_required_files(folder):
         # Avoid copying hundreds of MB of stop_times.txt on repeated builds.
@@ -533,6 +572,9 @@ def main(argv=None):
     parser.add_argument("agency", choices=["all", *ids],
                         help="an agency id from transit/agencies.py, or 'all'")
     parser.add_argument("--zip", help="local GTFS ZIP or extracted GTFS directory (one agency)")
+    parser.add_argument("--source", choices=["full", "surface"], default="full",
+                        help="TTC: 'full' includes subway; 'surface' uses BusTime-compatible "
+                             "bus/streetcar feed, backs up full route data but excludes subway")
     parser.add_argument("--redownload", action="store_true",
                         help="download a fresh feed even when one is already installed")
     parser.add_argument("--shapes-only", action="store_true",
@@ -541,6 +583,8 @@ def main(argv=None):
                         help="with all: don't rebuild agencies whose timetable cache already exists")
     args = parser.parse_args(argv)
     if args.agency == "all":
+        if args.source != "full":
+            parser.error("--source surface can only be used with TTC")
         if args.zip:
             parser.error("--zip can only be used with a single agency, not all")
         return 0 if install_all(args.redownload, args.shapes_only,
@@ -549,7 +593,8 @@ def main(argv=None):
         if args.shapes_only:
             install_shapes(args.agency, args.zip)
         else:
-            install_agency(args.agency, args.zip, redownload=args.redownload)
+            install_agency(args.agency, args.zip, redownload=args.redownload,
+                           source_kind=args.source)
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, requests.RequestException) as error:
         print(f"{args.agency} setup failed: {error}", file=sys.stderr)
         return 1

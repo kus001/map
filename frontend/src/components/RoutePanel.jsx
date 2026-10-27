@@ -509,6 +509,14 @@ export default function RoutePanel({
       {
          }
 
+      {data.routing_provider === "tomtom_ev" && (
+        <div className={`mb-3 rounded-xl border p-3 text-xs ${darkMode ? "border-white/15 text-slate-200" : "border-blue-200 bg-blue-50 text-slate-800"}`}>
+          <strong>EV route · live traffic-aware</strong>
+          <div className="mt-1">Charging: {activeRoute.total_charging_min ?? 0} min · Traffic delay: {activeRoute.traffic_delay_min ?? 0} min</div>
+          <div>Estimated charge on arrival: {activeRoute.remaining_charge_kwh == null ? "unknown" : `${Number(activeRoute.remaining_charge_kwh).toFixed(1)} kWh`}</div>
+          <div className="mt-1 opacity-65">Generic battery and charging estimates; not vehicle-specific predictions.</div>
+        </div>
+      )}
       {mode === "transit" && alerts.length > 0 && (
         <details className="group mb-3 rounded-xl border border-amber-300 bg-amber-50 text-xs text-amber-900">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-bold [&::-webkit-details-marker]:hidden">

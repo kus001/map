@@ -317,7 +317,8 @@ export default function Scene3D({
         // Render at CSS pixel resolution; keep the atmosphere and 3D terrain.
         viewer.resolutionScale = 1.0;
         if (viewer.scene.msaaSupported) viewer.scene.msaaSamples = 2;
-        viewer.scene.globe.maximumScreenSpaceError = 3.5;
+        // Slightly coarser terrain LOD cuts tile work while preserving street-scale geometry.
+        viewer.scene.globe.maximumScreenSpaceError = 4.5;
         viewer.scene.globe.tileCacheSize = 80;
         const controls = viewer.scene.screenSpaceCameraController;
         controls.minimumZoomDistance = 8;
@@ -369,6 +370,8 @@ export default function Scene3D({
             setPopup({ kind: "bus", location: [vehicle.lat, vehicle.lon], vehicle });
           } else if (entity?.kmapsReport) {
             setPopup({ kind: "report", location: entity.kmapsReport.position, item: entity.kmapsReport.item });
+          } else if (entity?.kmapsCharger) {
+            setPopup({ kind: "charger", location: entity.kmapsPosition, charger: entity.kmapsCharger });
           } else if (entity?.kmapsMarker && entity.kmapsMarker !== "bus") {
             setPopup({ kind: "marker", location: entity.kmapsPosition, title: entity.kmapsMarker === "start"
               ? `Start: ${routeData.current.data?.start?.address || startLabel || "Selected location"}`
@@ -706,25 +709,46 @@ export default function Scene3D({
       const location = [Number(pair[0]), Number(pair[1])];
       const entity = viewer.entities.add({
         position: degreesPoint(C, location),
-        point: { pixelSize: kind === "bus" ? 14 : 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
-          heightReference: C.HeightReference.CLAMP_TO_GROUND },
+        ...(kind === "bus"
+          ? { billboard: {
+              image: payload?.estimated ? "/icons/bus-scheduled.svg" : "/icons/bus-live.svg",
+              width: 36, height: 36,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND,
+              verticalOrigin: C.VerticalOrigin.CENTER,
+              distanceDisplayCondition: new C.DistanceDisplayCondition(0, 18000),
+              disableDepthTestDistance: 0,
+            } }
+          : { point: { pixelSize: 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND } }),
         label: { text, font: "bold 12px system-ui", fillColor: C.Color.WHITE,
           style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 3,
           heightReference: C.HeightReference.CLAMP_TO_GROUND,
-          pixelOffset: new C.Cartesian2(0, -23), distanceDisplayCondition: new C.DistanceDisplayCondition(0, 4500) },
+          pixelOffset: new C.Cartesian2(0, kind === "bus" ? -30 : -23),
+          distanceDisplayCondition: new C.DistanceDisplayCondition(0, 4500) },
       });
       entity.kmapsMarker = kind;
       entity.kmapsPosition = location;
       if (kind === "bus") entity.kmapsVehicle = payload;
+      if (kind === "charger") entity.kmapsCharger = payload;
       current.markers.push(entity);
     }
     if (!navigationActive) marker(startCoordinate || data?.start?.coordinates, "A", "start", "#5cb78a");
     marker(destinationCoordinate || data?.end?.coordinates, "B", "end", "#ee6d5e");
     marker(currentLocation, "●", "location", "#4ba4fc");
-    if (mode === "transit") for (const vehicle of route?.live_vehicles || []) {
-      const matchingTrip = (route.steps || []).some(step => step.type === "transit" &&
-        String(step.agency) === String(vehicle.agency) && String(step.trip_id) === String(vehicle.trip_id));
-      if (matchingTrip && validLatLon([vehicle.lat, vehicle.lon])) {
+    for (const stop of route?.charging_stops || []) {
+      if (!validLatLon(stop.coordinates)) continue;
+      marker(stop.coordinates, "⚡", "charger", "#059669", stop);
+    }
+    if (mode === "transit") {
+      // The backend already returns only vehicles from the selected trip legs.
+      // Do not filter them *again* using a second trip-id comparison here:
+      // some GTFS-RT providers prefix ids differently from the timetable.
+      const shown = new Set();
+      for (const vehicle of route?.live_vehicles || []) {
+        if (!validLatLon([vehicle.lat, vehicle.lon])) continue;
+        const key = `${vehicle.agency}:${vehicle.trip_id}`;
+        if (shown.has(key)) continue;
+        shown.add(key);
         marker([vehicle.lat, vehicle.lon], vehicle.route ? String(vehicle.route) : "BUS", "bus",
           vehicle.estimated ? "#64748B" : "#D97706", vehicle);
       }
@@ -1054,6 +1078,12 @@ export default function Scene3D({
           <div style={{ paddingRight: 12 }}>
             {popup.kind === "stop" && <StopBoard stop={popup.stop} />}
             {popup.kind === "bus" && <BusDetails vehicle={popup.vehicle} />}
+            {popup.kind === "charger" && (
+              <div className="text-sm"><strong>{popup.charger.name || "EV charging stop"}</strong>
+                <div>{popup.charger.charging_time_min} min charging</div>
+                {popup.charger.operator && <div>{popup.charger.operator}</div>}
+              </div>
+            )}
             {popup.kind === "report" && <Ontario511Info item={popup.item} />}
             {popup.kind === "marker" && <div className="text-sm font-semibold">{popup.title}</div>}
             {popup.kind === "picker" && (

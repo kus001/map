@@ -191,6 +191,13 @@ const MODE_COLORS = {
   transit: "#8A6F4D",
 };
 
+const EV_CHARGER_ICON = L.divIcon({
+  className: "", iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -18],
+  html: '<span style="display:grid;place-items:center;width:30px;height:30px;border:2px solid white;border-radius:10px;background:#059669;color:white;box-shadow:0 2px 6px #0005;font-size:20px;font-weight:700">⚡</span>'
+});
+const BUS_LIVE_ICON = L.icon({ iconUrl: "/icons/bus-live.svg", iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -16] });
+const BUS_SCHEDULED_ICON = L.icon({ iconUrl: "/icons/bus-scheduled.svg", iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -16] });
+
 const START_ICON = L.divIcon({
   className: "map-route-marker-shell",
   html: '<div class="map-route-marker map-route-marker-start">A</div>',
@@ -1096,27 +1103,18 @@ export default function MapView({
       />
 
       {(route?.live_vehicles ?? [])
-        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]) &&
-          (route?.steps || []).some(step => step.type === "transit" &&
-            String(step.agency) === String(vehicle.agency) &&
-            String(step.trip_id) === String(vehicle.trip_id)))
+        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]))
         .map(vehicle => {
           const estimated = Boolean(vehicle.estimated);
           const delayAdjusted = vehicle.position_source === "schedule_adjusted";
           return (
-            <CircleMarker
+            <Marker
               key={`${vehicle.agency}-${vehicle.trip_id}-${
                 vehicle.vehicle_id || (estimated ? "scheduled" : "vehicle")
               }`}
-              center={[vehicle.lat, vehicle.lon]}
-              radius={estimated ? 6 : 7}
-              pathOptions={{
-                color: "#FFFFFF",
-                weight: estimated ? 2 : 3,
-                fillColor: estimated ? "#64748B" : "#D97706",
-                fillOpacity: estimated ? 0.85 : 1,
-                dashArray: estimated ? "4 3" : undefined,
-              }}
+              position={[vehicle.lat, vehicle.lon]}
+              icon={estimated ? BUS_SCHEDULED_ICON : BUS_LIVE_ICON}
+              zIndexOffset={950}
             >
               <Popup>
                 <div className="font-semibold">
@@ -1138,9 +1136,15 @@ export default function MapView({
                   </div>
                 ) : null}
               </Popup>
-            </CircleMarker>
+            </Marker>
           );
         })}
+
+      {(route?.charging_stops || []).filter(stop => validCoordinate(stop.coordinates)).map((stop, i) => (
+        <Marker key={`ev-charge-${i}`} position={stop.coordinates} icon={EV_CHARGER_ICON}>
+          <Popup><strong>{stop.name || "EV charging stop"}</strong><div>{stop.charging_time_min} min charging</div>{stop.operator && <div>{stop.operator}</div>}</Popup>
+        </Marker>
+      ))}
 
       {!navigationActive && validCoordinate(visibleStart) && (
         <Marker

@@ -9,6 +9,9 @@ import requests
 
 from driving import _resolve_coordinates
 
+# Exposed in /api/routes so stale Flask processes are easy to distinguish.
+EV_ADAPTER_VERSION = "10.20.20"
+
 _URL = "https://api.tomtom.com/routing/1/calculateLongDistanceEVRoute"
 _ALLOWED_PLUGS = {
     "ccs1": "Combo_to_IEC_62196_Type_1_Base",
@@ -60,21 +63,73 @@ def _coordinate(point):
     return None
 
 
-def _route_coordinates(route):
-    """TomTom places its road polyline in *each leg*, not in route.points.
+def _decode_polyline(value, precision=5):
+    """Decode TomTom encodedPolyline geometry if returned despite polyline request."""
+    if not isinstance(value, str) or not value:
+        return []
+    try:
+        precision = int(precision)
+        if precision not in (5, 6, 7):
+            return []
+        factor = 10 ** precision
+        coords = []
+        cursor = 0
+        latitude = longitude = 0
+        while cursor < len(value):
+            numbers = []
+            for _ in range(2):
+                shift = result = 0
+                while True:
+                    if cursor >= len(value):
+                        return []
+                    chunk = ord(value[cursor]) - 63
+                    cursor += 1
+                    if not (0 <= chunk <= 63):
+                        return []
+                    result |= (chunk & 0x1f) << shift
+                    shift += 5
+                    if shift > 65:
+                        return []
+                    if not (chunk & 0x20):
+                        break
+                numbers.append((result >> 1) ^ -(result & 1))
+            latitude += numbers[0]
+            longitude += numbers[1]
+            coord = _coordinate({"latitude": latitude / factor,
+                                 "longitude": longitude / factor})
+            if coord is None:
+                return []
+            coords.append(coord)
+        return coords
+    except (TypeError, ValueError, OverflowError):
+        return []
 
-    Long-distance EV trips can have several legs separated by automatic charge
-    stops. Stitch their road geometry together without duplicating junctions.
+
+def _route_coordinates(route):
+    """Return one Leaflet/Cesium [lat, lon] path across ALL TomTom route legs.
+
+    TomTom Long Distance EV output is under routes[].legs[].points.  Respect
+    its alternate encodedPolyline representation and tolerate simple responses.
+    Never invent a straight line if no real road geometry was returned.
     """
+    if not isinstance(route, dict):
+        return []
     legs = route.get("legs") or [route]
     coordinates = []
     for leg in legs:
         if not isinstance(leg, dict):
             continue
-        for point in leg.get("points") or []:
-            pair = _coordinate(point)
-            if pair and (not coordinates or pair != coordinates[-1]):
+        points = [_coordinate(point) for point in (leg.get("points") or [])]
+        points = [point for point in points if point is not None]
+        if not points:
+            points = _decode_polyline(leg.get("encodedPolyline"),
+                                      leg.get("encodedPolylinePrecision", 5))
+        for pair in points:
+            if not coordinates or pair != coordinates[-1]:
                 coordinates.append(pair)
+    if len(coordinates) < 2 and route.get("legs"):
+        # Some intermediate providers additionally give a complete root polyline.
+        return _route_coordinates({k: v for k, v in route.items() if k != "legs"})
     return coordinates
 
 
@@ -296,13 +351,15 @@ def get_ev_route(start_address, end_address, start_coordinates=None,
             "remaining_charge_kwh": summary.get("remainingChargeAtArrivalInkWh"),
         })
     if not routes:
-        return {"success": False, "error": (
-            "TomTom did not return usable route geometry. Please retry your EV route."
-            if data.get("routes") else "No EV route found for this battery profile."
-        )}
+        return {"success": False, "ev_adapter_version": EV_ADAPTER_VERSION,
+                "error": ("TomTom returned an EV summary without drawable road geometry. "
+                          "No route was displayed; please retry or use normal driving."
+                          if data.get("routes") else
+                          "No EV route found for this battery profile.")}
     return {
         "success": True, "mode": "driving", "routing_provider": "tomtom_ev",
         "traffic_aware": True, "ev_profile_estimated": True,
+        "ev_adapter_version": EV_ADAPTER_VERSION,
         "start": {"address": start_address, "coordinates": list(start)},
         "end": {"address": end_address, "coordinates": list(end)},
         "routes": routes,

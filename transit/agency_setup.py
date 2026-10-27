@@ -12,15 +12,16 @@ import argparse
 import csv
 import io
 import math
+from html.parser import HTMLParser
 import pickle
 import shutil
 import sqlite3
 import sys
 import tempfile
 import zipfile
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from array import array
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 import requests
@@ -341,13 +342,108 @@ def _extract_files(agency, source, target, wanted=None):
                 selected_archive.close()
 
 
+# Public snapshots archived by Mobility Database, independent of Toronto's CKAN
+# CDN. TTC's full schedule is mdb-732; BusTime-compatible surface feed mdb-2253.
+# These known copies serve as a fallback if the catalogue layout changes.
+TTC_GTFS_MIRRORS = {
+    "full": (
+        "mdb-732",
+        ("https://files.mobilitydatabase.org/mdb-732/"
+         "mdb-732-202609260010/mdb-732-202609260010.zip"),
+    ),
+    "surface": (
+        "mdb-2253",
+        ("https://files.mobilitydatabase.org/mdb-2253/"
+         "mdb-2253-202609290048/mdb-2253-202609290048.zip"),
+    ),
+}
+
+
+class _GTFSArchiveLinkParser(HTMLParser):
+    """Extract ZIP links without needing BeautifulSoup or a MobilityData API key."""
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+        href = dict(attrs).get("href", "")
+        if href:
+            self.urls.append(href)
+
+
+def _mobility_archive_urls(source_kind):
+    """Discover Toronto GTFS snapshots from Mobility Database's public feed page."""
+    feed_id, pinned = TTC_GTFS_MIRRORS[source_kind]
+    # A previously archived feed is useful while the latest feed covers only
+    # FUTURE service dates. It is NOT hardcoded as the permanent source.
+    if date.today() <= date(2026, 10, 31):
+        yield pinned
+    page = f"https://mobilitydatabase.org/feeds/gtfs/{feed_id}"
+    try:
+        response = requests.get(page, timeout=(10, 20),
+                                headers={"User-Agent": "Mozilla/5.0 (compatible; kmaps/1.0)"})
+        response.raise_for_status()
+        parser = _GTFSArchiveLinkParser()
+        parser.feed(response.text)
+        seen = set()
+        for href in parser.urls:
+            url = urljoin(page, href)
+            parts = urlparse(url)
+            if (parts.scheme == "https" and parts.netloc == "files.mobilitydatabase.org"
+                    and parts.path.startswith(f"/{feed_id}/")
+                    and parts.path.lower().endswith(".zip") and url not in seen):
+                seen.add(url)
+                yield url
+    except (requests.RequestException, ValueError, TypeError, AttributeError) as error:
+        print(f"TTC archive lookup unavailable ({error}).", flush=True)
+    # The pinned copy can still rescue a broken installer if the HTML changed.
+    if date.today() > date(2026, 10, 31):
+        yield pinned
+
+
+def _covers_current_service(archive, selected):
+    """Return False only if a feed clearly excludes today (e.g. a future feed).
+
+    Older TTC data remains useful for offline routing but cannot match today's
+    live predictions; therefore try another source first.  An unknown span
+    returns None so we don't reject otherwise valid GTFS archives.
+    """
+    start, end = None, None
+    for filename in ("calendar.txt", "calendar_dates.txt", "feed_info.txt"):
+        member = selected.get(filename)
+        if member is None or member.file_size > 8 * 1024 * 1024:
+            continue
+        try:
+            with archive.open(member) as file:
+                records = csv.DictReader(io.TextIOWrapper(file, encoding="utf-8-sig", errors="replace"))
+                for row in records:
+                    for key in (("start_date", "end_date") if filename == "calendar.txt"
+                                else ("date",) if filename == "calendar_dates.txt"
+                                else ("feed_start_date", "feed_end_date")):
+                        value = row.get(key, "")
+                        if value and len(value) == 8 and value.isdigit():
+                            d = datetime.strptime(value, "%Y%m%d").date()
+                            start = d if start is None else min(start, d)
+                            end = d if end is None else max(end, d)
+        except (OSError, ValueError, UnicodeError, csv.Error):
+            pass
+    if start is None or end is None:
+        return None
+    return start <= date.today() <= end
+
+
 def _candidate_download_urls(agency, source_kind="full"):
-    """Yield official GTFS URLs. CKAN lookup is lazy when TTC's direct link fails."""
+    """Try TTC's independently archived official GTFS before unreliable CKAN URLs."""
     if source_kind == "surface":
         if agency.id != "ttc":
             raise ValueError("Surface GTFS only applies to TTC")
+        yield from _mobility_archive_urls("surface")
         yield TTC_SURFACE_URL
         return
+    if agency.id == "ttc":
+        yield from _mobility_archive_urls("full")
     yield agency.feed_url
     if agency.id != "ttc":
         return
@@ -369,7 +465,7 @@ def _candidate_download_urls(agency, source_kind="full"):
                 seen.add(url)
                 yield url
     except (requests.RequestException, ValueError, TypeError, AttributeError) as error:
-        print(f"TTC catalogue lookup unavailable ({error}); trying legacy URL.", flush=True)
+        print(f"TTC catalogue lookup unavailable ({error}); trying mirrors.", flush=True)
     if TTC_LEGACY_URL not in seen:
         yield TTC_LEGACY_URL
 
@@ -379,7 +475,11 @@ def _download(agency, source_kind="full"):
     GTFS_ROOT.mkdir(parents=True, exist_ok=True)
     destination = GTFS_ROOT / (f"{agency.id}_surface_download.zip" if source_kind == "surface" else f"{agency.id}_download.zip")
     failures = []
+    attempted = set()
     for url in _candidate_download_urls(agency, source_kind=source_kind):
+        if url in attempted:
+            continue
+        attempted.add(url)
         print(f"Downloading {agency.label} GTFS from {urlparse(url).netloc}...", flush=True)
         with tempfile.NamedTemporaryFile(dir=GTFS_ROOT, prefix=f".{agency.id}_download_",
                                          suffix=".zip", delete=False) as output:
@@ -393,16 +493,27 @@ def _download(agency, source_kind="full"):
                         if chunk:
                             output.write(chunk)
             if not zipfile.is_zipfile(temporary):
-                raise ValueError("response was not a ZIP file")
+                raise ValueError(f"response is not a ZIP ({temporary.stat().st_size:,} bytes; "
+                                 f"HTTP Content-Type: {response.headers.get('Content-Type', '?')})")
             # Validate actual feed content, not just the ZIP signature.
             with zipfile.ZipFile(temporary) as archive:
+                if not archive.infolist():
+                    raise ValueError(f"server returned an EMPTY ZIP "
+                                     f"({temporary.stat().st_size:,} bytes; zero entries)")
                 found_archive, files = _locate_gtfs_zip(archive)
-                if not REQUIRED_FILES.issubset(files):
-                    raise ValueError("missing core GTFS tables")
-                if found_archive is not archive:
-                    found_archive.close()
+                try:
+                    if not REQUIRED_FILES.issubset(files):
+                        raise ValueError("missing core GTFS tables")
+                    if agency.id == "ttc" and _covers_current_service(found_archive, files) is False:
+                        raise ValueError("GTFS ZIP has no service for today "
+                                         "(trying another archived snapshot)")
+                finally:
+                    if found_archive is not archive:
+                        found_archive.close()
+            verified_size = temporary.stat().st_size
             temporary.replace(destination)
-            print(f"{agency.label}: GTFS download verified.", flush=True)
+            print(f"{agency.label}: verified {verified_size:,} byte GTFS ZIP "
+                  f"from {urlparse(url).netloc}.", flush=True)
             return destination
         except (requests.RequestException, OSError, ValueError, RuntimeError,
                 zipfile.BadZipFile) as error:

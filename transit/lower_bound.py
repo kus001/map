@@ -23,7 +23,9 @@ _EPSILON = 1e-4
 
 
 def build_reverse_min_graph(graph):
-    """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}"""
+    """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}
+    
+    Basically runs a small graph search backwards to get heuristics"""
     rev = {}
     for stop, neighbors in graph.items():
         for neighbor, route_options in neighbors.items():
@@ -40,7 +42,7 @@ def build_reverse_min_graph(graph):
                 if minutes < best:
                     best = minutes
             if best < INF:
-                rev.setdefault(neighbor, []).append((stop, max(0.0, best - _EPSILON)))
+                rev.setdefault(neighbor, []).append((stop, max(0.0, best - _EPSILON)))              # Remember heuristic must never overestimate time required time!
     return rev
 
 

@@ -56,7 +56,7 @@ from .vehicles import live_vehicle_is_usable
 from .walks import _walk_id, _walk_key, fetch_walks, walking_geometry
 
 
-def _replay_timeline(timeline, depart_dt, midnight, grace_s=30):
+def _replay_timeline(timeline, depart_dt, midnight, grace_s=30) -> None | dict:
     """Walk the finished journey forward in time to get the TRUE arrival.
     Returns None if any ride lacks times (caller keeps the legacy estimate).
     """
@@ -99,12 +99,14 @@ def get_transit_route(
     _picked=None,
     _walks=None,
 ) -> dict:
-    ensure_transit_loaded()
+
+    ensure_transit_loaded() # kept for legacy lazy loading
 
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
-    def mark(name):
+    def mark(name: str):
+        """Add a time stamp with the name of 'name'"""
         if timing is not None:
             timing[name] = us() - timing_start
 

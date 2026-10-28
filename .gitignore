@@ -64,7 +64,6 @@ temp/
 # Transit files
 transit_data/GTFS_Files/*
 transit_data/geocode_cache.json
-transit_data/*
 
 # IDEs and OS files
 .vscode/

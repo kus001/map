@@ -131,8 +131,7 @@ def get_transit_route(
             ),
         }
 
-    start = coord(start)
-    end = coord(end)
+    start = coord(start); end = coord(end)
 
     if _shared is None:
         grt_realtime = realtime_snapshot()
@@ -141,6 +140,7 @@ def get_transit_route(
         current_time = datetime.now(TRANSIT_TIMEZONE)
     else:
         grt_realtime, go_realtime, realtime, current_time = _shared
+
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
         <= REALTIME_SCHEDULE_WINDOW_HOURS * 3600

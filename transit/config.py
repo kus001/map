@@ -12,6 +12,15 @@ ORS_API_KEY = os.getenv("API")
 ORS_WALKING_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/foot-walking"
 )
+# Set MAP_LOCAL_OSRM_URL to an empty string to turn it off.
+LOCAL_OSRM_WALK_URL = os.getenv(
+    "MAP_LOCAL_OSRM_URL", "https://host-transit-page.hackclub.app/route/v1/foot/"
+).strip().rstrip("/")
+# The local extract only covers this box: (west, south, east, north).
+LOCAL_OSRM_BBOX = (-82.3694723, 42.7787658, -76.1642432, 44.461654)
+
+# After a connection failure, skip the local server for this many seconds.
+LOCAL_OSRM_COOLDOWN_SECONDS = 30.0
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 MAX_NEARBY_STOPS = 32
 FASTEST_NEARBY_STOPS = 64

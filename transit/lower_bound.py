@@ -25,7 +25,7 @@ _EPSILON = 1e-4
 def build_reverse_min_graph(graph):
     """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}
     
-    Basically runs a small graph search backwards to get heuristics"""
+    Basically creates a very, very basic graph with just the absolute travel times included and no other funny business"""
     rev = {}
     for stop, neighbors in graph.items():
         for neighbor, route_options in neighbors.items():
@@ -56,6 +56,8 @@ def lower_bounds_to_goal(rev, seeds):
 
     `seeds` maps each goal stop to its own cost of finishing from there (the final walk).
     The returned dict is shared between calls and must be treated as read-only.
+
+    THIS is the backwards graph search
     """
     key = (id(rev), tuple(sorted(seeds.items())))
     with _cache_lock:

@@ -27,22 +27,34 @@ years = {
     (22312, 22318, "2023", "HEV"),
     (22401, 22444, "2024", "HEV"),
     (22201, 22229, "2022", "HEV"),
-    (22105, 22104, "2021", "30'"),
+    (22105, 22108, "2021", "30'"),
 }
+
 years = {k: (y, t) for start, end, y, t in years for k in range(start, end + 1)}
 
 statuses = []
 vehicle_ids = set()
+
 for entity in feed.entity:
     try:
         vehicle_id = int(entity.vehicle.vehicle.id)
-    except ValueError:
+    except (ValueError, AttributeError):
         continue
+
     vehicle_ids.add(vehicle_id)
-    #if 22301 <= vehicle_id <= 22311:
+
     if vehicle_id in years:
-        statuses.append((entity.vehicle.trip.route_id or "N/A", vehicle_id, entity.vehicle.position.latitude, entity.vehicle.position.longitude, years.get(vehicle_id, "N/A")))
+        route_id = entity.vehicle.trip.route_id or "N/A"
+        lat = entity.vehicle.position.latitude
+        lon = entity.vehicle.position.longitude
+        year, vehicle_type = years[vehicle_id]
+
+        statuses.append((vehicle_id, year, vehicle_type, route_id, lat, lon))
 
 statuses.sort()
+
 print(f"Total vehicles: {len(vehicle_ids)}")
-print("Bus     Year    Route   Coordinates\n" + "\n".join(f"{str(i[1]).ljust(8)}{i[4].ljust(8)}{i[0].ljust(8)}({i[2]}, {i[3]})" for i in statuses))
+print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
+
+for bus_id, year, v_type, route, lat, lon in statuses:
+    print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{route:<8}({lat}, {lon})")

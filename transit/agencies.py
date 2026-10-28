@@ -123,7 +123,13 @@ AGENCIES = {agency.id: agency for agency in (
     Agency("oc", "OC Transpo", "https://oct-gtfs-emasagcnfmcgeham.z01.azurefd.net/public-access/GTFSExport.zip",
            cache="doc.pkl", fallback_mode="OC", key={"header": "Ocp-Apim-Subscription-Key", "key": OC_KEY},
            vehicles_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions?format=protobuf",
-           trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",)
+           trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",),
+
+    Agency("vic", "BC Transit", "https://bct.tmix.se/Tmix.Cap.TdExport.WebApi/gtfs/?operatorIds=48",
+           cache="dvic.pkl", fallback_mode="bus",
+           trip_updates_url="https://bct.tmix.se/gtfs-realtime/tripupdates.pb?operatorIds=48",
+           alerts_url="https://bct.tmix.se/gtfs-realtime/alerts.pb?operatorIds=48",
+           vehicles_url="https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=48")
 
 #     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
 #            cache="dwp.pkl", fallback_mode="bus")

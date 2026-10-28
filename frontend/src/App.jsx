@@ -487,6 +487,9 @@ export default function App() {
   const transitLiveRequestId = useRef(0);
   const selectedRouteRef = useRef(null);
   const searchRoutesRef = useRef(null);
+  // the live-transit effect below doesn't re-run when these change, so it reads them through refs
+  const startUsesCurrentLocationRef = useRef(startUsesCurrentLocation);
+  const autoRerouteSignatureRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -882,7 +885,13 @@ export default function App() {
           }
         }, 80);
       }
-      setStartMapCoordinate(result.start?.coordinates || null);
+      // A search that started from GPS while the start box says somewhere else (navigation
+      // reroutes) must not overwrite that start's coordinate, or later searches would silently
+      // keep routing from the GPS point while the box still shows the old place.
+      const startedFromGpsOverride = requestedUseCurrentLocation && !startUsesCurrentLocation;
+      if (!startedFromGpsOverride) {
+        setStartMapCoordinate(result.start?.coordinates || null);
+      }
       setDestinationMapCoordinate(result.end?.coordinates || null);
                                                                                        
       setSelectedRouteNumber(requestedMode === "transit" ? 1 : (result.fastest_route_number || 1));
@@ -942,6 +951,7 @@ export default function App() {
 
   useEffect(() => {
     searchRoutesRef.current = searchRoutes;
+    startUsesCurrentLocationRef.current = startUsesCurrentLocation;
   });
 
   useEffect(() => {
@@ -1137,6 +1147,36 @@ export default function App() {
         const cooldownPassed =
           nowMs - transitLastAutoRerouteAt.current > 30000;
         if (!cooldownPassed || !searchRoutesRef.current) {
+          return;
+        }
+
+        // Your GPS position only says anything about this trip if you are navigating it or you
+        // chose "Current location" as the start. For a trip planned from somewhere else (say
+        // Toronto Pearson) a cancelled bus or broken connection must re-plan from THAT start;
+        // using GPS here used to silently restart the route from wherever you are (home), while
+        // the start box still showed the old place. It also stops this background check from
+        // asking for location permission on a plain planning screen.
+        if (!navigationActive && !startUsesCurrentLocationRef.current) {
+          if (!cancelledStep && !connectionFailure) {
+            return;
+          }
+          // a clock-based connection warning can persist on the replacement route; try once per route
+          if (autoRerouteSignatureRef.current === selectedTransitSignature) {
+            return;
+          }
+          autoRerouteSignatureRef.current = selectedTransitSignature;
+          transitLastAutoRerouteAt.current = nowMs;
+          setStatus(
+            cancelledStep
+              ? "Transit trip cancelled • finding the next best route..."
+              : "A live delay breaks your connection • rerouting..."
+          );
+          // no start overrides: searchRoutes uses the start currently shown in the search box
+          searchRoutesRef.current({
+            requestedMode: "transit",
+            requestedTimingMode: "now",
+            requestedTransitPreference: transitPreference,
+          });
           return;
         }
 

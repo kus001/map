@@ -57,3 +57,13 @@ MAX_CONCURRENT_WALK_REQUESTS = 6
 WALK_BATCH_BUDGET_SECONDS = max(0.0, min(0.5, float(os.getenv("TRANSIT_WALK_BUDGET_SECONDS", "0.05"))))
 WALK_BACKGROUND_SECONDS = 7.0
 MAX_SCHEDULE_CACHE_ENTRIES = 256
+
+# Keeping the GTFS timetables fresh (see freshness.py)
+GTFS_AUTO_REFRESH = os.getenv("GTFS_AUTO_REFRESH", "1") == "1"
+# re-download a feed once its last scheduled service day is fewer than this many days away
+GTFS_REFRESH_AHEAD_DAYS = int(os.getenv("GTFS_REFRESH_AHEAD_DAYS", "5"))
+GTFS_CHECK_INTERVAL_SECONDS = int(os.getenv("GTFS_CHECK_INTERVAL_SECONDS", "3600"))
+# don't hammer a publisher that hasn't posted a newer feed yet
+GTFS_RETRY_EXPIRED_HOURS = float(os.getenv("GTFS_RETRY_EXPIRED_HOURS", "3"))
+GTFS_RETRY_EXPIRING_HOURS = float(os.getenv("GTFS_RETRY_EXPIRING_HOURS", "24"))
+GTFS_REBUILD_TIMEOUT_SECONDS = int(os.getenv("GTFS_REBUILD_TIMEOUT_SECONDS", "3600"))

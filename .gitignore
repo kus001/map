@@ -79,3 +79,6 @@ test*.*
 *.patch
 
 *.sqlite
+
+# GTFS auto-refresh bookkeeping (when each feed was last re-downloaded)
+transit_data/.gtfs_refresh.json

@@ -32,6 +32,7 @@ from .config import (
     TRANSIT_TIMEZONE,
 )
 from .display import delay_status_label, display_headsign, normalize_color, vehicle_label
+from .freshness import expired_note
 from .geo import (
     access_walk_minutes,
     coord,
@@ -239,7 +240,7 @@ def get_transit_route(
             f" {a.label} timetable not installed; run python -m transit.agency_setup {a.id}."
             for a in agencies.OWN_CACHE_AGENCIES
             if not a.cache_path.exists()
-        )
+        ) + expired_note()
         return {"success": False,
                 "error": "No transit departure found for this time. Try Depart at with a daytime departure." + setup_note}
 

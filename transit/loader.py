@@ -8,6 +8,7 @@ from .make_graph import make_graph
 from .realtime import start_background_refresh
 from .config import AGENCY_LINK_RADIUS_M, AGENCY_LINK_WALK_M_PER_MIN
 from .compact import unique_pools
+from .freshness import start_freshness_worker
 from .geo import dist_m
 from .lower_bound import build_reverse_min_graph
 from .pickle_compat import load_cache
@@ -54,6 +55,89 @@ def _merge_agency(agency, data):
     print(f"{agency.label} loaded: {len(extra.node_positions):,} stops", flush=True)
 
 
+def _build_transit_data():
+    """Read every agency cache into a fresh graph. Nothing is published yet."""
+    loaded = make_graph()
+    for agency in agencies.OWN_CACHE_AGENCIES:
+        if agency.cache_path.exists():
+            _merge_agency(agency, loaded)
+    try:
+        reverse_min = build_reverse_min_graph(loaded.graph)
+    except Exception as error:  # the search falls back to the straight-line heuristic
+        print(f"Lower-bound graph failed ({error}); using straight-line heuristic.", flush=True)
+        reverse_min = None
+    return loaded, reverse_min
+
+
+def _publish(loaded, reverse_min):
+    """Make `loaded` the live graph (a handful of attribute swaps, so requests never see a half-built one)."""
+    store._data = loaded
+    store.graph = loaded.graph
+    store.stops = loaded.node_positions
+    store.reverse_min = reverse_min
+    store.trip_pools = unique_pools(loaded.graph)
+
+
+def invalidate_caches(changed_agencies=None):
+    """Forget everything derived from the previous timetable. Each step is independent."""
+
+    def clear_active_services():
+        _ACTIVE_SERVICE_CACHE.clear()
+        from . import schedule
+        schedule._SCHEDULE_CACHE.clear()
+
+    def clear_lower_bounds():
+        from . import lower_bound
+        with lower_bound._cache_lock:
+            lower_bound._cache.clear()
+
+    def clear_stop_grid():
+        from helpers import coords
+        coords._cached_id = None  # the new stops dict could reuse the old one's id() and length
+
+    def clear_vehicle_caches():
+        from . import vehicles
+        with vehicles._scheduled_trip_cache_lock:
+            vehicles._scheduled_trip_cache.clear()
+        with vehicles._nearby_vehicle_lock:
+            vehicles._nearby_vehicle_cache.clear()
+
+    def clear_metadata():
+        from . import gtfs_metadata
+        for cached in (gtfs_metadata.get_trip_meta, gtfs_metadata._load_shape, gtfs_metadata._routes_index):
+            cached.cache_clear()
+
+    def clear_live_matching():
+        from . import rt_match
+        with rt_match._lock:
+            for agency_id in (changed_agencies or list(rt_match._indexes)):
+                rt_match._indexes.pop(agency_id, None)
+
+    steps = [clear_active_services, clear_lower_bounds, clear_stop_grid,
+             clear_vehicle_caches, clear_metadata, clear_live_matching]
+    for step in steps:
+        try:
+            step()
+        except Exception as error:
+            print(f"cache reset {step.__name__} failed: {type(error).__name__}: {error}", flush=True)
+
+
+def reload_transit_data(changed_agencies=None) -> float:
+    """Re-read every agency cache from disk and swap the result in (used after a timetable refresh).
+
+    The new graph is built completely before it replaces the old one, so searches keep working
+    throughout; memory briefly holds both. Returns the seconds spent building.
+    """
+    with _transit_load_lock:
+        started = time.perf_counter()
+        loaded, reverse_min = _build_transit_data()
+        elapsed = time.perf_counter() - started
+        _publish(loaded, reverse_min)
+        invalidate_caches(changed_agencies)
+        print(f"Transit data reloaded in {elapsed:.1f}s ({len(store.stops):,} stops).", flush=True)
+        return elapsed
+
+
 def ensure_transit_loaded(verbose: bool=False) -> float:
     "Load the heavy transit graph only when transit is actually needed."
     if store._data is not None:
@@ -69,27 +153,16 @@ def ensure_transit_loaded(verbose: bool=False) -> float:
         if verbose: print("Loading transit data...")
 
         load_started = time.perf_counter()
-        loaded = make_graph()
-        for agency in agencies.OWN_CACHE_AGENCIES:
-            if agency.cache_path.exists():
-                _merge_agency(agency, loaded)
+        loaded, reverse_min = _build_transit_data()
         _ACTIVE_SERVICE_CACHE.clear()
-        try:
-            reverse_min = build_reverse_min_graph(loaded.graph)
-        except Exception as error:  # the search falls back to the straight-line heuristic
-            print(f"Lower-bound graph failed ({error}); using straight-line heuristic.", flush=True)
-            reverse_min = None
         load_seconds = time.perf_counter() - load_started
 
-        store._data = loaded
-        store.graph = loaded.graph
-        store.stops = loaded.node_positions
-        store.reverse_min = reverse_min
-        store.trip_pools = unique_pools(loaded.graph)
+        _publish(loaded, reverse_min)
 
         if not store._realtime_started:
             start_background_refresh()
             start_gtfs_background_refresh()
+            start_freshness_worker()
             store._realtime_started = True
 
         if verbose:

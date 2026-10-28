@@ -1,5 +1,3 @@
-
-
 from google.transit import gtfs_realtime_pb2
 
 
@@ -25,9 +23,13 @@ feed.ParseFromString(s.get(
 ).content)
 
 years = {
-    (22301, 22311, "2023")
+    (22301, 22311, "2023", "Electric"),
+    (22312, 22318, "2023", "HEV"),
+    (22401, 22444, "2024", "HEV"),
+    (22201, 22229, "2022", "HEV"),
+    (22105, 22104, "2021", "30'"),
 }
-years = {k: v for start, end, v in years for k in range(start, end + 1)}
+years = {k: (y, t) for start, end, y, t in years for k in range(start, end + 1)}
 
 statuses = []
 vehicle_ids = set()
@@ -37,7 +39,8 @@ for entity in feed.entity:
     except ValueError:
         continue
     vehicle_ids.add(vehicle_id)
-    if 22301 <= vehicle_id <= 22311:
+    #if 22301 <= vehicle_id <= 22311:
+    if vehicle_id in years:
         statuses.append((entity.vehicle.trip.route_id or "N/A", vehicle_id, entity.vehicle.position.latitude, entity.vehicle.position.longitude, years.get(vehicle_id, "N/A")))
 
 statuses.sort()

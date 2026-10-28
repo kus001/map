@@ -13,13 +13,12 @@ than the real cost, so it is still admissible, but it is much tighter.
 """
 
 import heapq
-from collections import OrderedDict
+
 from threading import Lock
+from collections import OrderedDict
 
 INF = float("inf")
-
-# float32 `dists` can round a hair above the true minute value; shave a hair so the bound stays admissible
-_EPSILON = 1e-4
+_EPSILON = 1e-4 # a super small number to lower heuristics by to make sure they never overestimate
 
 
 def build_reverse_min_graph(graph):

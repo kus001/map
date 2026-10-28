@@ -56,7 +56,7 @@ from .vehicles import live_vehicle_is_usable
 from .walks import _walk_id, _walk_key, fetch_walks, walking_geometry
 
 
-def _replay_timeline(timeline, depart_dt, midnight, grace_s=30):
+def _replay_timeline(timeline, depart_dt, midnight, grace_s=30) -> None | dict:
     """Walk the finished journey forward in time to get the TRUE arrival.
     Returns None if any ride lacks times (caller keeps the legacy estimate).
     """
@@ -99,12 +99,14 @@ def get_transit_route(
     _picked=None,
     _walks=None,
 ) -> dict:
-    ensure_transit_loaded()
+
+    ensure_transit_loaded() # kept for legacy lazy loading
 
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
-    def mark(name):
+    def mark(name: str):
+        """Add a time stamp with the name of 'name'"""
         if timing is not None:
             timing[name] = us() - timing_start
 
@@ -129,8 +131,7 @@ def get_transit_route(
             ),
         }
 
-    start = coord(start)
-    end = coord(end)
+    start = coord(start); end = coord(end)
 
     if _shared is None:
         grt_realtime = realtime_snapshot()
@@ -139,6 +140,7 @@ def get_transit_route(
         current_time = datetime.now(TRANSIT_TIMEZONE)
     else:
         grt_realtime, go_realtime, realtime, current_time = _shared
+
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
         <= REALTIME_SCHEDULE_WINDOW_HOURS * 3600

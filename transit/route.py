@@ -56,7 +56,7 @@ from .vehicles import live_vehicle_is_usable
 from .walks import _walk_id, _walk_key, fetch_walks, walking_geometry
 
 
-def _replay_timeline(timeline, depart_dt, midnight, grace_s=30):
+def _replay_timeline(timeline, depart_dt, midnight, grace_s=30) -> None | dict:
     """Walk the finished journey forward in time to get the TRUE arrival.
     Returns None if any ride lacks times (caller keeps the legacy estimate).
     """
@@ -83,6 +83,84 @@ def _replay_timeline(timeline, depart_dt, midnight, grace_s=30):
     }
 
 
+def _direct_walking_option(start, end, start_address, end_address, departure, transit_minutes,
+                           arrive_by, preference_key, preference):
+    """A walking-only route shaped like a transit route, or None unless walking is the best option.
+
+    "Best" means walking from the departure time gets you there no later than the best
+    transit journey (`transit_minutes`). The walk is routed like any other walking leg: the
+    local OSRM inside its coverage area, the usual fallbacks outside it.
+    """
+    straight = dist_m(start, end)
+    if straight <= 35 or not TRANSIT_DETAILED_WALKS:
+        return None
+    # cheap exit: a walk this far (even allowing for the pace being a bit quicker) can't win
+    if access_walk_minutes(straight) * 0.7 > transit_minutes:
+        return None
+
+    walk = walking_geometry(start, end)
+    if walk.get("geometry_source") == "straight_estimate" or not walk.get("coordinates"):
+        return None  # no real walking route to show (every provider failed)
+    duration = float(walk["duration_min"])
+    distance = float(walk["distance_m"])
+    if duration > transit_minutes:
+        return None
+    arrival = departure + timedelta(minutes=duration)
+    if arrive_by is not None and arrival > arrive_by:
+        return None
+
+    walk_id = _walk_id(start, end)
+    coordinates = walk["coordinates"]
+    steps = [{
+        "type": "walk",
+        "walk_id": walk_id,
+        "instruction": f"Walk {max(1, round(duration))} min to {end_address}",
+        "from": start_address,
+        "to": end_address,
+        "duration_min": duration,
+        "distance_m": distance,
+        "coordinates": coordinates[0],
+        "to_coordinates": coordinates[-1],
+        "directions": walk.get("steps") or [],
+    }]
+    distance_km = distance / 1000
+    return {
+        "route_number": 1,
+        "distance_km": distance_km,
+        "duration_min": duration,
+        "average_speed": distance_km / (duration / 60) if duration > 0 else 0.0,
+        "steps": steps,
+        "stops": steps,
+        "segments": [{"type": "walking", "coordinates": coordinates, "walk_id": walk_id}],
+        "transit_stops": [],
+        "live_vehicles": [],
+        "route_coordinates": [coord(point) for point in coordinates],
+        "pending_walks": [],
+        "realtime": {
+            "available": False, "feed_connected": False, "feed_age_seconds": None,
+            "used_live_updates": False, "scheduled_vehicle_fallback": False,
+            "live_sources": [], "grt_connected": False,
+            "go_configured": go_realtime_configured(), "go_connected": False,
+            "go_used_live_updates": False, "suppressed_for_scheduled_trip": False,
+        },
+        "departure_datetime": departure.isoformat(),
+        "next_service": False,
+        "transit_preference": preference_key,
+        "transit_preference_label": preference["label"],
+        "transfer_reliability": connection_reliability(steps),
+        "arrival_estimate_datetime": arrival.isoformat(),
+        "arrival_basis": "walking",
+        "missed_connection": False,
+        "missed_by_min": 0.0,
+        "arrive_by_datetime": arrive_by.isoformat() if arrive_by else None,
+        "access_walk_limit_m": None,
+        "access_walk_limit_expanded": False,
+        "walks_estimated": False,
+        "route_variant": "walking",
+        "walking_only": True,
+    }
+
+
 def get_transit_route(
     start_address,
     end_address,
@@ -99,12 +177,14 @@ def get_transit_route(
     _picked=None,
     _walks=None,
 ) -> dict:
-    ensure_transit_loaded()
+
+    ensure_transit_loaded() # kept for legacy lazy loading
 
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
-    def mark(name):
+    def mark(name: str):
+        """Add a time stamp with the name of 'name'"""
         if timing is not None:
             timing[name] = us() - timing_start
 
@@ -129,8 +209,7 @@ def get_transit_route(
             ),
         }
 
-    start = coord(start)
-    end = coord(end)
+    start = coord(start); end = coord(end)
 
     if _shared is None:
         grt_realtime = realtime_snapshot()
@@ -139,6 +218,7 @@ def get_transit_route(
         current_time = datetime.now(TRANSIT_TIMEZONE)
     else:
         grt_realtime, go_realtime, realtime, current_time = _shared
+
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
         <= REALTIME_SCHEDULE_WINDOW_HOURS * 3600
@@ -245,7 +325,21 @@ def get_transit_route(
                 "error": "No transit departure found for this time. Try Depart at with a daytime departure." + setup_note}
 
     if not any(is_transit_edge(path[i][2] or {}) for i in range(1, len(path))):
-        return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
+        # Walking between the stops is cheapest, so no ride is needed. Still look for the best
+        # journey that uses transit, so it can be offered next to the walking route.
+        forced = search_transit(
+            start_options, end_options, routing_realtime,
+            departure_datetime=requested_departure,
+            soft_walk_m=preference["soft_walk_m"],
+            walk_penalty=preference["walk_penalty"],
+            max_nearby_stops=preference["max_nearby_stops"],
+            excluded_route_keys=excluded_route_keys,
+            require_transit=True,
+        )
+        if forced[0] is None or forced[2] is None or forced[3] is None:
+            return get_walking_route(start_address, end_address, start_coordinates=start, end_coordinates=end)
+        path, search_time, best_start, best_end = forced
+        mark("transit_option_search")
 
     prepared = []
     if include_alternatives and MAX_TRANSIT_ALTERNATIVES > 1:
@@ -598,16 +692,6 @@ def get_transit_route(
         arrival_dt = requested_departure + timedelta(minutes=total_time)
 
 
-    if preference_key == "fastest" and excluded_route_keys is None:
-        if access_walk_minutes(dist_m(start, end)) <= total_time:
-            direct_walk = walking_geometry(start, end)
-            if direct_walk["duration_min"] <= total_time:
-                return get_walking_route(
-                    start_address,
-                    end_address,
-                    start_coordinates=start,
-                    end_coordinates=end,
-                )
     distance_km = total_distance / 1000
 
     feed_timestamp = grt_realtime.get("feed_timestamp")
@@ -733,6 +817,21 @@ def get_transit_route(
             routes.append(candidate)
     mark("alternatives_format")
 
+    # Walking can be the best way to get there. Offer it as an option alongside the transit
+    # journeys instead of replacing them. (Only on the main request, not on the per-route
+    # re-runs for alternatives or the "fastest"/"less walking" alternative searches.)
+    recommended_route_number = 1
+    if _picked is None and excluded_route_keys is None:
+        walking_option = _direct_walking_option(
+            start, end, start_address, end_address, requested_departure, total_time,
+            requested_arrival, preference_key, preference,
+        )
+        mark("direct_walk")
+        if walking_option is not None:
+            walking_option["route_number"] = len(routes) + 1
+            routes.append(walking_option)
+            recommended_route_number = walking_option["route_number"]
+
     fastest = min(routes, key=lambda item: float(item.get("duration_min", float("inf"))))
     shortest = min(routes, key=lambda item: float(item.get("distance_km", float("inf"))))
 
@@ -750,4 +849,6 @@ def get_transit_route(
         "arrival_estimate_datetime": route["arrival_estimate_datetime"],
         "fastest_route_number": fastest["route_number"],
         "shortest_route_number": shortest["route_number"],
+        # the route to show first: walking when it beats every transit journey, else the best transit one
+        "recommended_route_number": recommended_route_number,
     }

@@ -8,23 +8,23 @@
     python -m transit.agency_setup all --skip-installed # leave ready caches alone
     python -m transit.agency_setup ttc --source surface --redownload # TTC BusTime schedules (no subway)
 """
-import argparse
-import csv
 import io
+import csv
+import sys
 import math
-from html.parser import HTMLParser
 import pickle
 import shutil
-import sqlite3
-import sys
-import tempfile
 import zipfile
+import sqlite3
+import argparse
+import requests
+import tempfile
+
+from html.parser import HTMLParser
 from urllib.parse import urlparse, urljoin
 from array import array
 from datetime import datetime, date
 from pathlib import Path
-
-import requests
 
 from .agencies import AGENCIES, OWN_CACHE_AGENCIES, Agency
 from .compact import CompactTrips, TripPools

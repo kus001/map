@@ -11,6 +11,7 @@ from .compact import unique_pools
 from .freshness import start_freshness_worker
 from .geo import dist_m
 from .lower_bound import build_reverse_min_graph
+from .walk_links import apply_walk_times, build_walk_links, load_walk_times
 from .pickle_compat import load_cache
 from .store import _ACTIVE_SERVICE_CACHE, _transit_load_lock
 
@@ -62,7 +63,19 @@ def _build_transit_data():
         if agency.cache_path.exists():
             _merge_agency(agency, loaded)
     try:
-        reverse_min = build_reverse_min_graph(loaded.graph)
+        loaded.walk_links = build_walk_links(loaded.node_positions, loaded.graph)
+        times = load_walk_times()
+        if times:
+            loaded.walk_links, replaced, dropped = apply_walk_times(
+                loaded.walk_links, loaded.node_positions, times)
+            print(f"Transfer walks: {replaced:,} real OSRM times, {dropped:,} dropped as too far.", flush=True)
+        else:
+            print("Transfer walks use estimated times; run `python -m transit.walk_links` for real ones.", flush=True)
+    except Exception as error:  # no long transfer walks; short ones still work
+        print(f"Transfer walk links failed ({error}); using short transfers only.", flush=True)
+        loaded.walk_links = {}
+    try:
+        reverse_min = build_reverse_min_graph(loaded.graph, loaded.walk_links)
     except Exception as error:  # the search falls back to the straight-line heuristic
         print(f"Lower-bound graph failed ({error}); using straight-line heuristic.", flush=True)
         reverse_min = None
@@ -75,6 +88,7 @@ def _publish(loaded, reverse_min):
     store.graph = loaded.graph
     store.stops = loaded.node_positions
     store.reverse_min = reverse_min
+    store.walk_links = getattr(loaded, "walk_links", {})
     store.trip_pools = unique_pools(loaded.graph)
 
 

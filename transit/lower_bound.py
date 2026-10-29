@@ -13,17 +13,23 @@ than the real cost, so it is still admissible, but it is much tighter.
 """
 
 import heapq
-from collections import OrderedDict
+
 from threading import Lock
+from collections import OrderedDict
 
 INF = float("inf")
-
-# float32 `dists` can round a hair above the true minute value; shave a hair so the bound stays admissible
-_EPSILON = 1e-4
+_EPSILON = 1e-4 # a super small number to lower heuristics by to make sure they never overestimate
 
 
-def build_reverse_min_graph(graph):
-    """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}"""
+def build_reverse_min_graph(graph, extra_links=None):
+    """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}
+    
+    Basically creates a very, very basic graph with just the absolute travel
+    times included and no other funny business
+
+    `extra_links` is {stop: ((neighbour, minutes), ...)}: walking transfers that live
+    outside the graph. The search can use them, so the bound has to as well.
+    """
     rev = {}
     for stop, neighbors in graph.items():
         for neighbor, route_options in neighbors.items():
@@ -31,16 +37,24 @@ def build_reverse_min_graph(graph):
             for key, trips in route_options.items():
                 if key == "__walk__":
                     minutes = float(trips[0].get("distance", 0)) if trips else INF
+                    # sometimes you might just have to walk...
                 else:
                     dists = getattr(trips, "dists", None)
                     if dists is not None:
                         minutes = float(min(dists)) if len(dists) else INF
                     else:
                         minutes = min((float(t.get("distance", 0)) for t in trips), default=INF)
+                        # Take the smallest possible trip time, since trips early in the morning
+                        # are faster and stuff compared to the rush hour 
                 if minutes < best:
                     best = minutes
             if best < INF:
                 rev.setdefault(neighbor, []).append((stop, max(0.0, best - _EPSILON)))
+                # Remember heuristic must never overestimate time remaining trip time time!
+                # Hence, we use subtract it by _EPSILON.
+    for stop, links in (extra_links or {}).items():
+        for neighbor, minutes in links:
+            rev.setdefault(neighbor, []).append((stop, max(0.0, minutes - _EPSILON)))
     return rev
 
 
@@ -54,9 +68,12 @@ def lower_bounds_to_goal(rev, seeds):
 
     `seeds` maps each goal stop to its own cost of finishing from there (the final walk).
     The returned dict is shared between calls and must be treated as read-only.
+
+    THIS is the backwards graph search: it should be very, very fast so then the slower
+    normal search A* can be much much faster
     """
     key = (id(rev), tuple(sorted(seeds.items())))
-    with _cache_lock:
+    with _cache_lock:                       # Threading safe in case you have a nice server!
         cached = _cache.get(key)
         if cached is not None:
             _cache.move_to_end(key)

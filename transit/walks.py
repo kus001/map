@@ -4,12 +4,16 @@ import asyncio
 import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 
 import httpx
 
 from helpers.fast_osrm import osrm_route
 
 from .config import (
+    LOCAL_OSRM_BBOX,
+    LOCAL_OSRM_COOLDOWN_SECONDS,
+    LOCAL_OSRM_WALK_URL,
     MAX_CONCURRENT_WALK_REQUESTS,
     MAX_WALK_CACHE_ENTRIES,
     ORS_API_KEY,
@@ -137,7 +141,65 @@ def _osrm_walk(start_lat, start_lon, end_lat, end_lon):
     }
 
 
+_local_osrm_down_until = 0.0
+
+
+def _in_local_osrm_area(lat, lon):
+    west, south, east, north = LOCAL_OSRM_BBOX
+    return south <= lat <= north and west <= lon <= east
+
+
+def _local_osrm_usable(start_lat, start_lon, end_lat, end_lon):
+    """Local OSRM only knows its extract, so both ends must be inside the box."""
+    if not LOCAL_OSRM_WALK_URL or monotonic() < _local_osrm_down_until:
+        return False
+    return (_in_local_osrm_area(start_lat, start_lon)
+            and _in_local_osrm_area(end_lat, end_lon))
+
+
+def _osrm_body_to_walk(body):
+    if body.get("code") != "Ok" or not body.get("routes"):
+        return None
+    route = body["routes"][0]
+    geometry = route.get("geometry", {}).get("coordinates", [])
+    points = [[float(lat), float(lon)] for lon, lat in geometry]
+    if len(points) < 2:
+        return None
+    directions = []
+    for leg in route.get("legs", []):
+        for step in leg.get("steps", []):
+            maneuver = step.get("maneuver") or {}
+            if maneuver.get("type") == "arrive":
+                continue
+            location = maneuver.get("location") or []
+            directions.append({
+                "instruction": "", "type": maneuver.get("type", "continue"),
+                "modifier": maneuver.get("modifier", ""),
+                "road": step.get("name", ""), "name": step.get("name", ""),
+                "distance_m": float(step.get("distance", 0) or 0),
+                "duration_min": float(step.get("duration", 0) or 0) / 60,
+                "coordinates": [float(location[1]), float(location[0])]
+                if len(location) >= 2 else None,
+            })
+    return {"coordinates": points,
+            "geometry_source": "pedestrian_network",
+            "distance_m": float(route.get("distance", 0)),
+            "duration_min": float(route.get("duration", 0)) / 60,
+            "steps": directions}
+
+
+async def _fetch_osrm_walk(client, base_url, start_lat, start_lon, end_lat, end_lon):
+    response = await client.get(
+        f"{base_url}/{start_lon},{start_lat};{end_lon},{end_lat}",
+        params={"overview": "full", "geometries": "geojson",
+                "steps": "true", "alternatives": "false"},
+    )
+    response.raise_for_status()
+    return _osrm_body_to_walk(response.json())
+
+
 async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
+    global _local_osrm_down_until
     key = (start_lat, start_lon, end_lat, end_lon)
     cached = _WALK_CACHE.get(key)
     if cached is not None:
@@ -145,7 +207,21 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
 
     result = None
 
-    if ORS_API_KEY:
+    # 1. self-hosted OSRM (fast, no rate limits) when the walk is inside its extract
+    if _local_osrm_usable(start_lat, start_lon, end_lat, end_lon):
+        try:
+            result = await _fetch_osrm_walk(
+                client, LOCAL_OSRM_WALK_URL, start_lat, start_lon, end_lat, end_lon
+            )
+        except httpx.TransportError:
+            # server unreachable or timing out: stop trying it for a bit
+            _local_osrm_down_until = monotonic() + LOCAL_OSRM_COOLDOWN_SECONDS
+            result = None
+        except Exception:
+            result = None
+
+    # 2. OpenRouteService
+    if result is None and ORS_API_KEY:
         try:
             response = await client.get(
                 ORS_WALKING_URL,
@@ -173,47 +249,15 @@ async def _fetch_walking_route(client, start_lat, start_lon, end_lat, end_lon):
         except Exception:
             result = None
 
+    # 3. public OSRM
     if result is None:
-
-
         try:
             from helpers.fast_osrm import WALK_URL
-            response = await client.get(
-                f"{WALK_URL}/{start_lon},{start_lat};{end_lon},{end_lat}",
-                params={"overview": "full", "geometries": "geojson",
-                        "steps": "true", "alternatives": "false"},
+            result = await _fetch_osrm_walk(
+                client, WALK_URL, start_lat, start_lon, end_lat, end_lon
             )
-            response.raise_for_status()
-            body = response.json()
-            if body.get("code") == "Ok" and body.get("routes"):
-                route = body["routes"][0]
-                geometry = route.get("geometry", {}).get("coordinates", [])
-                points = [[float(lat), float(lon)] for lon, lat in geometry]
-                directions = []
-                for leg in route.get("legs", []):
-                    for step in leg.get("steps", []):
-                        maneuver = step.get("maneuver") or {}
-                        if maneuver.get("type") == "arrive":
-                            continue
-                        location = maneuver.get("location") or []
-                        directions.append({
-                            "instruction": "", "type": maneuver.get("type", "continue"),
-                            "modifier": maneuver.get("modifier", ""),
-                            "road": step.get("name", ""), "name": step.get("name", ""),
-                            "distance_m": float(step.get("distance", 0) or 0),
-                            "duration_min": float(step.get("duration", 0) or 0) / 60,
-                            "coordinates": [float(location[1]), float(location[0])]
-                            if len(location) >= 2 else None,
-                        })
-                if len(points) >= 2:
-                    result = {"coordinates": points,
-                              "geometry_source": "pedestrian_network",
-                              "distance_m": float(route.get("distance", 0)),
-                              "duration_min": float(route.get("duration", 0)) / 60,
-                              "steps": directions}
         except Exception:
             result = None
-
 
     _WALK_CACHE[key] = result
     while len(_WALK_CACHE) > MAX_WALK_CACHE_ENTRIES:

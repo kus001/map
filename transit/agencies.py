@@ -60,10 +60,16 @@ class Agency:
 
 AGENCIES = {agency.id: agency for agency in (
     Agency("grt_trains", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
-           realtime=True, cache="dion.pkl", fallback_mode="tram"),
+           cache="dion.pkl", fallback_mode="tram",
+           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/2",
+           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/2",
+           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
 
     Agency("grt_busses", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
-           realtime=True, cache="dgrt.pkl", fallback_mode="bus"),
+           cache="dgrt.pkl", fallback_mode="bus",
+           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/1",
+           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1",
+           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
 
     Agency("go", "GO Transit",
            "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",

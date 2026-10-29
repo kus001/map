@@ -95,6 +95,7 @@ def _fetch_feed(url, key=None):
         response = requests.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
+        
         feed.ParseFromString(response.content)
         return feed
     except Exception:

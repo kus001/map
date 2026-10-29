@@ -5,7 +5,7 @@ import time
 from bisect import bisect_left
 from datetime import timedelta
 from heapq import heappop, heappush
-from itertools import count
+from itertools import chain, count
 
 from . import agencies
 from .realtime import adjusted_arrival, adjusted_departure
@@ -26,6 +26,14 @@ from .geo import access_walk_minutes, raw_stop_id, stop_agency
 from .paths import _alt_signature, _transit_groups, is_transit_edge, route_keys_for_path
 from .schedule import active_mask, schedule_info, trip_active
 from .timeutil import gtfs_service_clock, normalize_departure_datetime
+
+
+# Marks a search state reached by a long transfer walk. From such a state you can only board
+# something (no second long walk, no finishing here), so a journey never walks between stops.
+_AFTER_WALK = "__after_walk__"
+# With require_transit, a walk that follows a ride gets its own state key. Otherwise a cheaper
+# walk-only arrival at the same stop would hide the journey that did ride something.
+_WALK_AFTER_RIDE = "__walk_after_ride__"
 
 
 def transit_preference_profile(value) -> tuple[str, dict]:
@@ -227,6 +235,7 @@ def search_transit(
     excluded_trip_ids=None,
     boarding_penalty=0.0,
     _stats=None,
+    require_transit=False,
 ):
     search_started = time.perf_counter()
     if _stats is not None:
@@ -271,6 +280,8 @@ def search_transit(
             ends[stop_id] = option
 
     heuristic_cache = _heuristic_values if _heuristic_values is not None else {}
+    transfer_links = store.walk_links or None  # ride -> walk -> ride links, see walk_links.py
+    transfer_extra = max(0.0, float(walk_penalty) - 1.0)  # "less walking" dislikes them more
 
     goal_terms = []
     rad = math.radians
@@ -374,7 +385,8 @@ def search_transit(
 
         current_pen = penalty_of.get(state, 0.0)
 
-        if stop_id in ends:
+        if (stop_id in ends and current_trip != _AFTER_WALK
+                and (boardings > 0 or not require_transit)):
             end_real, end_pen = access_walk_cost(
                 ends[stop_id][0], soft_walk_m, walk_penalty
             )
@@ -398,7 +410,16 @@ def search_transit(
             if isinstance(route_info, dict):
                 current_route_key = route_info.get("route")
 
-        for neighbor_id, route_options in store.graph.get(stop_id, {}).items():
+        neighbor_items = store.graph.get(stop_id, {}).items()
+        if transfer_links and current_trip not in (None, _AFTER_WALK, _WALK_AFTER_RIDE):
+            links = transfer_links.get(stop_id)
+            if links:  # just got off a ride, so a longer walk to another stop is allowed
+                neighbor_items = chain(
+                    neighbor_items,
+                    ((other, {"__transfer__": minutes}) for other, minutes in links),
+                )
+
+        for neighbor_id, route_options in neighbor_items:
             for route_key, trips in route_options.items():
                 if _stats is not None:
                     _stats["edges_examined"] += 1
@@ -412,7 +433,18 @@ def search_transit(
                     edge["_wait_minutes"] = 0.0
                     edge["_realtime"] = False
                     edge["_ride_minutes"] = float(edge.get("distance", 0))
-                    choices.append((edge["_ride_minutes"], None, edge, boardings))
+                    walk_state = _WALK_AFTER_RIDE if (require_transit and boardings > 0) else None
+                    choices.append((edge["_ride_minutes"], walk_state, edge, boardings))
+                elif route_key == "__transfer__":
+                    minutes = float(trips)
+                    edge = {
+                        "distance": minutes,
+                        "_wait_minutes": 0.0,
+                        "_realtime": False,
+                        "_ride_minutes": minutes,
+                        "_penalty": minutes * transfer_extra,
+                    }
+                    choices.append((minutes, _AFTER_WALK, edge, boardings))
                 else:
                     schedule_started = time.perf_counter()
                     schedule = schedule_info(trips)
@@ -494,7 +526,7 @@ def search_transit(
                         if (agency, str(excluded_name or edge.get("route") or "")) in excluded_route_keys:
                             continue
                     new_g = current_g + extra
-                    new_pen = current_pen
+                    new_pen = current_pen + edge.get("_penalty", 0.0)
                     if boarding_penalty and new_boardings > boardings:
                         new_pen += boarding_penalty
                     next_state = (neighbor_id, trip_id)

@@ -342,7 +342,16 @@ export default function App() {
 
   console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
-  const [mobileMin, setMobileMin] = useState(false)
+  const [mobileMin, setMobileMin] = useState(false);
+
+  // touch screeen yall
+  const dragStartY = useRef(null);
+
+  function handleStartTouch(event) {
+    dragStartY.current = event.touches[0].clientY;
+    console.log("Finger started at: ", dragStartY.current)
+  }
+
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -1741,7 +1750,7 @@ export default function App() {
             : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
         }`}
       >
-        <header className="px-5 pb-2 pt-3">
+        <header className="px-5 pb-2 pt-3" onTouchStart={handleStartTouch}>
           <div className="flex items-center justify-between">
             <a
               href="https://github.com/kus001/map"

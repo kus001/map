@@ -354,7 +354,13 @@ export default function App() {
 
   function handleEndTouch(event) {
     const endY = event.changedTouches[0].clientY;
-    console.log("finger ended at: ", endY);
+    const swipeDistance = endY - dragStartY.current;
+    
+    if (swipeDistance > 0) {
+      console.log("swiped down: ", swipeDistance);
+    } else if (swipeDistance < 0) {
+      console.log("swiped up: ", swipeDistance);
+    }
   }
 
   const overlayRef = useRef(null);

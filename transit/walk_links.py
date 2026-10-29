@@ -23,6 +23,7 @@ durations that the finished journey shows. Re-run it after a timetable update ad
 
 import json
 import math
+import re
 import sys
 import time
 import urllib.error
@@ -33,6 +34,11 @@ from pathlib import Path
 
 from .config import (
     ACCESS_WALK_SPEED_MPS,
+    INTERCHANGE_AGENCIES,
+    INTERCHANGE_NAME_WORDS,
+    INTERCHANGE_WALK_MAX_LINKS,
+    INTERCHANGE_WALK_MAX_MIN,
+    INTERCHANGE_WALK_RADIUS_M,
     LOCAL_OSRM_BBOX,
     LOCAL_OSRM_WALK_URL,
     TRANSFER_WALK_DETOUR,
@@ -44,6 +50,20 @@ from .config import (
 )
 
 _METRES_PER_DEGREE = 111_320.0
+_INTERCHANGE_NAME = re.compile(
+    r"\b(" + "|".join(re.escape(word) for word in INTERCHANGE_NAME_WORDS) + r")\b", re.IGNORECASE
+)
+
+
+def interchange_stops(stops):
+    """Ids of stations, terminals and GO stops: the places worth a longer walk between."""
+    found = set()
+    for stop_id, position in stops.items():
+        if str(stop_id).split(":", 1)[0] in INTERCHANGE_AGENCIES:
+            found.add(stop_id)
+        elif len(position) > 2 and position[2] and _INTERCHANGE_NAME.search(str(position[2])):
+            found.add(stop_id)
+    return found
 
 
 def transfer_walk_minutes(distance_m: float) -> float:
@@ -56,58 +76,84 @@ def build_walk_links(
     graph=None,
     radius_m=TRANSFER_WALK_RADIUS_M,
     max_links=TRANSFER_WALK_MAX_LINKS,
+    interchange_radius_m=INTERCHANGE_WALK_RADIUS_M,
+    interchange_max_links=INTERCHANGE_WALK_MAX_LINKS,
 ):
     """Map each stop to its nearest stops within `radius_m` that aren't already walk-linked.
 
     `stops` is {stop_id: (lat, lon, name)}. When `graph` is given, a pair that already
     has a `__walk__` edge is skipped (the short link covers it). Each stop keeps at most
-    `max_links` neighbours, nearest first.
+    `max_links` neighbours, nearest first. Stations, terminals and GO stops also get up to
+    `interchange_max_links` extra links to other such stops within `interchange_radius_m`.
     """
-    if not radius_m or radius_m <= 0 or max_links <= 0 or not stops:
+    if not stops:
         return {}
+    if not radius_m or radius_m <= 0 or max_links <= 0:
+        radius_m, max_links = 0.0, 0
 
     mean_lat = sum(position[0] for position in stops.values()) / len(stops)
     metres_per_lon = _METRES_PER_DEGREE * math.cos(math.radians(mean_lat))
-    cell_lat = radius_m / _METRES_PER_DEGREE
-    cell_lon = radius_m / metres_per_lon
-
-    grid = defaultdict(list)
-    for stop_id, position in stops.items():
-        cell = (int(position[0] // cell_lat), int(position[1] // cell_lon))
-        grid[cell].append((stop_id, position[0], position[1]))
-
     graph_get = graph.get if graph is not None else (lambda *_: None)
-    radius_sq = float(radius_m) ** 2
     min_sq = float(TRANSFER_WALK_MIN_M) ** 2
     links = {}
 
-    for (cell_y, cell_x), members in grid.items():
-        nearby = []
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                nearby.extend(grid.get((cell_y + dy, cell_x + dx), ()))
+    def nearest(members, grid, radius, limit, skip, cell_lat, cell_lon):
+        """For each (id, lat, lon) in `members`, the nearest `limit` others in `grid` within `radius`."""
+        radius_sq = float(radius) ** 2
+        result = {}
+        by_cell = defaultdict(list)
+        for item in members:
+            by_cell[(int(item[1] // cell_lat), int(item[2] // cell_lon))].append(item)
+        for (cell_y, cell_x), cell_members in by_cell.items():
+            nearby = []
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nearby.extend(grid.get((cell_y + dy, cell_x + dx), ()))
+            for stop_id, lat, lon in cell_members:
+                already = graph_get(stop_id) or {}
+                taken = skip.get(stop_id, ())
+                found = []
+                for other_id, other_lat, other_lon in nearby:
+                    if other_id == stop_id or other_id in taken:
+                        continue
+                    dy_m = (other_lat - lat) * _METRES_PER_DEGREE
+                    dx_m = (other_lon - lon) * metres_per_lon
+                    distance_sq = dx_m * dx_m + dy_m * dy_m
+                    if distance_sq > radius_sq or distance_sq < min_sq:
+                        continue
+                    if "__walk__" in (already.get(other_id) or ()):
+                        continue
+                    found.append((distance_sq, other_id))
+                if found:
+                    found.sort()
+                    result[stop_id] = tuple(
+                        (other_id, transfer_walk_minutes(math.sqrt(distance_sq)))
+                        for distance_sq, other_id in found[:limit]
+                    )
+        return result
 
-        for stop_id, lat, lon in members:
-            already = graph_get(stop_id) or {}
-            found = []
-            for other_id, other_lat, other_lon in nearby:
-                if other_id == stop_id:
-                    continue
-                dy_m = (other_lat - lat) * _METRES_PER_DEGREE
-                dx_m = (other_lon - lon) * metres_per_lon
-                distance_sq = dx_m * dx_m + dy_m * dy_m
-                if distance_sq > radius_sq or distance_sq < min_sq:
-                    continue
-                if "__walk__" in (already.get(other_id) or ()):
-                    continue
-                found.append((distance_sq, other_id))
+    def make_grid(items, radius):
+        cell_lat = radius / _METRES_PER_DEGREE
+        cell_lon = radius / metres_per_lon
+        grid = defaultdict(list)
+        for item in items:
+            grid[(int(item[1] // cell_lat), int(item[2] // cell_lon))].append(item)
+        return grid, cell_lat, cell_lon
 
-            if found:
-                found.sort()
-                links[stop_id] = tuple(
-                    (other_id, transfer_walk_minutes(math.sqrt(distance_sq)))
-                    for distance_sq, other_id in found[:max_links]
-                )
+    everything = [(sid, pos[0], pos[1]) for sid, pos in stops.items()]
+    if radius_m > 0:
+        grid, cell_lat, cell_lon = make_grid(everything, radius_m)
+        links = nearest(everything, grid, radius_m, max_links, {}, cell_lat, cell_lon)
+
+    if interchange_radius_m and interchange_radius_m > 0 and interchange_max_links > 0:
+        hubs = interchange_stops(stops)
+        hub_items = [item for item in everything if item[0] in hubs]
+        grid, cell_lat, cell_lon = make_grid(hub_items, interchange_radius_m)
+        taken = {sid: {other for other, _ in neighbours} for sid, neighbours in links.items()}
+        extra = nearest(hub_items, grid, interchange_radius_m, interchange_max_links,
+                        taken, cell_lat, cell_lon)
+        for sid, neighbours in extra.items():
+            links[sid] = tuple(links.get(sid, ())) + neighbours
 
     return links
 
@@ -136,8 +182,12 @@ def load_walk_times(path=WALK_LINK_TIMES_PATH):
         return {}
 
 
-def apply_walk_times(links, stops, times, max_minutes=TRANSFER_WALK_MAX_MIN):
+def apply_walk_times(links, stops, times, max_minutes=TRANSFER_WALK_MAX_MIN,
+                     interchange_max_minutes=INTERCHANGE_WALK_MAX_MIN):
     """Swap estimated minutes for OSRM's real ones, and drop links OSRM says are too far.
+
+    Links between two interchange stops (stations, GO) may take up to `interchange_max_minutes`;
+    every other link up to `max_minutes`.
 
     Links OSRM hasn't been asked about, or that aren't inside its coverage, keep their estimate.
     Returns (links, replaced, dropped).
@@ -146,6 +196,7 @@ def apply_walk_times(links, stops, times, max_minutes=TRANSFER_WALK_MAX_MIN):
         return links, 0, 0
     out = {}
     replaced = dropped = 0
+    hubs = interchange_stops(stops)
     for stop_id, neighbours in links.items():
         kept = []
         for other_id, estimate in neighbours:
@@ -154,7 +205,8 @@ def apply_walk_times(links, stops, times, max_minutes=TRANSFER_WALK_MAX_MIN):
                 kept.append((other_id, estimate))
                 continue
             real = times[key]
-            if real is None or real > max_minutes:
+            limit = interchange_max_minutes if (stop_id in hubs and other_id in hubs) else max_minutes
+            if real is None or real > limit:
                 dropped += 1
                 continue
             replaced += 1

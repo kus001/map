@@ -14,13 +14,47 @@ class AddedCipherAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
+def string_to_year_info(string, year=None, vtype=None):
+    numstrs= string.split(", ")
+
+    for numstr in numstrs:
+        nums = numstr.split("-")
+        if len(nums) == 2:
+            first, last = nums
+        elif len(nums) == 1:
+            nums = nums[0]
+            first, last = nums, nums
+        else:
+            print("UHHHHHHH WHAAAATTT")
+        print(
+            f"({first}, {last}" +
+            (f', "{year}"' if year else "") +
+            (f', "{vtype}"' if vtype else "") +
+            "),"
+        )
+
 
 years = {
-    (22301, 22311, "2023", "Electric"),
-    (22312, 22318, "2023", "LFS HEV"),
-    (22401, 22444, "2024", "LFS HEV"),
-    (22201, 22229, "2022", "LFS HEV"),
-    (22105, 22108, "2021", "Classic 30'"),
+# eg(Start, End id,"year", "Bus name",   "Seats")
+    (22301, 22311, "2023", "LFSe+"      , 35),
+    (22312, 22318, "2023", "LFS HEV"    , 3),
+    (22401, 22444, "2024", "LFS HEV"    , 3),
+    (22201, 22229, "2022", "LFS HEV"    , 3),
+    (22105, 22108, "2021", "Classic 30'", 3),
+    (22001, 22031, "2020", "LFS"        , 3),
+    (21901, 21912, "2019", "LFS"        , 3),
+    (21719, 21757, "2017", "XD40"       , 3),
+    (21701, 21718, "2017", "XD40"       , 3),
+    (21501, 21524, "2015", "XD40"       , 3),
+    (21401, 21405, "2014", "XD40"       , 3),
+    (21301, 21333, "2013", "XD40"       , 3),
+    (21201, 21220, "2012", "LFS 40102"  , 3),
+    (21101, 21115, "2011", "LFS 40102"  , 3),
+    (21003, 21003, "2010", "LFS 40102"  , 3),
+    (21005, 21006, "2010", "LFS 40102"  , 3),
+    (20907, 20907, "2009", "LFS 40102"  , 3),
+    (20913, 20913, "2009", "LFS 40102"  , 3),
+    (21758, 21766, "2017", "XD40"       , )          # ION BUS
 }
 
 years = {k: (y, t) for start, end, y, t in years for k in range(start, end + 1)}
@@ -42,6 +76,7 @@ def grt_bus_types(feed):
             lat = entity.vehicle.position.latitude
             lon = entity.vehicle.position.longitude
             year, vehicle_type = years[vehicle_id]
+            print(vehicle_type)
 
             statuses.append((vehicle_id, year, vehicle_type, route_id, lat, lon))
 
@@ -50,6 +85,11 @@ def grt_bus_types(feed):
     return statuses, vehicle_ids
 
 if __name__ == '__main__':
+#     string_to_year_info("21101-21115", 2011, "LFS 40102")
+#     string_to_year_info("21003, 21005-21006", 2010, "LFS 40102")
+#     string_to_year_info("20907, 20913", 2009, "LFS 40102")
+
+#     exit()
     s = Session()
     s.mount("https://", AddedCipherAdapter())
 
@@ -58,11 +98,10 @@ if __name__ == '__main__':
         "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions"
     ).content)
 
-
     statuses, vehicle_ids = grt_bus_types(feed)
 
     HEV_AMOUNT = len([status for status in statuses if "HEV" in status[2]])
-    ELECTRIC_AMOUNT = len([status for status in statuses if "tric" in status[2]])
+    ELECTRIC_AMOUNT = len([status for status in statuses if status[2] == "LFSe+"])
 
     print(f"\nTotal vehicles: {len(vehicle_ids)} \t\tHEV: {HEV_AMOUNT}\t\tElectric: {ELECTRIC_AMOUNT}\n")
     print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")

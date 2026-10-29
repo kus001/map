@@ -352,6 +352,11 @@ export default function App() {
     console.log("Finger started at: ", dragStartY.current)
   }
 
+  function handleEndTouch(event) {
+    const endY = event.changedTouches[0].clientY;
+    console.log("finger ended at: ", endY);
+  }
+
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -1750,7 +1755,7 @@ export default function App() {
             : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
         }`}
       >
-        <header className="px-5 pb-2 pt-3" onTouchStart={handleStartTouch}>
+        <header className="px-5 pb-2 pt-3" onTouchStart={handleStartTouch} onTouchEnd={handleEndTouch}>
           <div className="flex items-center justify-between">
             <a
               href="https://github.com/kus001/map"

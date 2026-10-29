@@ -5,9 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import requests
-
-from . import agencies, rt_match
+from . import agencies, net, rt_match
+from . import vehicle_types
 
 try:
     from google.transit import gtfs_realtime_pb2
@@ -17,8 +16,6 @@ except ImportError:
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 REFRESH_SECONDS = int(os.getenv("GRT_REALTIME_REFRESH_SECONDS", "30"))
 REQUEST_TIMEOUT = 3.0
-# Some feed hosts (gtfsrt.ttc.ca) sit behind a firewall that answers 403 to python-requests' default
-# User-Agent. Override with the GTFS_RT_USER_AGENT environment variable if a feed still says 403.
 REQUEST_HEADERS = {
     "User-Agent": os.getenv("GTFS_RT_USER_AGENT") or (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -92,10 +89,10 @@ def _fetch_feed(url, key=None):
         rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers .. yeah i know dicts are weird
         if key:
             rheaders[key["header"]] = key["key"]
-        response = requests.get(url, headers=rheaders, timeout=15)
+        response = net.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
-        
+
         feed.ParseFromString(response.content)
         return feed
     except Exception:
@@ -212,6 +209,7 @@ def _parse_vehicles(agency, feed):
             "lat": float(vehicle.position.latitude),
             "lon": float(vehicle.position.longitude),
             "timestamp": int(vehicle.timestamp) if vehicle.timestamp else None,
+            "info": {}
         }
 
         try:
@@ -222,6 +220,14 @@ def _parse_vehicles(agency, feed):
 
         if vehicle.vehicle.id:
             item["vehicle_id"] = str(vehicle.vehicle.id)
+
+        vehicle_info = vehicle_types.vehicle_type(entity, agency)
+        if vehicle_info is not None:
+            if vehicle_info[1] != "unknown":
+                item["info"]["year"] = vehicle_info[1]
+                item["info"]["vehicle type"] = vehicle_info[2]
+                item["info"]["seats"] = vehicle_info[3]
+                item["info"]["powertrain"] = vehicle_types.powertrain(vehicle_info[2])
 
         vehicles[(agency, trip_id)] = item
 
@@ -504,8 +510,6 @@ def adjusted_arrival(realtime, agency, trip, stop_id):
 
 
 def vehicle_for_trip(realtime, agency, trip_id):
-
-
     return realtime.get("vehicles", {}).get(_trip_key(agency, trip_id))
 
 
@@ -606,7 +610,7 @@ def _check(agency_id, trip_updates_url=None):
             if key:
                 rheaders[KEYS[agency_id]["header"]] = key
 
-            response = requests.get(url, headers=rheaders, timeout=15)
+            response = net.get(url, headers=rheaders, timeout=15)
             response.raise_for_status()
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)

@@ -72,6 +72,7 @@ def stop_departure_board(stop_id, limit=8, now=None):
                 break
 
     return {"stop_id": stop_id, "name": store.stops[stop_id][2] or stop_id,
-            "agency": stop_agency(stop_id), "departures": schedule,
+            "agency": stop_agency(stop_id),
+            "agency_label": agencies.label(stop_agency(stop_id)), "departures": schedule,
             "live_count": sum(1 for item in schedule if item['realtime']),
             "source": "GTFS schedule + available realtime updates"}

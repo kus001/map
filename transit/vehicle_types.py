@@ -1,9 +1,10 @@
 from google.transit import gtfs_realtime_pb2
 
-from urllib3.util import create_urllib3_context
+from requests import Session
 from urllib3 import PoolManager
 from requests.adapters import HTTPAdapter
-from requests import Session
+from urllib3.util import create_urllib3_context
+
 class AddedCipherAdapter(HTTPAdapter):
     def init_poolmanager(self, connections, maxsize, block=False):
         ctx = create_urllib3_context(ciphers=":HIGH:!DH:!aNULL")
@@ -34,7 +35,7 @@ def string_to_year_info(string, year=None, vtype=None):
         )
 
 
-years = {
+grt_years = {
 # eg(Start,  End , "YYYY", "Bus name"   ,"Seats")
     (20907, 20907, "2009", "LFS 40102  ", 37    ),
     (20913, 20913, "2009", "LFS 40102  ", 37    ),
@@ -58,30 +59,51 @@ years = {
     (21758, 21766, "2017", "XD40       ", None  ),          # ION BUS
 }
 
-years = {k: (y, t, seats) for start, end, y, t, seats in years for k in range(start, end + 1)}
+grt_years = {k: (y, t, seats) for start, end, y, t, seats in grt_years for k in range(start, end + 1)}
+
+def powertrain(vehicle_type):
+    """Collapse a fleet model name into "electric", "hev" or "normal"."""
+    name = (vehicle_type or "").strip().upper()
+    if name.startswith("LFSE"):
+        return "electric"
+    if "HEV" in name:
+        return "hev"
+    return "normal"
+
+
+def vehicle_type(entity, agency):
+    # agency ids are "grt_busses"/"grt_trains" (older code used plain "grt"); only buses are in grt_years
+    if agency not in ("grt", "grt_busses"):
+        return None
+    try:
+        vehicle_id = int(entity.vehicle.vehicle.id)
+    except (ValueError, AttributeError):
+        return None
+    if vehicle_id in grt_years:
+        route_id = entity.vehicle.trip.route_id or "N/A"
+        lat = entity.vehicle.position.latitude
+        lon = entity.vehicle.position.longitude
+        year, vehicle_type, seats = grt_years[vehicle_id]
+        return vehicle_id, year, vehicle_type, seats, route_id, lat, lon
+    return vehicle_id, "unknown"
+
 
 def grt_bus_types(feed):
     statuses = []
     vehicle_ids = set()
 
     for entity in feed.entity:
-        try:
-            vehicle_id = int(entity.vehicle.vehicle.id)
-        except (ValueError, AttributeError):
-            continue
-
-        vehicle_ids.add(vehicle_id)
-
-        if vehicle_id in years:
-            route_id = entity.vehicle.trip.route_id or "N/A"
-            lat = entity.vehicle.position.latitude
-            lon = entity.vehicle.position.longitude
-            year, vehicle_type, seats = years[vehicle_id]
-            statuses.append((vehicle_id, year, vehicle_type, seats, route_id, lat, lon))
+        hold = vehicle_type(entity, "grt")
+        if hold and hold != "unknown":
+            vehicle_ids.add(hold[0])
+            statuses.append(hold)
+        elif "unkown" in hold:
+            vehicle_ids.add(hold[0])
 
     statuses.sort(key=lambda x:int(x[4]))
 
     return statuses, vehicle_ids
+
 
 if __name__ == '__main__':
 #     string_to_year_info("21101-21115", 2011, "LFS 40102")
@@ -94,7 +116,7 @@ if __name__ == '__main__':
 
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(s.get(
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions"
+        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1"
     ).content)
 
     statuses, vehicle_ids = grt_bus_types(feed)

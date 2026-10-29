@@ -645,6 +645,7 @@ def get_transit_route(
                 "id": stop_id,
                 "raw_id": raw_stop_id(stop_id),
                 "agency": stop_agency(stop_id),
+                "agency_label": agencies.label(stop_agency(stop_id)),
                 "name": stop_name(stop),
                 "coordinates": stop_coords(stop),
             }

@@ -14,6 +14,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import FreeMapLayer from "./FreeMapLayer";
+import { vehicleSpecs } from "../utils/format.js";
 
 import "leaflet/dist/leaflet.css";
 
@@ -1124,6 +1125,15 @@ export default function MapView({
                 </div>
                 {vehicle.display_headsign || vehicle.headsign ? <div>toward {vehicle.display_headsign || vehicle.headsign}</div> : null}
                 {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
+                {(() => {
+                  const specs = vehicleSpecs(vehicle);
+                  return specs ? (
+                    <div className="mt-1 text-[11px]">
+                      {[specs.year, specs.powertrainLabel, specs.model, specs.seats ? `${specs.seats} seats` : null]
+                        .filter(Boolean).join(" • ")}
+                    </div>
+                  ) : null;
+                })()}
                 {estimated ? (
                   <div className="mt-1 text-[10px] opacity-70">
                     {delayAdjusted

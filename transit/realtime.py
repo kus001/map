@@ -227,6 +227,7 @@ def _parse_vehicles(agency, feed):
                 item["info"]["year"] = vehicle_info[1]
                 item["info"]["vehicle type"] = vehicle_info[2]
                 item["info"]["seats"] = vehicle_info[3]
+                item["info"]["powertrain"] = vehicle_types.powertrain(vehicle_info[2])
 
         vehicles[(agency, trip_id)] = item
 

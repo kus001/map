@@ -61,8 +61,19 @@ grt_years = {
 
 grt_years = {k: (y, t, seats) for start, end, y, t, seats in grt_years for k in range(start, end + 1)}
 
+def powertrain(vehicle_type):
+    """Collapse a fleet model name into "electric", "hev" or "normal"."""
+    name = (vehicle_type or "").strip().upper()
+    if name.startswith("LFSE"):
+        return "electric"
+    if "HEV" in name:
+        return "hev"
+    return "normal"
+
+
 def vehicle_type(entity, agency):
-    if agency != "grt":
+    # agency ids are "grt_busses"/"grt_trains" (older code used plain "grt"); only buses are in grt_years
+    if agency not in ("grt", "grt_busses"):
         return None
     try:
         vehicle_id = int(entity.vehicle.vehicle.id)

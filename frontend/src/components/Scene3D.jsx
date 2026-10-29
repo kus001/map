@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { StopBoard } from "./MapView.jsx";
+import { vehicleSpecs } from "../utils/format.js";
 import { Info as Ontario511Info } from "./Ontario511Layer.jsx";
 
 // Production Cesium 3D scene. Building positions are not shifted to match imagery.
@@ -232,11 +233,18 @@ function floatingStyles(darkMode) {
 function BusDetails({ vehicle }) {
   const estimated = Boolean(vehicle.estimated);
   const delayAdjusted = vehicle.position_source === "schedule_adjusted";
+  const specs = vehicleSpecs(vehicle);
   return (
     <div className="text-sm text-slate-900">
       <div className="font-semibold">{vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {estimated ? "Scheduled estimate" : "Live"} {vehicle.route ? `route ${vehicle.route}` : "vehicle"}</div>
       {(vehicle.display_headsign || vehicle.headsign) && <div>toward {vehicle.display_headsign || vehicle.headsign}</div>}
       {vehicle.vehicle_label && <div>{vehicle.vehicle_label}</div>}
+      {specs && (
+        <div className="mt-1 text-[11px]">
+          {[specs.year, specs.powertrainLabel, specs.model, specs.seats ? `${specs.seats} seats` : null]
+            .filter(Boolean).join(" • ")}
+        </div>
+      )}
       {estimated ? (
         <div className="mt-1 text-[10px] opacity-70">
           {delayAdjusted ? "Estimated from the timetable with the latest known delay."

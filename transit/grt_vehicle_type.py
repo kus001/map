@@ -55,7 +55,7 @@ years = {
     (22301, 22311, "2023", "LFSe+      ", 35    ),
     (22312, 22318, "2023", "LFS HEV    ", None  ),
     (22401, 22444, "2024", "LFS HEV    ", None  ),
-    (21758, 21766, "2017", "XD40"       , None  ),          # ION BUS
+    (21758, 21766, "2017", "XD40       ", None  ),          # ION BUS
 }
 
 years = {k: (y, t, seats) for start, end, y, t, seats in years for k in range(start, end + 1)}
@@ -77,11 +77,9 @@ def grt_bus_types(feed):
             lat = entity.vehicle.position.latitude
             lon = entity.vehicle.position.longitude
             year, vehicle_type, seats = years[vehicle_id]
-            print(vehicle_type)
-
             statuses.append((vehicle_id, year, vehicle_type, seats, route_id, lat, lon))
 
-    statuses.sort()
+    statuses.sort(key=lambda x:int(x[4]))
 
     return statuses, vehicle_ids
 
@@ -105,7 +103,9 @@ if __name__ == '__main__':
     ELECTRIC_AMOUNT = len([status for status in statuses if status[2] == "LFSe+"])
 
     print(f"\nTotal vehicles: {len(vehicle_ids)} \t\tHEV: {HEV_AMOUNT}\t\tElectric: {ELECTRIC_AMOUNT}\n")
-    print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
+    print(f"{'Bus':<8}{'Year':<8}{'Type':<12}{'Seats':<7}{'Route':<8}Coordinates")
 
     for bus_id, year, v_type, seats, route, lat, lon in statuses:
-        print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{seats:<3}{route:<8}({lat}, {lon})")
+        if not seats:
+            seats = ""
+        print(f"{str(bus_id):<8}{year:<8}{v_type:<12}{seats:<7}{route:<8}({lat}, {lon})")

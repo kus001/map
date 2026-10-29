@@ -116,7 +116,7 @@ if __name__ == '__main__':
 
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(s.get(
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions"
+        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1"
     ).content)
 
     statuses, vehicle_ids = grt_bus_types(feed)

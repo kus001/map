@@ -25,7 +25,7 @@ years = {
 
 years = {k: (y, t) for start, end, y, t in years for k in range(start, end + 1)}
 
-def main(feed):
+def grt_bus_types(feed):
     statuses = []
     vehicle_ids = set()
 
@@ -47,12 +47,6 @@ def main(feed):
 
     statuses.sort()
 
-    print(f"Total vehicles: {len(vehicle_ids)}")
-    print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
-
-    for bus_id, year, v_type, route, lat, lon in statuses:
-        print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{route:<8}({lat}, {lon})")
-
     return statuses, vehicle_ids
 
 if __name__ == '__main__':
@@ -64,4 +58,11 @@ if __name__ == '__main__':
         "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions"
     ).content)
 
-    main(feed)
+
+    statuses, vehicle_ids = grt_bus_types(feed)
+
+    print(f"Total vehicles: {len(vehicle_ids)} \t\tHEV or Electric: {len(vehicle_ids)-len(statuses)}")
+    print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
+
+    for bus_id, year, v_type, route, lat, lon in statuses:
+        print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{route:<8}({lat}, {lon})")

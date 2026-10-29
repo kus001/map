@@ -894,7 +894,7 @@ export default function App() {
       }
       setDestinationMapCoordinate(result.end?.coordinates || null);
                                                                                        
-      setSelectedRouteNumber(requestedMode === "transit" ? 1 : (result.fastest_route_number || 1));
+      setSelectedRouteNumber(requestedMode === "transit" ? (result.recommended_route_number || 1) : (result.fastest_route_number || 1));
       setRouteFocusKey(key => key + 1);
 
       const scheduledSuffix =

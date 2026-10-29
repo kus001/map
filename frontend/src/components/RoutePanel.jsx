@@ -570,6 +570,7 @@ export default function RoutePanel({
           if (mode === "transit" && transferRisk?.status === "critical") labels.push("RISKY TRANSFER");
           if (mode === "transit" && transferRisk?.status === "tight") labels.push("TIGHT TRANSFER");
       
+          if (route.route_variant === "walking") labels.push("WALK ONLY");
           const arrivesEarliest = earliestArrival.has(route.route_number);
           if (arrivesEarliest) labels.push("ARRIVES EARLIEST");
           if (fastestRoutes.has(route.route_number) && !arrivesEarliest) labels.push("FASTEST");

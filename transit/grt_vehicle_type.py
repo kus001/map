@@ -61,7 +61,10 @@ if __name__ == '__main__':
 
     statuses, vehicle_ids = grt_bus_types(feed)
 
-    print(f"Total vehicles: {len(vehicle_ids)} \t\tHEV or Electric: {len(vehicle_ids)-len(statuses)}")
+    HEV_AMOUNT = len([status for status in statuses if "HEV" in status[2]])
+    ELECTRIC_AMOUNT = len([status for status in statuses if "tric" in status[2]])
+
+    print(f"\nTotal vehicles: {len(vehicle_ids)} \t\tHEV: {HEV_AMOUNT}\t\tElectric: {ELECTRIC_AMOUNT}\n")
     print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
 
     for bus_id, year, v_type, route, lat, lon in statuses:

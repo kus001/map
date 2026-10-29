@@ -427,6 +427,8 @@ def live_transit_state():
     )
 
     from transit import agencies as agency_registry
+    vehicles = [{**v, "agency_label": agency_registry.label(v.get("agency"))}
+                for v in vehicles]
     other_sources = {}
     for agency in agency_registry.AGENCIES.values():
         if agency.id in ("grt_busses", "grt_trains", "go") or not (agency.trip_updates_url or agency.vehicles_url):

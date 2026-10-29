@@ -1,9 +1,10 @@
 from google.transit import gtfs_realtime_pb2
 
-from urllib3.util import create_urllib3_context
+from requests import Session
 from urllib3 import PoolManager
 from requests.adapters import HTTPAdapter
-from requests import Session
+from urllib3.util import create_urllib3_context
+
 class AddedCipherAdapter(HTTPAdapter):
     def init_poolmanager(self, connections, maxsize, block=False):
         ctx = create_urllib3_context(ciphers=":HIGH:!DH:!aNULL")

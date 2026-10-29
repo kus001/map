@@ -35,7 +35,7 @@ def string_to_year_info(string, year=None, vtype=None):
         )
 
 
-years = {
+grt_years = {
 # eg(Start,  End , "YYYY", "Bus name"   ,"Seats")
     (20907, 20907, "2009", "LFS 40102  ", 37    ),
     (20913, 20913, "2009", "LFS 40102  ", 37    ),
@@ -59,30 +59,40 @@ years = {
     (21758, 21766, "2017", "XD40       ", None  ),          # ION BUS
 }
 
-years = {k: (y, t, seats) for start, end, y, t, seats in years for k in range(start, end + 1)}
+grt_years = {k: (y, t, seats) for start, end, y, t, seats in grt_years for k in range(start, end + 1)}
+
+def vehicle_type(entity, agency):
+    if agency != "grt":
+        return None
+    try:
+        vehicle_id = int(entity.vehicle.vehicle.id)
+    except (ValueError, AttributeError):
+        return None
+    if vehicle_id in grt_years:
+        route_id = entity.vehicle.trip.route_id or "N/A"
+        lat = entity.vehicle.position.latitude
+        lon = entity.vehicle.position.longitude
+        year, vehicle_type, seats = grt_years[vehicle_id]
+        return vehicle_id, year, vehicle_type, seats, route_id, lat, lon
+    return vehicle_id, "unknown"
+
 
 def grt_bus_types(feed):
     statuses = []
     vehicle_ids = set()
 
     for entity in feed.entity:
-        try:
-            vehicle_id = int(entity.vehicle.vehicle.id)
-        except (ValueError, AttributeError):
-            continue
-
-        vehicle_ids.add(vehicle_id)
-
-        if vehicle_id in years:
-            route_id = entity.vehicle.trip.route_id or "N/A"
-            lat = entity.vehicle.position.latitude
-            lon = entity.vehicle.position.longitude
-            year, vehicle_type, seats = years[vehicle_id]
-            statuses.append((vehicle_id, year, vehicle_type, seats, route_id, lat, lon))
+        hold = vehicle_type(entity, "grt")
+        if hold and hold != "unknown":
+            vehicle_ids.add(hold[0])
+            statuses.append(hold)
+        elif "unkown" in hold:
+            vehicle_ids.add(hold[0])
 
     statuses.sort(key=lambda x:int(x[4]))
 
     return statuses, vehicle_ids
+
 
 if __name__ == '__main__':
 #     string_to_year_info("21101-21115", 2011, "LFS 40102")

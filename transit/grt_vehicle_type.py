@@ -35,29 +35,30 @@ def string_to_year_info(string, year=None, vtype=None):
 
 
 years = {
-# eg(Start, End id,"year", "Bus name",   "Seats")
-    (22301, 22311, "2023", "LFSe+"      , 35),
-    (22312, 22318, "2023", "LFS HEV"    , 3),
-    (22401, 22444, "2024", "LFS HEV"    , 3),
-    (22201, 22229, "2022", "LFS HEV"    , 3),
-    (22105, 22108, "2021", "Classic 30'", 3),
-    (22001, 22031, "2020", "LFS"        , 3),
-    (21901, 21912, "2019", "LFS"        , 3),
-    (21719, 21757, "2017", "XD40"       , 3),
-    (21701, 21718, "2017", "XD40"       , 3),
-    (21501, 21524, "2015", "XD40"       , 3),
-    (21401, 21405, "2014", "XD40"       , 3),
-    (21301, 21333, "2013", "XD40"       , 3),
-    (21201, 21220, "2012", "LFS 40102"  , 3),
-    (21101, 21115, "2011", "LFS 40102"  , 3),
-    (21003, 21003, "2010", "LFS 40102"  , 3),
-    (21005, 21006, "2010", "LFS 40102"  , 3),
-    (20907, 20907, "2009", "LFS 40102"  , 3),
-    (20913, 20913, "2009", "LFS 40102"  , 3),
-    (21758, 21766, "2017", "XD40"       , )          # ION BUS
+# eg(Start,  End , "YYYY", "Bus name"   ,"Seats")
+    (20907, 20907, "2009", "LFS 40102  ", 37    ),
+    (20913, 20913, "2009", "LFS 40102  ", 37    ),
+    (21003, 21003, "2010", "LFS 40102  ", 37    ),
+    (21005, 21006, "2010", "LFS 40102  ", 37    ),
+    (21101, 21115, "2011", "LFS 40102  ", 37    ),
+    (21201, 21220, "2012", "LFS 40102  ", 35    ),
+    (21301, 21333, "2013", "XD40       ", 33    ),
+    (21401, 21405, "2014", "XD40       ", 33    ),
+    (21501, 21524, "2015", "XD40       ", 33    ),
+    (21701, 21718, "2017", "XD40       ", 33    ),
+    (21719, 21757, "2017", "XD40       ", 33    ),
+    (21901, 21912, "2019", "LFS        ", 35    ),
+    (22001, 22031, "2020", "LFS        ", 35    ),
+    (22101, 22104, "2021", "LFS HEV    ", 35    ),
+    (22105, 22108, "2021", "Classic 30'", 24    ),
+    (22201, 22229, "2022", "LFS HEV    ", 35    ),
+    (22301, 22311, "2023", "LFSe+      ", 35    ),
+    (22312, 22318, "2023", "LFS HEV    ", None  ),
+    (22401, 22444, "2024", "LFS HEV    ", None  ),
+    (21758, 21766, "2017", "XD40"       , None  ),          # ION BUS
 }
 
-years = {k: (y, t) for start, end, y, t in years for k in range(start, end + 1)}
+years = {k: (y, t, seats) for start, end, y, t, seats in years for k in range(start, end + 1)}
 
 def grt_bus_types(feed):
     statuses = []
@@ -75,10 +76,10 @@ def grt_bus_types(feed):
             route_id = entity.vehicle.trip.route_id or "N/A"
             lat = entity.vehicle.position.latitude
             lon = entity.vehicle.position.longitude
-            year, vehicle_type = years[vehicle_id]
+            year, vehicle_type, seats = years[vehicle_id]
             print(vehicle_type)
 
-            statuses.append((vehicle_id, year, vehicle_type, route_id, lat, lon))
+            statuses.append((vehicle_id, year, vehicle_type, seats, route_id, lat, lon))
 
     statuses.sort()
 
@@ -106,5 +107,5 @@ if __name__ == '__main__':
     print(f"\nTotal vehicles: {len(vehicle_ids)} \t\tHEV: {HEV_AMOUNT}\t\tElectric: {ELECTRIC_AMOUNT}\n")
     print(f"{'Bus':<8}{'Year':<8}{'Type':<10}{'Route':<8}Coordinates")
 
-    for bus_id, year, v_type, route, lat, lon in statuses:
-        print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{route:<8}({lat}, {lon})")
+    for bus_id, year, v_type, seats, route, lat, lon in statuses:
+        print(f"{str(bus_id):<8}{year:<8}{v_type:<10}{seats:<3}{route:<8}({lat}, {lon})")

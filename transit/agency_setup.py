@@ -27,6 +27,7 @@ from datetime import datetime, date
 from pathlib import Path
 
 from .agencies import AGENCIES, OWN_CACHE_AGENCIES, Agency
+from . import net
 from .compact import CompactTrips, TripPools
 from .make_graph import Graph, GTFS_ROOT
 from helpers.distance import find_dist
@@ -485,8 +486,8 @@ def _download(agency, source_kind="full"):
                                          suffix=".zip", delete=False) as output:
             temporary = Path(output.name)
         try:
-            with requests.get(url, stream=True, timeout=(15, 120),
-                              headers={"User-Agent": "kmaps-gtfs-setup/1.0"}) as response:
+            with net.get(url, stream=True, timeout=(15, 120),
+                         headers={"User-Agent": "kmaps-gtfs-setup/1.0"}) as response:
                 response.raise_for_status()
                 with temporary.open("wb") as output:
                     for chunk in response.iter_content(512 * 1024):

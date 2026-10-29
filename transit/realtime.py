@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from . import agencies, rt_match
+from . import agencies, net, rt_match
 
 try:
     from google.transit import gtfs_realtime_pb2
@@ -92,10 +92,10 @@ def _fetch_feed(url, key=None):
         rheaders = dict(REQUEST_HEADERS)  # copy: never leak one agency's key into the shared headers .. yeah i know dicts are weird
         if key:
             rheaders[key["header"]] = key["key"]
-        response = requests.get(url, headers=rheaders, timeout=15)
+        response = net.get(url, headers=rheaders, timeout=15)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
-        
+
         feed.ParseFromString(response.content)
         return feed
     except Exception:
@@ -606,7 +606,7 @@ def _check(agency_id, trip_updates_url=None):
             if key:
                 rheaders[KEYS[agency_id]["header"]] = key
 
-            response = requests.get(url, headers=rheaders, timeout=15)
+            response = net.get(url, headers=rheaders, timeout=15)
             response.raise_for_status()
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)

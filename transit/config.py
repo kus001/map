@@ -1,6 +1,7 @@
 """Tunable constants and environment-driven settings for the transit router."""
 
 import os
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -21,6 +22,22 @@ LOCAL_OSRM_BBOX = (-82.3694723, 42.7787658, -76.1642432, 44.461654)
 
 # After a connection failure, skip the local server for this many seconds.
 LOCAL_OSRM_COOLDOWN_SECONDS = 30.0
+# Walking transfers between rides (ride -> walk -> ride). Stops within this many metres
+# (straight line) get a transfer link; see transit/walk_links.py. 0 turns them off.
+TRANSFER_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_TRANSFER_WALK_M", "400")))
+# Each stop keeps its nearest few candidates only, which bounds memory and search work.
+TRANSFER_WALK_MAX_LINKS = max(0, int(os.getenv("TRANSIT_TRANSFER_WALK_LINKS", "12")))
+# Streets rarely run straight, so estimated walking distance = straight line x this.
+TRANSFER_WALK_DETOUR = float(os.getenv("TRANSIT_TRANSFER_WALK_DETOUR", "1.3"))
+# Closer pairs than this are the same stop for practical purposes.
+TRANSFER_WALK_MIN_M = 1.0
+# Real walking times from the local OSRM (python -m transit.walk_links) replace the straight-line
+# estimate. A transfer that really takes longer than this many minutes (a highway or river in
+# the way) is dropped.
+TRANSFER_WALK_MAX_MIN = float(os.getenv("TRANSIT_TRANSFER_WALK_MAX_MIN", "10"))
+WALK_LINK_TIMES_PATH = os.getenv("TRANSIT_WALK_LINK_TIMES") or str(
+    Path(__file__).resolve().parents[1] / "transit_data" / "walk_link_times.json"
+)
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
 MAX_NEARBY_STOPS = 32
 FASTEST_NEARBY_STOPS = 64

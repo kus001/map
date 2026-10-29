@@ -21,11 +21,14 @@ INF = float("inf")
 _EPSILON = 1e-4 # a super small number to lower heuristics by to make sure they never overestimate
 
 
-def build_reverse_min_graph(graph):
+def build_reverse_min_graph(graph, extra_links=None):
     """{stop: [(previous_stop, fastest minutes for that hop on any trip/route), ...]}
     
     Basically creates a very, very basic graph with just the absolute travel
     times included and no other funny business
+
+    `extra_links` is {stop: ((neighbour, minutes), ...)}: walking transfers that live
+    outside the graph. The search can use them, so the bound has to as well.
     """
     rev = {}
     for stop, neighbors in graph.items():
@@ -49,6 +52,9 @@ def build_reverse_min_graph(graph):
                 rev.setdefault(neighbor, []).append((stop, max(0.0, best - _EPSILON)))
                 # Remember heuristic must never overestimate time remaining trip time time!
                 # Hence, we use subtract it by _EPSILON.
+    for stop, links in (extra_links or {}).items():
+        for neighbor, minutes in links:
+            rev.setdefault(neighbor, []).append((stop, max(0.0, minutes - _EPSILON)))
     return rev
 
 

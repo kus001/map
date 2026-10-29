@@ -22,9 +22,11 @@ LOCAL_OSRM_BBOX = (-82.3694723, 42.7787658, -76.1642432, 44.461654)
 
 # After a connection failure, skip the local server for this many seconds.
 LOCAL_OSRM_COOLDOWN_SECONDS = 30.0
-# Walking transfers between rides (ride -> walk -> ride). Stops within this many metres
-# (straight line) get a transfer link; see transit/walk_links.py. 0 turns them off.
-TRANSFER_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_TRANSFER_WALK_M", "400")))
+# Walking transfers between rides (ride -> walk -> ride). Ordinary stops within this many
+# metres (straight line) get a transfer link; see transit/walk_links.py. Walking between two
+# separate bus stops is rarely worth it, so this is small; stations, terminals and GO stops
+# reach much further (INTERCHANGE_WALK_* below). 0 turns the ordinary links off.
+TRANSFER_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_TRANSFER_WALK_M", "250")))
 # Each stop keeps its nearest few candidates only, which bounds memory and search work.
 TRANSFER_WALK_MAX_LINKS = max(0, int(os.getenv("TRANSIT_TRANSFER_WALK_LINKS", "12")))
 # Streets rarely run straight, so estimated walking distance = straight line x this.
@@ -35,6 +37,14 @@ TRANSFER_WALK_MIN_M = 1.0
 # estimate. A transfer that really takes longer than this many minutes (a highway or river in
 # the way) is dropped.
 TRANSFER_WALK_MAX_MIN = float(os.getenv("TRANSIT_TRANSFER_WALK_MAX_MIN", "10"))
+# Stations, terminals and GO stops are worth a longer walk they get their own link slots, a wider radius and a
+# higher time cap, so busy bus stops nearby can't crowd them out. Radius 0 turns this off.
+INTERCHANGE_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_INTERCHANGE_WALK_M", "1000")))
+INTERCHANGE_WALK_MAX_LINKS = max(0, int(os.getenv("TRANSIT_INTERCHANGE_WALK_LINKS", "6")))
+INTERCHANGE_WALK_MAX_MIN = float(os.getenv("TRANSIT_INTERCHANGE_WALK_MAX_MIN", "15"))
+# A stop counts as an interchange if its agency is listed or its name has one of these words.
+INTERCHANGE_AGENCIES = frozenset({"go", "grt_trains"})
+INTERCHANGE_NAME_WORDS = ("station", "terminal", "go", "union")
 WALK_LINK_TIMES_PATH = os.getenv("TRANSIT_WALK_LINK_TIMES") or str(
     Path(__file__).resolve().parents[1] / "transit_data" / "walk_link_times.json"
 )

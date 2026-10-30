@@ -1078,15 +1078,14 @@ export default function App() {
         };
 
         const liveSources = [];
-        if (live.sources?.grt?.trip_updates || live.sources?.grt?.vehicles) {
-          liveSources.push("GRT");
-        }
         if (live.sources?.go?.trip_updates || live.sources?.go?.vehicles) {
           liveSources.push("GO Transit");
         }
         for (const [key, source] of Object.entries(live.sources || {})) {
-          if (key !== "grt" && key !== "go" && (source?.trip_updates || source?.vehicles)) {
-            liveSources.push(source.label || key.toUpperCase());
+          if (key !== "go" && (source?.trip_updates || source?.vehicles)) {
+            const label = source.label || key.toUpperCase();
+            // GRT buses and ION are separate feeds with the same label
+            if (!liveSources.includes(label)) liveSources.push(label);
           }
         }
 
@@ -1118,11 +1117,6 @@ export default function App() {
                     live.scheduled_vehicle_fallback
                   ),
                   live_sources: liveSources,
-                  grt_connected: Boolean(
-                    live.sources?.grt?.trip_updates ||
-                      live.sources?.grt?.vehicles ||
-                      live.sources?.grt?.alerts
-                  ),
                   go_connected: Boolean(
                     live.sources?.go?.trip_updates ||
                       live.sources?.go?.vehicles ||
@@ -1804,14 +1798,6 @@ export default function App() {
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
 
-                                                            
-  const accentHover = darkMode
-    ? mapStyle === "hybrid"
-      ? "hover:bg-hybrid-purple active:bg-hybrid-purple-dark"
-      : mapStyle === "satellite"
-        ? "hover:bg-green active:bg-green-dark"
-        : "hover:bg-blue active:bg-blue-dark"
-    : "hover:bg-green hover:text-white active:bg-green-dark";
 
                                                                                             
   const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${

@@ -1,10 +1,7 @@
 """HTTP helper for transit feeds.
 
-webapps.regionofwaterloo.ca (GRT static GTFS, GTFS-RT trip updates / vehicle positions / alerts)
-still offers weak Diffie-Hellman parameters. OpenSSL 3 (security level 2) refuses that handshake with
-`SSLError: [SSL: DH_KEY_TOO_SMALL] dh key too small`. The fix is to stop offering DH key exchange for
-that host (same cipher string grt_vehicle_type.py already used), while leaving every other host on
-the normal default settings. Certificate verification stays ON.
+Allow a weaker connection because our government is very good at security
+ Certificate verification stays ON.
 """
 import requests
 from requests.adapters import HTTPAdapter

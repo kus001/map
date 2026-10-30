@@ -34,7 +34,7 @@ fi
 echo
 echo "Pulling new code..."
 
-git pull
+git pull --ff-only
 
 echo
 echo "Building frontend..."

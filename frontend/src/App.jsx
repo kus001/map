@@ -356,10 +356,10 @@ export default function App() {
     const endY = event.changedTouches[0].clientY;
     const swipeDistance = endY - dragStartY.current;
     
-    if (swipeDistance > 0) {
-      console.log("swiped down: ", swipeDistance);
-    } else if (swipeDistance < 0) {
-      console.log("swiped up: ", swipeDistance);
+    if (swipeDistance > 50) {
+      setMobileMin(true);
+    } else if (swipeDistance < 50) {
+      setMobileMin(false);
     }
   }
 

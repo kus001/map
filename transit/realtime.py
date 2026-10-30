@@ -14,7 +14,7 @@ except ImportError:
     gtfs_realtime_pb2 = None
 
 TRANSIT_TIMEZONE = ZoneInfo("America/Toronto")
-REFRESH_SECONDS = int(os.getenv("GRT_REALTIME_REFRESH_SECONDS", "30"))
+REFRESH_SECONDS = int(os.getenv("GTFS_RT_REFRESH_SECONDS", "30"))
 REQUEST_TIMEOUT = 3.0
 REQUEST_HEADERS = {
     "User-Agent": os.getenv("GTFS_RT_USER_AGENT") or (
@@ -25,47 +25,25 @@ REQUEST_HEADERS = {
 MAX_FRESH_AGE_SECONDS = 180
 
 def _declared(attr):
-    """GTFS-RT links written on the Agency(...) entries in agencies.py."""
+    """GTFS-RT links (and keys) written on the Agency(...) entries in agencies.py."""
     return {a.id: getattr(a, attr) for a in agencies.AGENCIES.values() if getattr(a, attr)}
 
 
-TRIP_UPDATE_URLS = {
-    **_declared("trip_updates_url"),
-    "grt_busses": os.getenv(
-        "GRT_BUS_TRIP_UPDATES_URL",
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/1",
-    ),
-    "grt_trains": os.getenv(
-        "GRT_LRT_TRIP_UPDATES_URL",
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/2",
-    ),
-}
+TRIP_UPDATE_URLS = _declared("trip_updates_url")
+VEHICLE_URLS = _declared("vehicles_url")
+KEYS = _declared("key")
+ALERT_URLS = _declared("alerts_url")
 
-VEHICLE_URLS = {
-    **_declared("vehicles_url"),
-    "grt_busses": os.getenv(
-        "GRT_BUS_VEHICLES_URL",
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1",
-    ),
-    "grt_trains": os.getenv(
-        "GRT_LRT_VEHICLES_URL",
-        "https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/2",
-    ),
-}
 
-KEYS = {
-    **_declared("key")
-}
+def _alert_feeds():
+    """{alerts url: [agency ids]}. Agencies that publish the same alerts feed (GRT buses + ION) share one fetch."""
+    feeds = {}
+    for agency_id, url in ALERT_URLS.items():
+        feeds.setdefault(url, []).append(agency_id)
+    return feeds
 
-ALERTS_URL = os.getenv(
-    "GRT_ALERTS_URL",
-    "https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts",
-)
 
-# alert feeds by agency id; the GRT alerts feed covers both GRT agencies
-ALERT_URLS = {"grt": ALERTS_URL, **_declared("alerts_url")}
-# which agencies an alert feed speaks for (the GRT feed covers both GRT agencies)
-ALERT_AGENCIES = {"grt": ("grt_busses", "grt_trains")}
+ALERT_FEEDS = _alert_feeds()
 
 _lock = threading.Lock()
 _worker_lock = threading.Lock()
@@ -224,20 +202,20 @@ def _parse_vehicles(agency, feed):
         if vehicle.vehicle.id:
             item["vehicle_id"] = str(vehicle.vehicle.id)
 
-        vehicle_info = vehicle_types.vehicle_type(entity, agency)
-        if vehicle_info is not None:
-            if vehicle_info[1] != "unknown":
-                item["info"]["year"] = vehicle_info[1]
-                item["info"]["vehicle type"] = vehicle_info[2]
-                item["info"]["seats"] = vehicle_info[3]
-                item["info"]["powertrain"] = vehicle_types.powertrain(vehicle_info[2])
+        fleet = vehicle_types.vehicle_type(entity, agency)
+        if fleet is not None:
+            year, model, seats = fleet
+            item["info"].update({"year": year, "vehicle type": model, "seats": seats,
+                                 "powertrain": vehicle_types.powertrain(model)})
 
         vehicles[(agency, trip_id or f"vehicle-{vehicle_id}")] = item
 
     return vehicles
 
 
-def _parse_alerts(feed, agency="grt"):
+def _parse_alerts(feed, agency_ids):
+    """Alerts from one feed; ``agency_ids`` are all the agencies that publish it."""
+    agency = agency_ids[0]
     alerts = []
     if feed is None:
         return alerts
@@ -272,7 +250,7 @@ def _parse_alerts(feed, agency="grt"):
             {
                 "id": str(entity.id),
                 "agency": agency,
-                "agency_ids": list(ALERT_AGENCIES.get(agency, (agency,))),
+                "agency_ids": list(agency_ids),
                 "agency_label": agencies.label(agency),
                 "header": header or f"{agencies.label(agency)} service alert",
                 "description": description,
@@ -353,16 +331,16 @@ def _refresh_once():
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         for agency, url in TRIP_UPDATE_URLS.items():
-            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("trip", agency)
+            jobs[pool.submit(_fetch_feed, url, KEYS.get(agency))] = ("trip", agency)
 
         for agency, url in VEHICLE_URLS.items():
-            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("vehicle", agency)
+            jobs[pool.submit(_fetch_feed, url, KEYS.get(agency))] = ("vehicle", agency)
 
-        for agency, url in ALERT_URLS.items():
-            jobs[pool.submit(_fetch_feed, url, KEYS[agency] if agency in KEYS else None)] = ("alerts", agency)
+        for url, agency_ids in ALERT_FEEDS.items():
+            jobs[pool.submit(_fetch_feed, url, KEYS.get(agency_ids[0]))] = ("alerts", agency_ids)
 
         for future in as_completed(jobs):
-            kind, agency = jobs[future]
+            kind, agency = jobs[future]  # for alerts, ``agency`` is the list of agencies sharing the feed
 
             try:
                 feed = future.result()
@@ -431,7 +409,7 @@ def start_background_refresh():
 
         thread = threading.Thread(
             target=_background_worker,
-            name="grt-realtime-refresh",
+            name="gtfs-rt-refresh",
             daemon=True,
         )
         thread.start()
@@ -538,7 +516,7 @@ def vehicle_for_trip(realtime, agency, trip_id):
 def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None, agency_ids=None):
     """Alerts relevant to these routes/stops/trips. With ``agency_ids`` (the agencies actually used),
     an alert only counts if it comes from one of them, so TTC's route 11 or a system-wide TTC notice
-    never shows up on a GRT trip."""
+    never shows up on a trip from another agency."""
     if not realtime.get("alerts_available"):
         return []
 
@@ -601,7 +579,6 @@ def _check(agency_id, trip_updates_url=None):
     """python -m transit.realtime <agency> [trip_updates_url]  - fetch its live feeds and compare trip ids
     with the static GTFS from agency_setup, so you know the live data will actually line up."""
     import csv
-    from pathlib import Path
 
     agency = agencies.get(agency_id)
     if agency is None:

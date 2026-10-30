@@ -39,6 +39,7 @@ class Agency:
     match_live_by_time: bool = False      # live trip ids aren't the static ones (TTC): match by route+stop+time
     fallback_mode: str = "transit"        # vehicle label when routes.txt has no route_type
     key: str | None = None                # optional API key for GTFS-RT feeds
+    interchange: bool = False             # every stop is a station/terminal worth a longer transfer walk (ION, GO)
 
     def __post_init__(self):
         if self.trip_updates_url or self.vehicles_url or self.alerts_url:
@@ -58,22 +59,24 @@ class Agency:
         return TRANSIT_DATA / (self.cache or f"d{self.id}.pkl")
 
 
-AGENCIES = {agency.id: agency for agency in (
-    Agency("grt_trains", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
-           cache="dion.pkl", fallback_mode="tram",
-           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/2",
-           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/2",
-           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
+_GRT_API = "https://webapps.regionofwaterloo.ca/api/grt-routes/api"
 
-    Agency("grt_busses", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
+AGENCIES = {agency.id: agency for agency in (
+    Agency("grt_trains", "GRT", f"{_GRT_API}/staticfeeds/2",
+           cache="dion.pkl", fallback_mode="tram", interchange=True,
+           trip_updates_url=f"{_GRT_API}/tripupdates/2",
+           vehicles_url=f"{_GRT_API}/vehiclepositions/2",
+           alerts_url=f"{_GRT_API}/alerts"),
+
+    Agency("grt_busses", "GRT", f"{_GRT_API}/staticfeeds/1",
            cache="dgrt.pkl", fallback_mode="bus",
-           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/1",
-           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1",
-           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
+           trip_updates_url=f"{_GRT_API}/tripupdates/1",
+           vehicles_url=f"{_GRT_API}/vehiclepositions/1",
+           alerts_url=f"{_GRT_API}/alerts"),
 
     Agency("go", "GO Transit",
            "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
-           realtime=True, cache="dgo.pkl", fallback_mode="train/bus"),
+           realtime=True, cache="dgo.pkl", fallback_mode="train/bus", interchange=True),
 
     Agency("ttc", "TTC",
            "http://opendata.toronto.ca/toronto.transit.commission/ttc-routes-and-schedules/OpenData_TTC_Schedules.zip",

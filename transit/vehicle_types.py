@@ -78,6 +78,7 @@ def vehicle_type(entity, agency):
     try:
         vehicle_id = int(entity.vehicle.vehicle.id)
     except (ValueError, AttributeError):
+        print("uhh:", entity.vehicle.vehicle_id)
         return None
     if vehicle_id in grt_years:
         route_id = entity.vehicle.trip.route_id or "N/A"
@@ -93,12 +94,13 @@ def grt_bus_types(feed):
     vehicle_ids = set()
 
     for entity in feed.entity:
-        hold = vehicle_type(entity, "grt")
-        if hold and hold != "unknown":
-            vehicle_ids.add(hold[0])
-            statuses.append(hold)
-        elif "unkown" in hold:
-            vehicle_ids.add(hold[0])
+        hold = vehicle_type(entity, "grt_busses")
+        if hold:
+            if hold != "unknown":
+                vehicle_ids.add(hold[0])
+                statuses.append(hold)
+            elif "unkown" in hold:
+                vehicle_ids.add(hold[0])
 
     statuses.sort(key=lambda x:int(x[4]))
 
@@ -130,4 +132,4 @@ if __name__ == '__main__':
     for bus_id, year, v_type, seats, route, lat, lon in statuses:
         if not seats:
             seats = ""
-        print(f"{str(bus_id):<8}{year:<8}{v_type:<12}{seats:<7}{route:<8}({lat}, {lon})")
+        print(f"{str(bus_id):<8}{year:<8}{v_type:<12}{seats:<7}{route:<8}({lat:<18}, {lon:<18})")

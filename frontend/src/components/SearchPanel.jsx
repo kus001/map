@@ -430,7 +430,7 @@ function LocationInput({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
-        className={`h-11 min-w-0 flex-1 rounded-xl border px-4 text-[15px] outline-none transition focus:ring-2 disabled:opacity-60 ${
+        className={`h-11 min-w-0 flex-1 rounded-xl border px-4 text-[15px] min-[761px]:@max-[295px]/sidebar:h-9 outline-none transition focus:ring-2 disabled:opacity-60 ${
           endAction ? "pr-12" : ""
         } ${
           darkMode

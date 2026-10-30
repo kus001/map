@@ -399,6 +399,15 @@ def live_transit_state():
 
 
 
+    # show nearby ttc gps buses for each chosen route without pretending we know the exact trip
+    from transit.ttc_surface import route_vehicles_near_trip
+    for vehicle in route_vehicles_near_trip(raw_steps, grt.get("vehicles", {}), seen_vehicles):
+        key = (str(vehicle.get("agency") or ""), str(vehicle.get("trip_id") or ""))
+        if key in seen_vehicles:
+            continue
+        vehicles.append(vehicle)
+        seen_vehicles.add(key)
+
     missing_vehicle_steps = [
         step
         for step in raw_steps
@@ -435,7 +444,7 @@ def live_transit_state():
             continue
         other_sources[agency.id] = {
             "label": agency.label,
-            "trip_updates": any(key[0] == agency.id for key in realtime.get("trip_updates", {})),
+            "trip_updates": bool(grt.get("surface_predictions")) if agency.id == "ttc" else any(key[0] == agency.id for key in realtime.get("trip_updates", {})),
             "vehicles": any(key[0] == agency.id for key in realtime.get("vehicles", {})),
             "alerts": bool(agency.alerts_url and grt.get("alerts_available")),
             "feed_timestamp": grt.get("feed_timestamp"),

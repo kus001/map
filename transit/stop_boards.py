@@ -1,6 +1,5 @@
-"""GRT/GO stop board driven by the same GTFS graph as route search."""
+"""Stop board driven by the same GTFS graph as route search."""
 from bisect import bisect_left
-from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 TIMEZONE = ZoneInfo('America/Toronto')

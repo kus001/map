@@ -1,10 +1,9 @@
 """Eager startup loading for the routing server.
 
 Every step is isolated: if one fails, it is logged and the server still starts;
-the original lazy code paths remain as a fallback for that piece.
+/api/health then reports the state as "degraded" and names the failed stages.
 
-Environment switches
-  MAP_PRELOAD_TRANSIT=0            skip all of this (restores lazy behaviour)
+Environment switch
   MAP_WARMUP_REALTIME_TIMEOUT=8    seconds to wait for the first GTFS-RT fetch
 """
 import os
@@ -26,7 +25,7 @@ def status() -> dict:
             item["error"] = item["error"].split(":", 1)[0]
     bad = [name for name, item in stages.items() if not item.get("ok")]
     if not _finished:
-        state = "disabled" if not _flag("MAP_PRELOAD_TRANSIT") else "not_started"
+        state = "not_started"
     else:
         state = "degraded" if bad else "ready"
     return {
@@ -35,9 +34,6 @@ def status() -> dict:
         "stages": stages,
         "failed": bad,
     }
-
-def _flag(name, default="1") -> bool:
-    return os.getenv(name, default) == "1"
 
 def _run(name, fn):
     started = time.perf_counter()
@@ -102,7 +98,7 @@ def _realtime_first_fetch():
     timeout = float(os.getenv("MAP_WARMUP_REALTIME_TIMEOUT", "8"))
     feeds = {}
     if realtime._worker_started:
-        feeds["grt"] = lambda: realtime.snapshot()
+        feeds["gtfs-rt"] = lambda: realtime.snapshot()
     if go_realtime._gtfs_worker_started:
         feeds["go"] = lambda: go_realtime.gtfs_snapshot()
     if not feeds:
@@ -129,11 +125,6 @@ def warm_up() -> dict:
     global _warmed, _finished
     if _finished:
         return report()
-    if not _flag("MAP_PRELOAD_TRANSIT"):
-        _report["preload"] = {"ok": True, "skipped": True, "detail": "lazy loading enabled"}
-        print("[warmup] disabled (MAP_PRELOAD_TRANSIT=0); data will load lazily.", flush=True)
-        return report()
-
     started = time.perf_counter()
     print("[warmup] loading all routing data before accepting requests...", flush=True)
 

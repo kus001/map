@@ -14,8 +14,3 @@ def find_dist(coord1: tuple[int, int], coord2: tuple[int, int]) -> float:
     distance = math.sqrt(dlat**2 + dlon**2) * 1000
 
     return distance
-
-def dist_time(coord1: tuple[int, int], coord2: tuple[int, int], speed=35) -> float:
-    distance = find_dist(coord1, coord2)
-    time = distance / speed
-    return time

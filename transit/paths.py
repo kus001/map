@@ -24,19 +24,6 @@ def route_keys_for_path(path):
     return keys
 
 
-def route_signature(route):
-    signature = []
-    for step in route.get("steps", []):
-        if step.get("type") == "transit":
-            signature.append((
-                str(step.get("agency") or ""),
-                str(step.get("route") or ""),
-                str(step.get("from_stop_id") or ""),
-                str(step.get("to_stop_id") or ""),
-            ))
-    return tuple(signature)
-
-
 def _namespaced_trip_keys(items):
     """The router's trip ids are '<agency>:<id>' but live feeds key trips by the raw id."""
     out = {}
@@ -47,31 +34,26 @@ def _namespaced_trip_keys(items):
     return out
 
 
-def combine_realtime(grt, go):
+def combine_realtime(*snapshots):
+    """Merge realtime snapshots (the GTFS-RT feeds from realtime.py, GO's own feed, ...) into one.
 
-
-
-    trip_updates = (
-        dict(grt.get("trip_updates", {})) if grt.get("available") else {}
-    )
-    if go.get("available"):
-        trip_updates.update(go.get("trip_updates", {}))
-
-
-
-
-    vehicles = dict(grt.get("vehicles", {}))
-    vehicles.update(go.get("vehicles", {}))
-    trip_updates = _namespaced_trip_keys(trip_updates)
-    vehicles = _namespaced_trip_keys(vehicles)
-    timestamps = [v for v in (grt.get("feed_timestamp"), go.get("feed_timestamp")) if v]
+    Trip updates only count from snapshots that are themselves fresh (``available``); vehicles and
+    alerts are always merged.
+    """
+    trip_updates, vehicles, alerts = {}, {}, []
+    for snapshot in snapshots:
+        if snapshot.get("available"):
+            trip_updates.update(snapshot.get("trip_updates", {}))
+        vehicles.update(snapshot.get("vehicles", {}))
+        alerts.extend(snapshot.get("alerts", []))
+    timestamps = [v for v in (snapshot.get("feed_timestamp") for snapshot in snapshots) if v]
     return {
-        "loaded_at": max(float(grt.get("loaded_at") or 0), float(go.get("loaded_at") or 0)),
-        "trip_updates": trip_updates,
-        "vehicles": vehicles,
-        "alerts": list(grt.get("alerts", [])) + list(go.get("alerts", [])),
-        "available": bool(grt.get("available") or go.get("available")),
-        "alerts_available": bool(grt.get("alerts_available") or go.get("alerts_available")),
+        "loaded_at": max((float(snapshot.get("loaded_at") or 0) for snapshot in snapshots), default=0.0),
+        "trip_updates": _namespaced_trip_keys(trip_updates),
+        "vehicles": _namespaced_trip_keys(vehicles),
+        "alerts": alerts,
+        "available": any(snapshot.get("available") for snapshot in snapshots),
+        "alerts_available": any(snapshot.get("alerts_available") for snapshot in snapshots),
         "feed_timestamp": max(timestamps) if timestamps else None,
     }
 
@@ -176,13 +158,6 @@ def _path_walk_jobs(path, start, end, best_start, best_end):
         if group["type"] == "walking" and dist_m(group["from_coords"], group["to_coords"]) > 35:
             jobs[f"leg:{i}"] = (group["from_coords"], group["to_coords"], group["ride_min"])
     return jobs
-
-
-def _path_signature(path):
-
-    return tuple((str(group['agency']), str(group['route']),
-                  str(group['from_name']), str(group['to_name']))
-                 for group in group_path(path) if group['type'] == 'transit')
 
 
 def _transit_groups(path):

@@ -1,4 +1,4 @@
-"""Shared mutable transit state. Rebound by loader.ensure_transit_loaded, so other modules read it as `store.graph` / `store.stops` / `store._data` at call time rather than importing the names."""
+"""Shared mutable transit state. Rebound by loader.ensure_transit_loaded / reload_transit_data, so other modules read it as `store.graph` / `store.stops` / `store._data` at call time rather than importing the names."""
 
 import threading
 

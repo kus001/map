@@ -320,7 +320,7 @@ def live_transit_state():
     from transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
     from transit.realtime import (
         matching_alerts,
-        snapshot as grt_snapshot,
+        snapshot as gtfs_rt_snapshot,
         vehicle_for_trip,
     )
     from transit import (
@@ -329,9 +329,9 @@ def live_transit_state():
         scheduled_vehicle_positions,
     )
 
-    grt = grt_snapshot()
+    gtfs_rt = gtfs_rt_snapshot()
     go = go_gtfs_snapshot()
-    realtime = combine_realtime(grt, go)
+    realtime = combine_realtime(gtfs_rt, go)
 
     route_ids = set()
     stop_ids = set()
@@ -400,7 +400,7 @@ def live_transit_state():
 
     # show nearby ttc gps buses for each chosen route without pretending we know the exact trip
     from transit.ttc_surface import route_vehicles_near_trip
-    for vehicle in route_vehicles_near_trip(raw_steps, grt.get("vehicles", {}), seen_vehicles):
+    for vehicle in route_vehicles_near_trip(raw_steps, gtfs_rt.get("vehicles", {}), seen_vehicles):
         key = (str(vehicle.get("agency") or ""), str(vehicle.get("trip_id") or ""))
         if key in seen_vehicles:
             continue
@@ -437,16 +437,17 @@ def live_transit_state():
     from transit import agencies as agency_registry
     vehicles = [{**v, "agency_label": agency_registry.label(v.get("agency"))}
                 for v in vehicles]
-    other_sources = {}
+    # one entry per agency with a GTFS-RT feed (GO has its own feed and its own entry below)
+    gtfs_rt_sources = {}
     for agency in agency_registry.AGENCIES.values():
-        if agency.id in ("grt_busses", "grt_trains", "go") or not (agency.trip_updates_url or agency.vehicles_url):
+        if agency.id == "go" or not (agency.trip_updates_url or agency.vehicles_url):
             continue
-        other_sources[agency.id] = {
+        gtfs_rt_sources[agency.id] = {
             "label": agency.label,
-            "trip_updates": bool(grt.get("surface_predictions")) if agency.id == "ttc" else any(key[0] == agency.id for key in realtime.get("trip_updates", {})),
+            "trip_updates": bool(gtfs_rt.get("surface_predictions")) if agency.id == "ttc" else any(key[0] == agency.id for key in realtime.get("trip_updates", {})),
             "vehicles": any(key[0] == agency.id for key in realtime.get("vehicles", {})),
-            "alerts": bool(agency.alerts_url and grt.get("alerts_available")),
-            "feed_timestamp": grt.get("feed_timestamp"),
+            "alerts": bool(agency.alerts_url and gtfs_rt.get("alerts_available")),
+            "feed_timestamp": gtfs_rt.get("feed_timestamp"),
         }
 
     return jsonify({
@@ -458,12 +459,6 @@ def live_transit_state():
             bool(vehicle.get("estimated")) for vehicle in vehicles
         ),
         "sources": {
-            "grt": {
-                "trip_updates": bool(grt.get("available")),
-                "vehicles": bool(grt.get("vehicles")),
-                "alerts": bool(grt.get("alerts_available")),
-                "feed_timestamp": grt.get("feed_timestamp"),
-            },
             "go": {
                 "configured": bool(os.getenv("METROLINX_API_KEY")),
                 "trip_updates": bool(go.get("available")),
@@ -471,7 +466,7 @@ def live_transit_state():
                 "alerts": bool(go.get("alerts_available")),
                 "feed_timestamp": go.get("feed_timestamp"),
             },
-            **other_sources,
+            **gtfs_rt_sources,
         },
     })
 
@@ -488,14 +483,14 @@ def nearby_transit_vehicles():
     except (KeyError, ValueError, TypeError):
         return jsonify({"success": False, "error": "Invalid map center"}), 400
 
-    from transit.realtime import snapshot as grt_snapshot
+    from transit.realtime import snapshot as gtfs_rt_snapshot
     from transit.go_realtime import gtfs_snapshot as go_gtfs_snapshot
     from transit import live_vehicle_is_usable, nearby_scheduled_vehicles
     from transit.agencies import label
     from math import radians, cos
 
 
-    snapshots = (grt_snapshot(), go_gtfs_snapshot())
+    snapshots = (gtfs_rt_snapshot(), go_gtfs_snapshot())
     live = {}
     for snapshot in snapshots:
         for key, vehicle in snapshot.get("vehicles", {}).items():
@@ -806,7 +801,7 @@ if __name__ == "__main__":
         print("kmaps - LOCAL DEVELOPMENT MODE")
         print(f"http://{host}:{port}")
         print("Debug: ON | Auto reload: ON | Route timing: ON")
-        print("All routing data is preloaded at startup (MAP_PRELOAD_TRANSIT=0 to disable).")
+        print("All routing data is preloaded at startup.")
         print("=" * 64)
 
         app.run(

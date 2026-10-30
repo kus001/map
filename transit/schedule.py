@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 from . import store
 from .config import MAX_SCHEDULE_CACHE_ENTRIES, TRANSIT_TIMEZONE
-from .loader import ensure_transit_loaded
 from .store import _ACTIVE_SERVICE_CACHE
 from .timeutil import gtfs_service_clock, normalize_departure_datetime
 
@@ -101,7 +100,6 @@ def warm_schedule_caches(days_ahead: int = 1) -> int:
 
     IMPORTANT: only run after all agencies are loaded.
     """
-    ensure_transit_loaded()
     now = normalize_departure_datetime(datetime.now(TRANSIT_TIMEZONE))
     warmed = 0
     for offset in range(max(0, int(days_ahead)) + 1):

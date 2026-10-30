@@ -103,51 +103,9 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 
 <div align="center">
 
-### STARTUP PRELOADING
-
-</div>
-
-`main.py` now loads everything in startup (see `helpers/warmup.py`): the address index, the GRT/GO transit graph, the TTC schedule, the stop lookup grid, the GTFS shape databases, today's/tomorrow's service calendars, and the first GTFS-realtime fetch. The first query is therefore as fast as any other one. Startup takes a few seconds longer and uses more RAM than lazy loading did (thankfully its negligeable if its used as a server, as everything would have ended up loaded anyways), and `/api/health` reports `"warmed_up": true` once it's done.
-
-<div align="center">
-
-### TRANSIT
-
-</div>
-
-The transit router residing in `transit.py` has now been updated to have a full user-interface combined with accurate transfers! The router uses a homegrown version of the [A*](https://en.wikipedia.org/wiki/A*_search_algorithm) (Pronounced A Star) search algorithm! The graph now contains appropriate details to route concious of the current date and current time, and find the route that will, in the following order of priority,
-
-1. Arrive the earliest
-2. Depart the latest
-3. Have the least amount of transfers.
-
-~~However, the transit system *does not* (yet) provide walking instructions to the and in between stops. That should be added at some point soon.~~
-~~Here's a sample output!~~
-![Sample Transit Output](./frontend/public/transit_sample_output.png)
-
-That's all old! Everything should work now!! It should be integrated into the website!
-
-<div align="center">
-
 ## NOTES
 
 </div>
-
-<details>
-<summary><h3 style="display: inline;"> Running the transit router </h3></summary>
-
-It is recommended to run this project in its own folder so you can easily delete any spawned files. The project generates the transit_data folder when running `python -m transit` (the router is now in the `transit/` package).
-
-</details>
-
-<details>
-<summary><h3 style="display: inline;">Speed Limitation on transit.py</h3></summary>
-
-~~Additionally, since the transit router is written in Python and uses a relatively brute-forced approach, long distance commuting can be very, very slow to calculate. Althought the base A* algorithm is quite fast, there is an additional step on top of it slowing it down quite a bit, the step being searching 900 times, from the 30 closest stops to you and the 30 closest stops to the destination. A speed update will be coming soon, as currently the system uses just brute force, but the A* algorithm's graph could likely be updated to include the additional edges with the 30 closest stops being attached to the starting stop, allowing the A* algorithm to not have to search the same stop so many times (And not have to be run 900 times!)~~
-
-FIXED!! Algorithm now runs really quickly, and only once! However, for long distances it can still be quite slow ... even then that's most likely just a server side problem, very usable as an end user.
-
-</details>
 
 <details>
 <summary><h3 style="display: inline;">AI</h3></summary>
@@ -155,6 +113,14 @@ FIXED!! Algorithm now runs really quickly, and only once! However, for long dist
 In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI. Occasionally, such as with the local geocoding, the feature would be started with AI help then mostly done by hand.
 
 </details>
+
+<details>
+<summary><h3 style="display: inline;">Transit Agencies</h3></summary>
+
+If you would like to add your own transit agencies, it should be really quite easy. `In transit/agencies.py` there is a dictionary titled `AGENCIES` (Around line 64) and it has all the agencies the router is configured for. You can easily add your own agencies from just their links, and then running `python -m transit.agency_setup [agency id]`. You can also put `all` in place of `[agency id]` to set up all new agencies! Setting up an agency involved downloading all the required files, compacting them into a `.pkl` and then setting them up and processing them.
+
+</details>
+
 <div align="center">
 
 ### $$\color{red}\text{Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666}$$

@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+from .agencies import AGENCIES
+
 
 load_dotenv()
 
@@ -42,8 +44,9 @@ TRANSFER_WALK_MAX_MIN = float(os.getenv("TRANSIT_TRANSFER_WALK_MAX_MIN", "10"))
 INTERCHANGE_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_INTERCHANGE_WALK_M", "1000")))
 INTERCHANGE_WALK_MAX_LINKS = max(0, int(os.getenv("TRANSIT_INTERCHANGE_WALK_LINKS", "6")))
 INTERCHANGE_WALK_MAX_MIN = float(os.getenv("TRANSIT_INTERCHANGE_WALK_MAX_MIN", "15"))
-# A stop counts as an interchange if its agency is listed or its name has one of these words.
-INTERCHANGE_AGENCIES = frozenset({"go", "grt_trains"})
+# A stop counts as an interchange if its agency is flagged ``interchange=True`` in agencies.py or its
+# name has one of these words.
+INTERCHANGE_AGENCIES = frozenset(agency.id for agency in AGENCIES.values() if agency.interchange)
 INTERCHANGE_NAME_WORDS = ("station", "terminal", "go", "union")
 WALK_LINK_TIMES_PATH = os.getenv("TRANSIT_WALK_LINK_TIMES") or str(
     Path(__file__).resolve().parents[1] / "transit_data" / "walk_link_times.json"

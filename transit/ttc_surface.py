@@ -5,7 +5,6 @@ import math
 import threading
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .agencies import TRANSIT_DATA

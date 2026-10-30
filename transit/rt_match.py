@@ -14,7 +14,7 @@ import sqlite3
 import statistics
 import threading
 from collections import Counter
-from datetime import date as _date, datetime, time as _time, timedelta
+from datetime import datetime, time as _time, timedelta
 from zoneinfo import ZoneInfo
 
 from . import agencies

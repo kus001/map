@@ -43,7 +43,6 @@ from .geo import (
     stop_coords,
     stop_name,
 )
-from .loader import ensure_transit_loaded
 from .paths import _path_walk_jobs, combine_realtime, group_path, is_transit_edge
 from .search import generate_alternative_paths, search_transit, transit_preference_profile
 from .timeutil import (
@@ -139,7 +138,7 @@ def _direct_walking_option(start, end, start_address, end_address, departure, tr
         "realtime": {
             "available": False, "feed_connected": False, "feed_age_seconds": None,
             "used_live_updates": False, "scheduled_vehicle_fallback": False,
-            "live_sources": [], "grt_connected": False,
+            "live_sources": [],
             "go_configured": go_realtime_configured(), "go_connected": False,
             "go_used_live_updates": False, "suppressed_for_scheduled_trip": False,
         },
@@ -178,8 +177,6 @@ def get_transit_route(
     _walks=None,
 ) -> dict:
 
-    ensure_transit_loaded() # kept for legacy lazy loading
-
     timing_start = timing.get("start", us()) if timing is not None else None
     requested_departure = normalize_departure_datetime(departure_datetime)
 
@@ -212,12 +209,12 @@ def get_transit_route(
     start = coord(start); end = coord(end)
 
     if _shared is None:
-        grt_realtime = realtime_snapshot()
+        gtfs_rt = realtime_snapshot()
         go_realtime = go_gtfs_snapshot()
-        realtime = combine_realtime(grt_realtime, go_realtime)
+        realtime = combine_realtime(gtfs_rt, go_realtime)
         current_time = datetime.now(TRANSIT_TIMEZONE)
     else:
-        grt_realtime, go_realtime, realtime, current_time = _shared
+        gtfs_rt, go_realtime, realtime, current_time = _shared
 
     realtime_allowed = (
         abs((requested_departure - current_time).total_seconds())
@@ -695,7 +692,7 @@ def get_transit_route(
 
     distance_km = total_distance / 1000
 
-    feed_timestamp = grt_realtime.get("feed_timestamp")
+    feed_timestamp = gtfs_rt.get("feed_timestamp")
     feed_age = (
         max(0, int(time.time() - feed_timestamp)) if feed_timestamp else None
     )
@@ -705,42 +702,46 @@ def get_transit_route(
         for step in steps
         if step.get("type") == "transit"
     }
-    uses_grt = bool({"grt_busses", "grt_trains"} & used_agencies)
     uses_go = "go" in used_agencies
     if uses_go and any(step.get("agency") == "go" and step.get("realtime") for step in steps):
         go_realtime_used = True
-    grt_connected_for_route = bool(uses_grt and grt_realtime.get("available"))
     go_connected_for_route = bool(uses_go and go_realtime_connected)
 
-    live_sources = []
-    if grt_connected_for_route:
-        live_sources.append("GRT")
+    # An agency counts as a live source for this route when its feed is up right now (GO has its own
+    # feed) or a trip on it actually got live data.
+    agencies_with_live_feed = {agency for agency, _trip in gtfs_rt.get("trip_updates", {})}
+    connected_agencies = {
+        agency for agency in used_agencies - {"", "go"}
+        if agency in agencies_with_live_feed
+        or any(step.get("agency") == agency and step.get("realtime") for step in steps)
+    }
     if go_connected_for_route:
-        live_sources.append("GO Transit")
+        connected_agencies.add("go")
 
-    # any other agency (TTC, ...) counts as a live source once a trip on it actually got live data
-    for other in sorted(used_agencies - {"grt_busses", "grt_trains", "go", ""}):
-        if any(step.get("agency") == other and step.get("realtime") for step in steps):
-            live_sources.append(agencies.label(other))
+    live_sources = []
+    for agency in sorted(connected_agencies):
+        source_label = agencies.label(agency)
+        if source_label not in live_sources:  # GRT buses and ION are both "GRT"
+            live_sources.append(source_label)
 
     any_live_feed_connected = bool(live_sources)
     realtime_info = {
         "available": bool(realtime_allowed and live_sources),
         "feed_connected": any_live_feed_connected,
-        "feed_age_seconds": feed_age if grt_connected_for_route else None,
+        "feed_age_seconds": feed_age if connected_agencies - {"go"} else None,
         "used_live_updates": any(step.get("realtime") for step in steps),
         "scheduled_vehicle_fallback": any(
             bool(vehicle.get("estimated")) for vehicle in live_vehicles
         ),
         "live_sources": live_sources,
-        "grt_connected": grt_connected_for_route,
         "go_configured": go_realtime_configured(),
         "go_connected": go_connected_for_route,
         "go_used_live_updates": bool(go_realtime_used),
         "suppressed_for_scheduled_trip": bool(
             not realtime_allowed
             and (
-                (uses_grt and grt_realtime.get("available"))
+                (any(agencies.has_realtime(agency) for agency in used_agencies - {"", "go"})
+                 and gtfs_rt.get("available"))
                 or (uses_go and go_realtime_configured())
             )
         ),
@@ -798,7 +799,7 @@ def get_transit_route(
     route["route_variant"] = "balanced"
     routes = [route]
     if prepared:
-        shared = (grt_realtime, go_realtime, realtime, current_time)
+        shared = (gtfs_rt, go_realtime, realtime, current_time)
         for item in prepared:
             alternate = get_transit_route(
                 start_address, end_address,

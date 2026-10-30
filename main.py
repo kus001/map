@@ -2,12 +2,11 @@ import json
 import os
 import sys
 import math
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-
 from flask import Flask, Response, jsonify, request
 from dotenv import load_dotenv
-
 
 load_dotenv()
 

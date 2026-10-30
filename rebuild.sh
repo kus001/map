@@ -34,7 +34,7 @@ fi
 echo
 echo "Pulling new code..."
 
-git pull --rebase
+git pull
 
 echo
 echo "Building frontend..."

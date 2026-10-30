@@ -63,10 +63,11 @@ _GRT_API = "https://webapps.regionofwaterloo.ca/api/grt-routes/api"
 
 AGENCIES = {agency.id: agency for agency in (
     Agency("grt_trains", "GRT", f"{_GRT_API}/staticfeeds/2",
-           cache="dion.pkl", fallback_mode="tram", interchange=True,
+           cache="dion.pkl", fallback_mode="tram",
            trip_updates_url=f"{_GRT_API}/tripupdates/2",
            vehicles_url=f"{_GRT_API}/vehiclepositions/2",
-           alerts_url=f"{_GRT_API}/alerts"),
+           alerts_url=f"{_GRT_API}/alerts",
+           interchange=True),
 
     Agency("grt_busses", "GRT", f"{_GRT_API}/staticfeeds/1",
            cache="dgrt.pkl", fallback_mode="bus",
@@ -76,7 +77,8 @@ AGENCIES = {agency.id: agency for agency in (
 
     Agency("go", "GO Transit",
            "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
-           realtime=True, cache="dgo.pkl", fallback_mode="train/bus", interchange=True),
+           realtime=True, cache="dgo.pkl", fallback_mode="train/bus",
+           interchange=True),
 
     Agency("ttc", "TTC",
            "http://opendata.toronto.ca/toronto.transit.commission/ttc-routes-and-schedules/OpenData_TTC_Schedules.zip",

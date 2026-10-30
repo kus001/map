@@ -14,7 +14,6 @@ from . import store
 from .config import LIVE_VEHICLE_MAX_AGE_SECONDS, MAX_SCHEDULED_TRIP_CACHE_ENTRIES, TRANSIT_TIMEZONE
 from .display import route_details
 from .geo import dist_m, point_along_polyline, raw_stop_id, stop_agency, stop_coords
-from .loader import ensure_transit_loaded
 from .schedule import schedule_info, trip_active
 from .timeutil import gtfs_service_clock, normalize_departure_datetime
 
@@ -50,7 +49,6 @@ def _load_scheduled_trip_hops(trip_keys):
     those timelines for future 15-second refreshes without building another large
     global index in memory.
     """
-    ensure_transit_loaded()
     normalized = {(str(agency), str(trip_id)) for agency, trip_id in trip_keys if trip_id}
     if not normalized:
         return {}
@@ -230,7 +228,6 @@ def nearby_scheduled_vehicles(latitude, longitude, radius_m=5000, limit=45, now=
     This is an offline fallback if a live vehicle feed has no positions nearby.
     Markers are explicitly *estimated* and are not presented as observed GPS.
     """
-    ensure_transit_loaded()
     latitude, longitude = float(latitude), float(longitude)
     radius_m = max(500.0, min(float(radius_m), 15000.0))
     limit = max(1, min(int(limit), 70))

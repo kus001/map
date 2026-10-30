@@ -777,7 +777,7 @@ export default function SearchPanel({
             darkMode={darkMode}
             onClick={() => onModeChange(id)}
             title={label}
-            className="h-10 px-2"
+            className="h-10 px-2 min-[761px]:@max-[295px]/sidebar:h-9"
           >
             <Icon className="text-lg" />
           </Button>
@@ -829,7 +829,7 @@ export default function SearchPanel({
               disabled={loading}
               mapStyle={mapStyle}
               onClick={() => onCyclingTypeChange(option.id)}
-              className={`rounded-lg border px-1 py-1 text-center text-[12px] @max-[280px]:text-[10px] font-semibold transition disabled:opacity-50 ${
+              className={`h-10 whitespace-warp min-w-0 rounded-lg border px-1 text-center min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-[13px] text-[14px] font-regular transition disabled:opacity-50 ${
                 cyclingType === option.id
                   ? darkMode
                     ? mapStyle === "hybrid"

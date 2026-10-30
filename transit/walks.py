@@ -8,8 +8,6 @@ from time import monotonic
 
 import httpx
 
-from helpers.fast_osrm import osrm_route
-
 from .config import (
     LOCAL_OSRM_BBOX,
     LOCAL_OSRM_COOLDOWN_SECONDS,
@@ -100,45 +98,6 @@ def _ors_walk_directions(feature, coordinates):
                 }
             )
     return directions
-
-
-def _osrm_walk(start_lat, start_lon, end_lat, end_lon):
-    """Foot-routing fallback (public OSRM) with the same shape as the ORS result."""
-    route = osrm_route("walking", start_lat, start_lon, end_lat, end_lon)
-    coordinates = [
-        [float(lat), float(lon)] for lon, lat in route["geometry"]["coordinates"]
-    ]
-
-    directions = []
-    for leg in route.get("legs", []):
-        for step in leg.get("steps", []):
-            maneuver = step.get("maneuver") or {}
-            if maneuver.get("type") == "arrive":
-                continue
-            location = maneuver.get("location") or []
-            directions.append(
-                {
-                    "instruction": "",
-                    "type": maneuver.get("type", "continue"),
-                    "modifier": maneuver.get("modifier", ""),
-                    "road": step.get("name", ""),
-                    "name": step.get("name", ""),
-                    "distance_m": float(step.get("distance", 0) or 0),
-                    "duration_min": float(step.get("duration", 0) or 0) / 60,
-                    "coordinates": (
-                        [float(location[1]), float(location[0])]
-                        if len(location) >= 2
-                        else None
-                    ),
-                }
-            )
-
-    return {
-        "coordinates": coordinates,
-        "distance_m": float(route.get("distance", 0)),
-        "duration_min": float(route.get("duration", 0)) / 60,
-        "steps": directions,
-    }
 
 
 _local_osrm_down_until = 0.0

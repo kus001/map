@@ -236,9 +236,10 @@ function BusDetails({ vehicle }) {
   const specs = vehicleSpecs(vehicle);
   return (
     <div className="text-sm text-slate-900">
-      <div className="font-semibold">{vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {estimated ? "Scheduled estimate" : "Live"} {vehicle.route ? `route ${vehicle.route}` : "vehicle"}</div>
+      <div className="font-semibold">{vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {estimated ? "Scheduled estimate" : vehicle.route_live ? "Nearby live bus" : "Live"} {vehicle.route ? `route ${vehicle.route}` : "vehicle"}</div>
       {(vehicle.display_headsign || vehicle.headsign) && <div>toward {vehicle.display_headsign || vehicle.headsign}</div>}
       {vehicle.vehicle_label && <div>{vehicle.vehicle_label}</div>}
+      {vehicle.route_live && <div className="mt-1 text-[10px] opacity-70">live gps on this route, exact trip not confirmed</div>}
       {specs && (
         <div className="mt-1 text-[11px]">
           {[specs.year, specs.powertrainLabel, specs.model, specs.seats ? `${specs.seats} seats` : null]

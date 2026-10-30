@@ -73,7 +73,7 @@ def powertrain(vehicle_type):
 
 def vehicle_type(entity, agency):
     # agency ids are "grt_busses"/"grt_trains" (older code used plain "grt"); only buses are in grt_years
-    if agency not in ("grt", "grt_busses"):
+    if agency != "grt_busses":
         return None
     try:
         vehicle_id = int(entity.vehicle.vehicle.id)

@@ -6,6 +6,9 @@ import threading
 _data = None
 graph = None
 stops = None
+walk_links = {}      # longer ride -> walk -> ride transfers, {stop: ((neighbour, minutes), ...)}; see walk_links.py
+reverse_min = None  # lower-bound graph for the A* heuristic (see lower_bound.py); None = use straight-line fallback
+trip_pools = ()     # every agency's TripPools, so per-day trip masks can be pre-built at warm-up
 _transit_load_lock = threading.Lock()
 _realtime_started = False
 _ACTIVE_SERVICE_CACHE = {}

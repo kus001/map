@@ -160,3 +160,23 @@ export function routeLateness(steps) {
     live.reduce((worst, info) => (info.minutes > worst.minutes ? info : worst))
   );
 }
+
+const POWERTRAIN_LABELS = { normal: "Normal", hev: "Hybrid (HEV)", electric: "Electric" };
+
+// Bus details the backend attaches to live GRT vehicles (vehicle.info). Returns null when unknown.
+export function vehicleSpecs(vehicle) {
+  const info = vehicle?.info;
+  if (!info || (!info.year && !info.powertrain)) {
+    return null;
+  }
+
+  const model = String(info["vehicle type"] || "").trim();
+  const seats = Number(info.seats);
+  return {
+    year: info.year || null,
+    model: model || null,
+    powertrain: info.powertrain || null,
+    powertrainLabel: POWERTRAIN_LABELS[info.powertrain] || null,
+    seats: Number.isFinite(seats) && seats > 0 ? seats : null,
+  };
+}

@@ -14,6 +14,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import FreeMapLayer from "./FreeMapLayer";
+import { vehicleSpecs } from "../utils/format.js";
 
 import "leaflet/dist/leaflet.css";
 
@@ -191,6 +192,13 @@ const MODE_COLORS = {
   transit: "#8A6F4D",
 };
 
+const EV_CHARGER_ICON = L.divIcon({
+  className: "", iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -18],
+  html: '<span style="display:grid;place-items:center;width:30px;height:30px;border:2px solid white;border-radius:10px;background:#059669;color:white;box-shadow:0 2px 6px #0005;font-size:20px;font-weight:700">⚡</span>'
+});
+const BUS_LIVE_ICON = L.icon({ iconUrl: "/icons/bus-live.svg", iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -16] });
+const BUS_SCHEDULED_ICON = L.icon({ iconUrl: "/icons/bus-scheduled.svg", iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -16] });
+
 const START_ICON = L.divIcon({
   className: "map-route-marker-shell",
   html: '<div class="map-route-marker map-route-marker-start">A</div>',
@@ -252,19 +260,41 @@ function MapInsetEffect({ insets }) {
   return null;
 }
 
-function MapCameraSync({ onCameraChange }) {
+function MapCameraSync({ onCameraChange, registerCameraGetter }) {
   const map = useMap();
   const callback = useRef(onCameraChange);
   useEffect(() => { callback.current = onCameraChange; }, [onCameraChange]);
-  const report = () => {
+  const readCamera = () => {
     const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    return { center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 32, bearing: 0 };
   };
-  useMapEvents({ moveend: report });
+  useMapEvents({ moveend: () => callback.current?.(readCamera()) });
   useEffect(() => {
-    const center = map.getCenter();
-    callback.current?.({ center: [center.lng, center.lat], zoom: map.getZoom(), pitch: 58, bearing: 0 });
+    callback.current?.(readCamera());
   }, [map]);
+  useEffect(() => {
+    // The parent can read a fresh camera even in the middle of an animated
+    // Leaflet pan/zoom; cleanup unregisters the getter on unmount.
+    registerCameraGetter?.(readCamera);
+    return () => registerCameraGetter?.(null);
+  }, [map, registerCameraGetter]);
+  return null;
+}
+
+function RestoreCameraFrom3D({ camera }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!camera || !validCoordinate([camera.center?.[1], camera.center?.[0]]) || !Number.isFinite(camera.zoom)) return;
+    // Wait one paint for the hidden Leaflet container to become visible again.
+    // Keep the same map instance, tiles, overlays and event handlers.
+    const frame = requestAnimationFrame(() => {
+      map.stop();
+      map.invalidateSize({ pan: false });
+      const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), camera.zoom));
+      map.setView([camera.center[1], camera.center[0]], zoom, { animate: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [map, camera]);
   return null;
 }
 
@@ -536,7 +566,7 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
   );
 }
 
-function StopBoard({ stop }) {
+export function StopBoard({ stop }) {
   const [board, setBoard] = useState(null);
 
   useEffect(() => {
@@ -835,7 +865,9 @@ export default function MapView({
   enabledLayers = [],
   onLayerStatus = () => {},
   initialCamera = null,
+  returnCamera = null,
   onCameraChange = () => {},
+  registerCameraGetter = null,
 }) {
   const [mapTilerFailed, setMapTilerFailed] = useState(false);
   const [verifiedStyle, setVerifiedStyle] = useState(null);
@@ -932,13 +964,15 @@ export default function MapView({
     <MapContainer
       center={initialCamera?.center ? [initialCamera.center[1], initialCamera.center[0]] : mapCenter}
       zoom={initialCamera?.zoom ?? startZoom}
+      zoomSnap={0.25}
       minZoom={0}
       maxZoom={MAP_MAX_ZOOM}
       zoomControl={false}
       scrollWheelZoom
       className="h-full w-full"
     >
-      <MapCameraSync onCameraChange={onCameraChange} />
+      <MapCameraSync onCameraChange={onCameraChange} registerCameraGetter={registerCameraGetter} />
+      <RestoreCameraFrom3D camera={returnCamera} />
       <InitialLocationCenter
         currentLocation={currentLocation}
         approxLocation={approxLocation}
@@ -1070,27 +1104,18 @@ export default function MapView({
       />
 
       {(route?.live_vehicles ?? [])
-        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]) &&
-          (route?.steps || []).some(step => step.type === "transit" &&
-            String(step.agency) === String(vehicle.agency) &&
-            String(step.trip_id) === String(vehicle.trip_id)))
+        .filter(vehicle => validCoordinate([vehicle.lat, vehicle.lon]))
         .map(vehicle => {
           const estimated = Boolean(vehicle.estimated);
           const delayAdjusted = vehicle.position_source === "schedule_adjusted";
           return (
-            <CircleMarker
+            <Marker
               key={`${vehicle.agency}-${vehicle.trip_id}-${
                 vehicle.vehicle_id || (estimated ? "scheduled" : "vehicle")
               }`}
-              center={[vehicle.lat, vehicle.lon]}
-              radius={estimated ? 6 : 7}
-              pathOptions={{
-                color: "#FFFFFF",
-                weight: estimated ? 2 : 3,
-                fillColor: estimated ? "#64748B" : "#D97706",
-                fillOpacity: estimated ? 0.85 : 1,
-                dashArray: estimated ? "4 3" : undefined,
-              }}
+              position={[vehicle.lat, vehicle.lon]}
+              icon={estimated ? BUS_SCHEDULED_ICON : BUS_LIVE_ICON}
+              zIndexOffset={950}
             >
               <Popup>
                 <div className="font-semibold">
@@ -1100,6 +1125,15 @@ export default function MapView({
                 </div>
                 {vehicle.display_headsign || vehicle.headsign ? <div>toward {vehicle.display_headsign || vehicle.headsign}</div> : null}
                 {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
+                {(() => {
+                  const specs = vehicleSpecs(vehicle);
+                  return specs ? (
+                    <div className="mt-1 text-[11px]">
+                      {[specs.year, specs.powertrainLabel, specs.model, specs.seats ? `${specs.seats} seats` : null]
+                        .filter(Boolean).join(" • ")}
+                    </div>
+                  ) : null;
+                })()}
                 {estimated ? (
                   <div className="mt-1 text-[10px] opacity-70">
                     {delayAdjusted
@@ -1112,9 +1146,15 @@ export default function MapView({
                   </div>
                 ) : null}
               </Popup>
-            </CircleMarker>
+            </Marker>
           );
         })}
+
+      {(route?.charging_stops || []).filter(stop => validCoordinate(stop.coordinates)).map((stop, i) => (
+        <Marker key={`ev-charge-${i}`} position={stop.coordinates} icon={EV_CHARGER_ICON}>
+          <Popup><strong>{stop.name || "EV charging stop"}</strong><div>{stop.charging_time_min} min charging</div>{stop.operator && <div>{stop.operator}</div>}</Popup>
+        </Marker>
+      ))}
 
       {!navigationActive && validCoordinate(visibleStart) && (
         <Marker

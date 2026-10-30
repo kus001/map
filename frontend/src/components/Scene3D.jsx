@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { StopBoard } from "./MapView.jsx";
+import { vehicleSpecs } from "../utils/format.js";
+import { Info as Ontario511Info } from "./Ontario511Layer.jsx";
 
 // Production Cesium 3D scene. Building positions are not shifted to match imagery.
 // CesiumJS itself is Apache-2.0/free; Cesium ion OSM data requires a scoped ion token.
@@ -44,15 +47,58 @@ function validLatLon(value) {
 function degreesPoint(C, pair, altitude = 0) {
   return C.Cartesian3.fromDegrees(Number(pair[1]), Number(pair[0]), altitude);
 }
-function cameraHeight(zoom) {
-  return Math.max(65, Math.min(17_000_000, 23_000_000 / 2 ** (Math.min(22, Math.max(1, zoom)) - 1)));
-}
 function inferredZoom(height) {
   return Math.max(1, Math.min(22, 1 + Math.log2(23_000_000 / Math.max(65, height))));
 }
+// Synchronize the actual ground footprint with Leaflet. Camera altitude alone
+// is not a 2D zoom: it changes with pitch and the height of the terrain.
+function readCameraFor2D(C, viewer) {
+  if (!viewer || viewer.isDestroyed()) return null;
+  const focus = centerOfCamera(C, viewer);
+  if (!focus) return null;
+  const canvas = viewer.scene.canvas;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  let zoom = inferredZoom(viewer.camera.positionCartographic?.height ?? 1500);
+  if (width > 40 && height > 40) {
+    const groundAt = (x, y) => {
+      const pixel = new C.Cartesian2(x, y);
+      const ray = viewer.camera.getPickRay(pixel);
+      return (ray && viewer.scene.globe.pick(ray, viewer.scene)) || viewer.camera.pickEllipsoid(pixel);
+    };
+    // Compare two points at the same screen height around the centre. Taking
+    // a local half-width works at oblique pitch and doesn't require sky hits.
+    const left = groundAt(width * 0.25, height * 0.5);
+    const right = groundAt(width * 0.75, height * 0.5);
+    if (left && right) {
+      const metres = C.Cartesian3.distance(left, right);
+      const metresPerPixel = metres / (width * 0.5);
+      const latitudeScale = 156543.03392804097 * Math.cos(C.Math.toRadians(focus.lat));
+      if (Number.isFinite(metresPerPixel) && metresPerPixel > 0.005 && latitudeScale > 0) {
+        zoom = Math.log2(latitudeScale / metresPerPixel);
+      }
+    }
+  }
+  return {
+    center: [focus.lon, focus.lat],
+    zoom: Math.max(0, Math.min(21, zoom)),
+    pitch: C.Math.toDegrees(viewer.camera.pitch) + 90,
+    bearing: C.Math.toDegrees(viewer.camera.heading),
+  };
+}
+
 function coordsToCartesians(C, points) {
   return (points || []).filter(validLatLon).map(item => degreesPoint(C, item, 5));
 }
+// Lightweight haversine distance for selecting only stops in the visible area.
+function distanceToStopMetres([lat1, lon1], [lat2, lon2]) {
+  const rad = Math.PI / 180;
+  const a = (lat2 - lat1) * rad;
+  const b = (lon2 - lon1) * rad;
+  const h = Math.sin(a / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(b / 2) ** 2;
+  return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 function css(C, value, fallback = "#71b0d4") {
   try { return C.Color.fromCssColorString(value || fallback) || C.Color.fromCssColorString(fallback); }
   catch { return C.Color.fromCssColorString(fallback); }
@@ -72,16 +118,42 @@ function centerOfCamera(C, viewer) {
   const c = C.Cartographic.fromCartesian(point);
   return { lon: C.Math.toDegrees(c.longitude), lat: C.Math.toDegrees(c.latitude) };
 }
-function initialFocus(C, viewer, camera) {
-  const [lon, lat] = Array.isArray(camera?.center) ? camera.center : TORONTO;
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
-  const pitch = Number.isFinite(camera?.pitch) ? camera.pitch : 48;
-  const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
-  viewer.camera.setView({
-    destination: C.Cartesian3.fromDegrees(lon, lat, cameraHeight(camera?.zoom ?? 13)),
-    orientation: { heading: C.Math.toRadians(bearing), pitch: C.Math.toRadians(Math.max(-75, Math.min(-42, pitch - 90))), roll: 0 },
-  });
+// Match Leaflet's Web-Mercator ground metres per CSS pixel to Cesium's
+// perspective frustum at the centre of the canvas. A fixed altitude per zoom
+// cannot do this: the same zoom must work at every viewport size/latitude.
+function rangeForLeafletCamera(C, viewer, camera) {
+  const zoom = Math.max(0, Math.min(22, Number.isFinite(camera?.zoom) ? camera.zoom : 13));
+  const lat = Math.max(-85, Math.min(85, Number(camera?.center?.[1]) || 0));
+  const metresPerPixel = 156543.03392804097 * Math.cos(C.Math.toRadians(lat)) / (2 ** zoom);
+  const viewportHeight = Math.max(1, viewer.scene.canvas.clientHeight || viewer.container?.clientHeight || 800);
+  const frustumFovy = viewer.camera.frustum?.fovy;
+  const fovy = Number.isFinite(frustumFovy) && frustumFovy > 0 && frustumFovy < Math.PI
+    ? frustumFovy : Math.PI / 3;
+  // In a perspective camera the screen-centre ground scale is 2 * range *
+  // tan(fovy / 2) / viewportHeight. Solving for range preserves map scale.
+  return Math.max(45, Math.min(23_000_000, metresPerPixel * viewportHeight / (2 * Math.tan(fovy / 2))));
 }
+
+function initialFocus(C, viewer, camera) {
+  // The geographic centre of Leaflet is a *ground target*, not an eye point.
+  const [lon, lat] = Array.isArray(camera?.center) ? camera.center.map(Number) : TORONTO;
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+  const bearing = Number.isFinite(camera?.bearing) ? camera.bearing : 0;
+  // A mild starting tilt avoids the perceived lateral shift caused by the
+  // previous almost-horizontal 58-degree pitch. Users can tilt further.
+  const tilt = Math.max(0, Math.min(32, Number.isFinite(camera?.pitch) ? camera.pitch : 32));
+  const pitch = C.Math.toRadians(tilt - 90);
+  const range = rangeForLeafletCamera(C, viewer, camera);
+  const position = C.Cartographic.fromDegrees(lon, lat);
+  const sampledHeight = viewer.scene.globe.getHeight(position);
+  const targetHeight = Number.isFinite(sampledHeight) ? sampledHeight : 0;
+  const target = C.Cartesian3.fromDegrees(lon, lat, targetHeight);
+  viewer.camera.lookAt(target, new C.HeadingPitchRange(C.Math.toRadians(bearing), pitch, range));
+  // Return to world coordinates without changing the established target.
+  viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
+  viewer.scene.requestRender();
+}
+
 function flyTo(C, viewer, pair, range = 550, seconds = 1) {
   if (!validLatLon(pair)) return;
   viewer.camera.flyToBoundingSphere(new C.BoundingSphere(degreesPoint(C, pair), 1), {
@@ -137,7 +209,7 @@ function TorontoProviderType(url) {
 // Cesium OSM Buildings are positioned against Cesium World Terrain.
 // Showing them over an ellipsoid (zero-elevation ground) causes floating boxes.
 function syncBuildings(context) {
-  if (!context) return;
+  if (!context || context.disposed || context.viewer.isDestroyed()) return;
   const center = centerOfCamera(context.C, context.viewer);
   const inside = center && insideToronto(center.lon, center.lat);
   const useCity = Boolean(context.cityLoaded && inside);
@@ -158,12 +230,39 @@ function floatingStyles(darkMode) {
   };
 }
 
+function BusDetails({ vehicle }) {
+  const estimated = Boolean(vehicle.estimated);
+  const delayAdjusted = vehicle.position_source === "schedule_adjusted";
+  const specs = vehicleSpecs(vehicle);
+  return (
+    <div className="text-sm text-slate-900">
+      <div className="font-semibold">{vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {estimated ? "Scheduled estimate" : "Live"} {vehicle.route ? `route ${vehicle.route}` : "vehicle"}</div>
+      {(vehicle.display_headsign || vehicle.headsign) && <div>toward {vehicle.display_headsign || vehicle.headsign}</div>}
+      {vehicle.vehicle_label && <div>{vehicle.vehicle_label}</div>}
+      {specs && (
+        <div className="mt-1 text-[11px]">
+          {[specs.year, specs.powertrainLabel, specs.model, specs.seats ? `${specs.seats} seats` : null]
+            .filter(Boolean).join(" • ")}
+        </div>
+      )}
+      {estimated ? (
+        <div className="mt-1 text-[10px] opacity-70">
+          {delayAdjusted ? "Estimated from the timetable with the latest known delay."
+            : "Estimated from the scheduled timetable; not a GPS position."}
+        </div>
+      ) : vehicle.timestamp ? (
+        <div className="mt-1 text-[10px] opacity-60">Position update {new Date(Number(vehicle.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Scene3D({
   data, selectedRoute, selectedRouteNumber = 1, displayedMode, onSelectRoute,
   currentLocation, navigationActive, startCoordinate, destinationCoordinate, startLabel, destinationLabel,
   startDraggable, onSetMapStart, onSetMapDestination, onMoveStart, onMoveDestination,
   locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
-  mapStyle = "street", darkMode = true, globe, initialCamera, onCameraChange, onDisable3D,
+  mapStyle = "street", darkMode = true, initialCamera, onCameraChange, onDisable3D, registerCameraGetter,
   enabledLayers = [], onLayerStatus = () => {},
 }) {
   const holder = useRef(null);
@@ -177,10 +276,11 @@ export default function Scene3D({
   const [imageryProblem, setImageryProblem] = useState("");
   const ionToken = CESIUM_ION_TOKEN;
   const torontoUrl = TORONTO_TILES_ENV || TORONTO_I3S_ENV;
-  const lastGlobeMode = useRef(null);
-  const [menu, setMenu] = useState(null);
-  const [tip, setTip] = useState("");
+  const [popup, setPopup] = useState(null);
+  const popupElement = useRef(null);
+  const popupRef = useRef(null);
   const layersKey = enabledLayers.join("|");
+  popupRef.current = popup;
   const mode = displayedMode || data?.mode || "driving";
   const route = selectedRoute || data?.routes?.find(r => r.route_number === selectedRouteNumber) || data?.routes?.[0];
   const initialCameraRef = useRef(initialCamera || DEFAULT_CAMERA);
@@ -225,7 +325,8 @@ export default function Scene3D({
         // Render at CSS pixel resolution; keep the atmosphere and 3D terrain.
         viewer.resolutionScale = 1.0;
         if (viewer.scene.msaaSupported) viewer.scene.msaaSamples = 2;
-        viewer.scene.globe.maximumScreenSpaceError = 3.5;
+        // Slightly coarser terrain LOD cuts tile work while preserving street-scale geometry.
+        viewer.scene.globe.maximumScreenSpaceError = 4.5;
         viewer.scene.globe.tileCacheSize = 80;
         const controls = viewer.scene.screenSpaceCameraController;
         controls.minimumZoomDistance = 8;
@@ -236,16 +337,19 @@ export default function Scene3D({
         controls.minimumTrackBallHeight = Number.POSITIVE_INFINITY;
         controls.inertiaSpin = 0.18;
         controls.inertiaTranslate = 0.18;
-        controls.inertiaZoom = 0.18;
-        controls.zoomFactor = 2.6;
-        controls.maximumMovementRatio = 0.07;
+        controls.inertiaZoom = 0.12;
+        // Cesium's stock multiplier is 5.0. The old 2.6 together with an
+        // unusually strict movement cap made touchscreen pinches feel sluggish.
+        // Keep native pinch-pan/tilt rather than layering competing handlers.
+        controls.zoomFactor = 5.5;
+        controls.maximumMovementRatio = 0.22;
         controls.maximumTiltAngle = C.Math.toRadians(89);
 
         initialFocus(C, viewer, initialCameraRef.current);
         scene.current = { C, viewer, osm: null, city: null, cityLoaded: false,
           currentCityUrl: null, overlays: [], markers: [], dynamic: [], cityLoading: false,
           buildingGen: 0, buildingsEnabled: true, terrainReady: false, terrainProviderReady: false,
-          terrainGen: 0, stops: [], baseImageryLayers: [] };
+          terrainGen: 0, stops: [], baseImageryLayers: [], disposed: false };
 
         const groundCoordinate = pixel => {
           const ray = viewer.camera.getPickRay(pixel);
@@ -257,18 +361,49 @@ export default function Scene3D({
         };
         handler = new C.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(evt => {
+          if (viewer.isDestroyed() || scene.current?.disposed) return;
           const coord = groundCoordinate(evt.position);
           if (!coord) return;
-          setMenu({ x: evt.position.x, y: evt.position.y, point: coord });
+          setPopup({ kind: "picker", location: coord });
         }, C.ScreenSpaceEventType.RIGHT_CLICK);
         handler.setInputAction(evt => {
-          setMenu(null);
+          if (viewer.isDestroyed() || scene.current?.disposed) return;
           const picked = viewer.scene.pick(evt.position);
           const entity = picked?.id;
           if (entity?.kmapsRoute) callbacks.current.onSelectRoute?.(entity.kmapsRoute);
           if (entity?.kmapsStop) {
-            const label = entity.kmapsStop.name || "Transit stop";
-            setTip(`${label} · ${entity.kmapsStop.agency || "Transit"}`);
+            setPopup({ kind: "stop", location: entity.kmapsStop.coordinates, stop: entity.kmapsStop });
+          } else if (entity?.kmapsVehicle) {
+            const vehicle = entity.kmapsVehicle;
+            setPopup({ kind: "bus", location: [vehicle.lat, vehicle.lon], vehicle });
+          } else if (entity?.kmapsReport) {
+            setPopup({ kind: "report", location: entity.kmapsReport.position, item: entity.kmapsReport.item });
+          } else if (entity?.kmapsCharger) {
+            setPopup({ kind: "charger", location: entity.kmapsPosition, charger: entity.kmapsCharger });
+          } else if (entity?.kmapsMarker && entity.kmapsMarker !== "bus") {
+            setPopup({ kind: "marker", location: entity.kmapsPosition, title: entity.kmapsMarker === "start"
+              ? `Start: ${routeData.current.data?.start?.address || startLabel || "Selected location"}`
+              : entity.kmapsMarker === "end"
+                ? `Destination: ${routeData.current.data?.end?.address || destinationLabel || "Selected location"}`
+                : "Current location" });
+          } else {
+            // Match Leaflet: near-by stops are clickable even when their tiny
+            // visible dot isn't exactly under the pointer.
+            const current = scene.current;
+            const height = viewer.camera.positionCartographic?.height ?? Infinity;
+            let closest = null, closestPixels = 34;
+            if (current && routeData.current.mode === "transit" && height < 1750) {
+              for (const stopEntity of current.stops) {
+                const position = stopEntity.position?.getValue(C.JulianDate.now());
+                if (!position) continue;
+                const projected = C.SceneTransforms.worldToWindowCoordinates(viewer.scene, position);
+                if (!projected) continue;
+                const pixels = Math.hypot(projected.x - evt.position.x, projected.y - evt.position.y);
+                if (pixels < closestPixels) { closest = stopEntity.kmapsStop; closestPixels = pixels; }
+              }
+            }
+            if (closest) setPopup({ kind: "stop", location: closest.coordinates, stop: closest });
+            else setPopup(null);
           }
         }, C.ScreenSpaceEventType.LEFT_CLICK);
         let drag = null;
@@ -280,42 +415,82 @@ export default function Scene3D({
         }, C.ScreenSpaceEventType.LEFT_DOWN);
         handler.setInputAction(evt => {
           if (!drag) return;
-          const pos = groundCoordinate(evt.endPosition);
-          if (pos) setTip(`Move ${drag === "start" ? "start" : "destination"}`);
-        }, C.ScreenSpaceEventType.MOUSE_MOVE);
-        handler.setInputAction(evt => {
-          if (!drag) return;
           const pos = groundCoordinate(evt.position);
           if (pos) (drag === "start" ? callbacks.current.onMoveStart : callbacks.current.onMoveDestination)?.(pos);
           drag = null;
           viewer.scene.screenSpaceCameraController.enableRotate = true;
-          setTip("");
         }, C.ScreenSpaceEventType.LEFT_UP);
         changed = () => {
           const current = scene.current;
-          if (!current || current.viewer !== viewer) return;
-          const center = centerOfCamera(C, viewer);
-          const height = C.Cartographic.fromCartesian(viewer.camera.positionWC)?.height;
-          if (center && Number.isFinite(height)) {
-            callbacks.current.onCameraChange?.({ center: [center.lon, center.lat], zoom: inferredZoom(height),
-              pitch: C.Math.toDegrees(viewer.camera.pitch) + 90, bearing: C.Math.toDegrees(viewer.camera.heading) });
+          if (!current || current.disposed || current.viewer !== viewer || viewer.isDestroyed()) return;
+          const camera = readCameraFor2D(C, viewer);
+          if (camera) {
+            callbacks.current.onCameraChange?.(camera);
             syncBuildings(current);
           }
         };
         viewer.camera.moveEnd.addEventListener(changed);
+        registerCameraGetter?.(() => readCameraFor2D(C, viewer));
+        // Follow the selected geographic point every frame, including camera
+        // tilt, touch pan, and terrain tile changes. This is NOT screen-fixed.
+        const followPopup = () => {
+          const pop = popupRef.current;
+          const element = popupElement.current;
+          if (!element || !pop || !validLatLon(pop.location) || viewer.isDestroyed()) return;
+          const [lat, lon] = pop.location;
+          const cartographic = C.Cartographic.fromDegrees(Number(lon), Number(lat));
+          const ground = viewer.scene.globe.getHeight(cartographic);
+          const world = C.Cartesian3.fromDegrees(Number(lon), Number(lat), (Number.isFinite(ground) ? ground : 0) + 4);
+          const toward = C.Cartesian3.subtract(world, viewer.camera.positionWC, new C.Cartesian3());
+          const facing = C.Cartesian3.dot(viewer.camera.directionWC, toward) > 0;
+          const pixel = facing ? C.SceneTransforms.worldToWindowCoordinates(viewer.scene, world) : null;
+          const width = holder.current?.clientWidth || 0;
+          const height = holder.current?.clientHeight || 0;
+          if (!pixel || !Number.isFinite(pixel.x) || !Number.isFinite(pixel.y) ||
+              pixel.x < -35 || pixel.x > width + 35 || pixel.y < -35 || pixel.y > height + 35) {
+            element.style.visibility = "hidden";
+          } else {
+            element.style.visibility = "visible";
+            const halfWidth = Math.min(150, Math.max(12, width / 2 - 12));
+            element.style.left = `${Math.max(halfWidth, Math.min(width - halfWidth, pixel.x))}px`;
+            if (pixel.y < 275) {
+              element.style.top = `${Math.max(12, pixel.y + 14)}px`;
+              element.style.transform = "translate(-50%, 0)";
+            } else {
+              element.style.top = `${pixel.y - 14}px`;
+              element.style.transform = "translate(-50%, -100%)";
+            }
+          }
+        };
+        scene.current.followPopup = followPopup;
+        scene.current.removeFollowPopup = viewer.scene.postRender.addEventListener(followPopup);
         setReady(true);
         setError("");
       } catch (e) { if (!disposed) setError(String(e.message || e)); }
     })();
     return () => {
       disposed = true;
-      setReady(false);
-      if (handler && !handler.isDestroyed()) handler.destroy();
-      if (viewer) {
-        if (changed) viewer.camera.moveEnd.removeEventListener(changed);
-        if (!viewer.isDestroyed()) viewer.destroy();
+      registerCameraGetter?.(null);
+      // Invalidate the scene before releasing WebGL resources: in-flight
+      // Cesium/route callbacks must not update a destroyed renderer.
+      const ownedScene = scene.current?.viewer === viewer ? scene.current : null;
+      if (ownedScene) {
+        ownedScene.disposed = true;
+        ownedScene.removeFollowPopup?.();
+        ownedScene.buildingGen++;
+        ownedScene.terrainGen++;
+        scene.current = null;
       }
-      if (scene.current?.viewer === viewer) scene.current = null;
+      try { if (handler && !handler.isDestroyed()) handler.destroy(); }
+      catch (error) { console.warn("3D picking cleanup", error); }
+      if (viewer && !viewer.isDestroyed()) {
+        try {
+          viewer.camera.cancelFlight();
+          if (changed) viewer.camera.moveEnd.removeEventListener(changed);
+          viewer.destroy();
+        } catch (error) { console.warn("Cesium cleanup", error); }
+      }
+      // The component is unmounting; avoid setState in this cleanup.
     };
     // Vite environment values are loaded at build/startup; no in-browser token entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -499,28 +674,6 @@ export default function Scene3D({
     return () => { cancelled = true; };
   }, [ready, mapStyle]);
 
-  // The globe is already spherical in Cesium SCENE3D. Changing the parent
-  // Globe/Flat preference must not teleport the user millions of metres away.
-  // Keep the location, height, tilt and heading exactly as they were.
-  // Natural wheel/pinch zoom reveals the full Earth; Cesium's trackball controls
-  // keep it centred when the pointer starts over space.
-  useEffect(() => {
-    const current = scene.current;
-    if (!ready || !current || lastGlobeMode.current === globe) return;
-    const previous = lastGlobeMode.current;
-    lastGlobeMode.current = globe;
-    // If already high enough to see the planet, re-centre Earth without
-    // changing altitude. Never fly millions of metres away on toggle.
-    const altitude = current.viewer.camera.positionCartographic?.height ?? 0;
-    if (globe && previous === false && altitude > 750_000) {
-      current.viewer.camera.setView({
-        destination: current.C.Cartesian3.clone(current.viewer.camera.positionWC),
-        orientation: { heading: 0, pitch: -current.C.Math.PI_OVER_TWO, roll: 0 },
-      });
-    }
-    current.viewer.scene.requestRender();
-  }, [ready, globe]);
-
   // Routes are displayed as georeferenced Cesium polylines (no MapLibre canvas).
   useEffect(() => {
     const current = scene.current;
@@ -559,27 +712,57 @@ export default function Scene3D({
     const { C, viewer } = current;
     for (const entity of current.markers) viewer.entities.remove(entity);
     current.markers = [];
-    function marker(pair, text, kind, color) {
+    function marker(pair, text, kind, color, payload) {
       if (!validLatLon(pair)) return;
+      const location = [Number(pair[0]), Number(pair[1])];
       const entity = viewer.entities.add({
-        position: degreesPoint(C, pair, 3),
-        point: { pixelSize: 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
-          heightReference: C.HeightReference.RELATIVE_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-        label: { text, font: "bold 13px system-ui", fillColor: C.Color.WHITE,
+        position: degreesPoint(C, location),
+        ...(kind === "bus"
+          ? { billboard: {
+              image: payload?.estimated ? "/icons/bus-scheduled.svg" : "/icons/bus-live.svg",
+              width: 36, height: 36,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND,
+              verticalOrigin: C.VerticalOrigin.CENTER,
+              distanceDisplayCondition: new C.DistanceDisplayCondition(0, 18000),
+              disableDepthTestDistance: 0,
+            } }
+          : { point: { pixelSize: 13, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 2,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND } }),
+        label: { text, font: "bold 12px system-ui", fillColor: C.Color.WHITE,
           style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 3,
-          pixelOffset: new C.Cartesian2(0, -23), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+          heightReference: C.HeightReference.CLAMP_TO_GROUND,
+          pixelOffset: new C.Cartesian2(0, kind === "bus" ? -30 : -23),
+          distanceDisplayCondition: new C.DistanceDisplayCondition(0, 4500) },
       });
       entity.kmapsMarker = kind;
+      entity.kmapsPosition = location;
+      if (kind === "bus") entity.kmapsVehicle = payload;
+      if (kind === "charger") entity.kmapsCharger = payload;
       current.markers.push(entity);
     }
     if (!navigationActive) marker(startCoordinate || data?.start?.coordinates, "A", "start", "#5cb78a");
     marker(destinationCoordinate || data?.end?.coordinates, "B", "end", "#ee6d5e");
     marker(currentLocation, "●", "location", "#4ba4fc");
-    for (const vehicle of route?.live_vehicles || []) {
-      if (Number.isFinite(Number(vehicle.lat)) && Number.isFinite(Number(vehicle.lon))) marker([vehicle.lat, vehicle.lon], "BUS", "bus", "#f2aa66");
+    for (const stop of route?.charging_stops || []) {
+      if (!validLatLon(stop.coordinates)) continue;
+      marker(stop.coordinates, "⚡", "charger", "#059669", stop);
+    }
+    if (mode === "transit") {
+      // The backend already returns only vehicles from the selected trip legs.
+      // Do not filter them *again* using a second trip-id comparison here:
+      // some GTFS-RT providers prefix ids differently from the timetable.
+      const shown = new Set();
+      for (const vehicle of route?.live_vehicles || []) {
+        if (!validLatLon([vehicle.lat, vehicle.lon])) continue;
+        const key = `${vehicle.agency}:${vehicle.trip_id}`;
+        if (shown.has(key)) continue;
+        shown.add(key);
+        marker([vehicle.lat, vehicle.lon], vehicle.route ? String(vehicle.route) : "BUS", "bus",
+          vehicle.estimated ? "#64748B" : "#D97706", vehicle);
+      }
     }
     viewer.scene.requestRender();
-  }, [ready, route, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive]);
+  }, [ready, route, mode, startCoordinate, destinationCoordinate, currentLocation, data, navigationActive]);
 
   useEffect(() => {
     const current = scene.current;
@@ -600,10 +783,11 @@ export default function Scene3D({
     const kinds = ["incidents", "construction", "cameras", "winter"];
     let cancelled = false, timer = null, controller = null;
     const redraw = async () => {
+      if (cancelled || current.disposed || viewer.isDestroyed()) return;
       controller?.abort();
       controller = new AbortController();
       const center = centerOfCamera(C, viewer);
-      if (!center) return;
+      if (!center || cancelled || current.disposed || viewer.isDestroyed()) return;
       const cameraAltitude = viewer.camera.positionCartographic?.height ?? Infinity;
       if (!Number.isFinite(cameraAltitude) || cameraAltitude > 120_000 || !kinds.some(kind => active.has(kind))) return;
       const span = Math.max(0.05, Math.min(1.0, cameraAltitude / 30000));
@@ -616,28 +800,54 @@ export default function Scene3D({
           const response = await fetch(`/api/layers/ontario511?${new URLSearchParams({kind,bbox})}`, {signal:controller.signal});
           if (!response.ok) throw new Error("Unavailable");
           const payload = await response.json();
-          if (cancelled || !scene.current || controller.signal.aborted) return;
+          if (cancelled || scene.current !== current || current.disposed || viewer.isDestroyed() || controller.signal.aborted) return;
           callbacks.current.onLayerStatus?.(kind, payload.message || "");
           for (const item of (payload.items || []).slice(0, 150)) {
-            if (!validLatLon(item.point)) continue;
             const color = { incidents: "#f26c65", construction: "#e3ac58", cameras: "#6ca7ff", winter: "#90b7df" }[kind];
-            current.dynamic.push(viewer.entities.add({
-              position: degreesPoint(C, item.point, 1),
-              point: { pixelSize: 9, color: css(C, color), outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-              label: { text: (item.title || kind).slice(0, 32), font: "11px system-ui", pixelOffset: new C.Cartesian2(0, -15), fillColor: C.Color.WHITE,
-                style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK, outlineWidth: 2, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 8000) },
-              description: item.summary || item.details || item.title || kind,
-            }));
+            for (const line of item.lines || []) {
+              const positions = coordsToCartesians(C, line);
+              if (positions.length < 2) continue;
+              const route = viewer.entities.add({
+                polyline: { positions, clampToGround: true, width: kind === "winter" ? 5 : 4,
+                  material: css(C, color).withAlpha(0.82) },
+              });
+              route.kmapsReport = { item, position: line[Math.floor(line.length / 2)] };
+              current.dynamic.push(route);
+            }
+            if (!validLatLon(item.point)) continue;
+            const position = [Number(item.point[0]), Number(item.point[1])];
+            const report = viewer.entities.add({
+              position: degreesPoint(C, position),
+              point: { pixelSize: 10, color: css(C, color), outlineColor: C.Color.WHITE,
+                outlineWidth: 2, heightReference: C.HeightReference.CLAMP_TO_GROUND },
+              label: { text: (item.title || kind).slice(0, 32), font: "11px system-ui", pixelOffset: new C.Cartesian2(0, -18),
+                fillColor: C.Color.WHITE, style: C.LabelStyle.FILL_AND_OUTLINE, outlineColor: C.Color.BLACK,
+                outlineWidth: 2, heightReference: C.HeightReference.CLAMP_TO_GROUND,
+                distanceDisplayCondition: new C.DistanceDisplayCondition(0, 8000) },
+            });
+            report.kmapsReport = { item, position };
+            current.dynamic.push(report);
           }
-        } catch (e) { if (e.name !== "AbortError") callbacks.current.onLayerStatus?.(kind, "Unavailable in 3D"); }
+        } catch (e) {
+          if (!cancelled && !current.disposed && !viewer.isDestroyed() && e.name !== "AbortError")
+            callbacks.current.onLayerStatus?.(kind, "Unavailable in 3D");
+        }
       }
-      viewer.scene.requestRender();
+      if (!cancelled && !current.disposed && !viewer.isDestroyed()) viewer.scene.requestRender();
     };
     const schedule = () => { clearTimeout(timer); timer = setTimeout(redraw, 550); };
     viewer.camera.moveEnd.addEventListener(schedule);
     schedule();
-    return () => { cancelled = true; clearTimeout(timer); controller?.abort(); viewer.camera.moveEnd.removeEventListener(schedule);
-      for (const entity of current.dynamic) if (!viewer.isDestroyed()) viewer.entities.remove(entity); current.dynamic = []; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller?.abort();
+      if (!viewer.isDestroyed()) {
+        viewer.camera.moveEnd.removeEventListener(schedule);
+        for (const entity of current.dynamic) viewer.entities.remove(entity);
+      }
+      current.dynamic = [];
+    };
   }, [ready, layersKey]);
 
   useEffect(() => {
@@ -654,49 +864,195 @@ export default function Scene3D({
     return () => { if (traffic && !viewer.isDestroyed()) viewer.imageryLayers.remove(traffic); };
   }, [ready, layersKey, darkMode, mapStyle]);
 
-  // Nearby transit stops remain usable in the Cesium scene at street-level zoom.
+  useEffect(() => {
+    const current = scene.current;
+    if (current && !current.disposed && !current.viewer.isDestroyed()) {
+      current.followPopup?.();
+      current.viewer.scene.requestRender();
+    }
+  }, [popup]);
+
+  // Mirror the 2D stop layer: no stops below zoom 16, and only fetch the
+  // visible neighborhood when the camera settles. Clear old entities *during*
+  // a zoom-out, not only after a delayed moveEnd request has completed.
   useEffect(() => {
     const current = scene.current;
     if (!ready || !current) return;
     const { C, viewer } = current;
-    let cancelled = false, timeout, controller;
-    const refresh = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(async () => {
-        controller?.abort();
-        controller = new AbortController();
+    let disposed = false;
+    let timer = null;
+    let request = null;
+    let requestSerial = 0;
+    let previousRequest = null;
+    let lastFrameCheck = 0;
+    let stopsWereInRange = false;
+    let lastDrawnCenter = null;
+
+    const alive = () => !disposed && !current.disposed &&
+      scene.current === current && !viewer.isDestroyed();
+
+    function zoomLevel() {
+      const altitude = viewer.camera.positionCartographic?.height ?? Infinity;
+      // At this altitude a stop-sized item is never useful. Fast-path
+      // keeps globe-scale navigation cheap, even with oblique cameras.
+      if (!Number.isFinite(altitude) || altitude > 1800) return -Infinity;
+      return readCameraFor2D(C, viewer)?.zoom ?? inferredZoom(altitude);
+    }
+
+    function visibleAtCurrentZoom() {
+      return mode === "transit" && zoomLevel() >= 16;
+    }
+
+    function cancelRequest() {
+      requestSerial++;
+      request?.abort();
+      request = null;
+    }
+
+    function removeStops() {
+      if (!alive()) return;
+      if (current.stops.length) {
+        viewer.entities.suspendEvents();
+        try {
+          for (const entity of current.stops) viewer.entities.remove(entity);
+          current.stops = [];
+        } finally { viewer.entities.resumeEvents(); }
+        viewer.scene.requestRender();
+      }
+      lastDrawnCenter = null;
+      if (popupRef.current?.kind === "stop") setPopup(null);
+    }
+
+    function unloadIfTooFar() {
+      if (!alive()) return true;
+      if (visibleAtCurrentZoom()) {
+        stopsWereInRange = true;
+        return false;
+      }
+      // When already outside the stop zoom range, don't repeatedly abort
+      // empty requests or create renders on every Cesium postRender event.
+      if (!stopsWereInRange && !timer && !request && !current.stops.length) return true;
+      stopsWereInRange = false;
+      clearTimeout(timer);
+      timer = null;
+      cancelRequest();
+      previousRequest = null;
+      removeStops();
+      return true;
+    }
+
+    function updateEntities(rawStops, center) {
+      if (!alive() || !visibleAtCurrentZoom()) return;
+      const selectedStops = route?.transit_stops || [];
+      const used = new Set();
+      const localStops = [];
+      // Route stops often span several kilometres. Never keep all of them
+      // active when the camera only shows one neighborhood.
+      for (const stop of [...selectedStops, ...(rawStops || [])]) {
+        if (!validLatLon(stop?.coordinates)) continue;
+        if (distanceToStopMetres(center, stop.coordinates) > 1050) continue;
+        const key = String(stop.id ?? `${stop.coordinates[0]}:${stop.coordinates[1]}`);
+        if (used.has(key)) continue;
+        used.add(key);
+        localStops.push(stop);
+        if (localStops.length >= 180) break;
+      }
+      viewer.entities.suspendEvents();
+      try {
         for (const entity of current.stops) viewer.entities.remove(entity);
         current.stops = [];
-        if (mode !== "transit") return;
+        for (const stop of localStops) {
+          const entity = viewer.entities.add({
+            position: degreesPoint(C, stop.coordinates),
+            point: { pixelSize: 9, color: C.Color.fromCssColorString("#8A6F4D"),
+              outlineColor: C.Color.WHITE, outlineWidth: 1.5,
+              heightReference: C.HeightReference.CLAMP_TO_GROUND },
+          });
+          entity.kmapsStop = stop;
+          current.stops.push(entity);
+        }
+      } finally { viewer.entities.resumeEvents(); }
+      lastDrawnCenter = center;
+      viewer.scene.requestRender();
+    }
+
+    function refresh() {
+      if (!alive()) return;
+      clearTimeout(timer);
+      timer = null;
+      if (unloadIfTooFar()) return;
+      // Abort the previous region's request as soon as the camera settles;
+      // an older response must never restore stops behind the user.
+      cancelRequest();
+      timer = setTimeout(async () => {
+        if (!alive() || unloadIfTooFar()) return;
         const center = centerOfCamera(C, viewer);
-        const range = C.Cartographic.fromCartesian(viewer.camera.positionWC).height;
-        if (!center || range > 1750) return;
+        if (!center) { removeStops(); return; }
+        const centrePair = [center.lat, center.lon];
+        // A single fetched neighborhood covers small pans and zooms.
+        // Avoid re-requesting hundreds of stops for every tiny gesture.
+        if (previousRequest && Date.now() - previousRequest.at < 30000 &&
+            distanceToStopMetres(centrePair, previousRequest.center) < 180) {
+          if (!lastDrawnCenter || distanceToStopMetres(centrePair, lastDrawnCenter) > 85 || !current.stops.length)
+            updateEntities(previousRequest.stops, centrePair);
+          return;
+        }
+        cancelRequest();
+        const serial = requestSerial;
+        const controller = new AbortController();
+        request = controller;
         try {
           const query = new URLSearchParams({ lat: String(center.lat), lon: String(center.lon), radius: "900" });
-          const result = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal }).then(r => r.json());
-          if (cancelled || controller.signal.aborted) return;
-          for (const stop of (result.stops || []).slice(0, 120)) {
-            if (!validLatLon(stop.coordinates)) continue;
-            const entity = viewer.entities.add({
-              position: degreesPoint(C, stop.coordinates, 2),
-              point: { pixelSize: 7, color: C.Color.fromCssColorString("#a888f2"),
-                outlineColor: C.Color.WHITE, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-            });
-            entity.kmapsStop = stop;
-            current.stops.push(entity);
+          const response = await fetch(`/api/transit/stops?${query}`, { signal: controller.signal });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          if (!alive() || controller.signal.aborted || serial !== requestSerial || !visibleAtCurrentZoom()) return;
+          const stops = Array.isArray(payload.stops) ? payload.stops : [];
+          previousRequest = { center: centrePair, at: Date.now(), stops };
+          const now = centerOfCamera(C, viewer);
+          if (now) updateEntities(stops, [now.lat, now.lon]);
+        } catch (error) {
+          if (alive() && error.name !== "AbortError") {
+            console.warn("3D transit stops unavailable", error);
+            // Route stops remain usable if the nearby-stop service fails.
+            const now = centerOfCamera(C, viewer);
+            if (now) updateEntities([], [now.lat, now.lon]);
           }
-          viewer.scene.requestRender();
-        } catch (e) { if (e.name !== "AbortError") console.warn("3D transit stops unavailable", e); }
-      }, 350);
+        } finally {
+          if (request === controller) request = null;
+        }
+      }, 200);
+    }
+
+    // camera.changed detects zoom-out *while* the gesture is taking place.
+    // postRender catches the globe-scale / inertial cases where moveEnd has
+    // not fired yet. Fetch only once the camera has finished moving.
+    const onCameraChanged = () => { if (alive()) unloadIfTooFar(); };
+    const onFrame = () => {
+      const now = Date.now();
+      if (now - lastFrameCheck < 100) return;
+      lastFrameCheck = now;
+      if (alive()) unloadIfTooFar();
     };
+    viewer.camera.changed.addEventListener(onCameraChanged);
+    viewer.scene.postRender.addEventListener(onFrame);
     viewer.camera.moveEnd.addEventListener(refresh);
     refresh();
-    return () => { cancelled = true; clearTimeout(timeout); controller?.abort();
-      viewer.camera.moveEnd.removeEventListener(refresh);
-      if (!viewer.isDestroyed()) for (const entity of current.stops) viewer.entities.remove(entity);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      cancelRequest();
+      if (!viewer.isDestroyed()) {
+        viewer.camera.changed.removeEventListener(onCameraChanged);
+        viewer.camera.moveEnd.removeEventListener(refresh);
+        viewer.scene.postRender.removeEventListener(onFrame);
+        viewer.entities.suspendEvents();
+        try { for (const entity of current.stops) viewer.entities.remove(entity); }
+        finally { viewer.entities.resumeEvents(); }
+      }
       current.stops = [];
     };
-  }, [ready, mode]);
+  }, [ready, mode, route]);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: darkMode ? "#101b27" : "#e2eef7" }}>
@@ -718,12 +1074,42 @@ export default function Scene3D({
           )}
         </div>
       )}
-      {tip && <div role="status" style={{ position: "absolute", bottom: 48, left: 12, zIndex: 490, ...floatingStyles(darkMode) }}>{tip}</div>}
-      {menu && <div style={{ position: "absolute", left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 90), zIndex: 491, ...floatingStyles(darkMode), display: "grid", gap: 4 }}>
-        <button type="button" onClick={() => { callbacks.current.onSetMapStart?.(menu.point); setMenu(null); }}>Set as start</button>
-        <button type="button" onClick={() => { callbacks.current.onSetMapDestination?.(menu.point); setMenu(null); }}>Set as destination</button>
-        <button type="button" onClick={() => setMenu(null)}>Cancel</button>
-      </div>}
+      {popup && (
+        <div ref={popupElement} className="cesium-location-popup"
+          style={{ position: "absolute", visibility: "hidden", zIndex: 650, width: "min(320px, calc(100% - 24px))",
+            maxHeight: "min(380px, 65vh)", overflowY: "auto", transform: "translate(-50%, -100%)",
+            background: "white", borderRadius: 12, boxShadow: "0 8px 28px #0005", color: "#17202b",
+            padding: "14px 15px", pointerEvents: "auto" }}>
+          <button type="button" onClick={() => setPopup(null)} aria-label="Close popup"
+            style={{ position: "absolute", top: 5, right: 8, fontSize: 19, lineHeight: 1,
+              border: 0, background: "transparent", cursor: "pointer", color: "#475569" }}>×</button>
+          <div style={{ paddingRight: 12 }}>
+            {popup.kind === "stop" && <StopBoard stop={popup.stop} />}
+            {popup.kind === "bus" && <BusDetails vehicle={popup.vehicle} />}
+            {popup.kind === "charger" && (
+              <div className="text-sm"><strong>{popup.charger.name || "EV charging stop"}</strong>
+                <div>{popup.charger.charging_time_min} min charging</div>
+                {popup.charger.operator && <div>{popup.charger.operator}</div>}
+              </div>
+            )}
+            {popup.kind === "report" && <Ontario511Info item={popup.item} />}
+            {popup.kind === "marker" && <div className="text-sm font-semibold">{popup.title}</div>}
+            {popup.kind === "picker" && (
+              <div className="min-w-[150px] text-slate-900">
+                <div className="mb-2 text-xs font-semibold">Use this location</div>
+                <div className="grid gap-1.5">
+                  <button type="button" className="rounded-md bg-slate-100 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-green/15"
+                    onClick={() => { callbacks.current.onSetMapStart?.(popup.location); setPopup(null); }}>Set as start</button>
+                  <button type="button" className="rounded-md bg-slate-100 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-green/15"
+                    onClick={() => { callbacks.current.onSetMapDestination?.(popup.location); setPopup(null); }}>Set as destination</button>
+                </div>
+                <div className="mt-2 text-[10px] opacity-60">{Number(popup.location[0]).toFixed(5)}, {Number(popup.location[1]).toFixed(5)}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

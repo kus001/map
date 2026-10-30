@@ -10,8 +10,10 @@ Resolution order (see resolve_address):
    street data when the local index knew the street but not the exact civic number.
 
 Autocomplete (search_places) additionally mixes in a few TomTom place suggestions
-(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. Picking one remembers its
-coordinates (see remember_place), so routing doesn't need to geocode it again.
+(helpers/tomtom_places.py) when TOMTOM_API_KEY is set. TomTom only supplies the text;
+suggestions are listed at once and positioned by locate_place (local index,
+then Nominatim) -- instantly where the local index knows the address, else on demand. Picking one
+remembers its coordinates (see remember_place), so routing doesn't need to geocode it again.
 """
 
 import json
@@ -68,6 +70,8 @@ _NETWORK_CACHE_MAX = 500
 _network_cache = OrderedDict()
 _network_lock = threading.Lock()
 
+_TOMTOM_MAX_EXTRA = 5
+
 
 def _bias_bucket(bias):
     point = _valid_point(bias) if bias else None
@@ -122,6 +126,7 @@ def _write_coordinate_map(data, path=GEOCODE_CACHE_PATH, reload=True):
         global _cached_places, _saved_aliases
         _cached_places = _load_coordinate_map(GEOCODE_CACHE_PATH)
         _saved_aliases = _load_coordinate_map(KNOWN_PLACES_PATH)
+
 
 def _km(a, b):
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
@@ -370,6 +375,52 @@ def _nominatim_lookup(query, bias=None):
         getattr(chosen, "address", None) or query,
     )
 
+def locate_place(title, address, bias=None, allow_network=True):
+    """(lat, lon) for a suggested place whose position we don't trust a vendor to supply.
+
+    Used for TomTom suggestions (title + street address, no coordinates). Order:
+    1. the local address-point index, using the address text (exact match only);
+    2. Nominatim, for "title, address" and then "address" (POIs are often only
+       findable by name);
+    3. the local index's approximate placement, if that is all we have.
+    Returns None when nothing placed it.
+
+    ``allow_network=False`` is the instant, local-only variant used while building the
+    autocomplete list: it answers only on an exact local match (a guess "beside the
+    nearest neighbour" is left for the slower call, which can improve on it).
+    """
+    title = str(title or "").strip()
+    address = str(address or "").strip()
+    street = address.split(",")[0].strip()
+    approximate = None
+
+    for text in dict.fromkeys(t for t in (address, street) if t):
+        status, payload = resolve_detailed(text)
+        if status == "ok":
+            return (float(payload[2]), float(payload[3]))
+        if status == "approximate" and approximate is None:
+            approximate = (float(payload[0]), float(payload[1]))
+
+    if not allow_network:
+        return None
+
+    bias = _valid_point(bias) if bias else None
+    queries = [", ".join(p for p in (title, address) if p), address]
+    for text in dict.fromkeys(q for q in queries if q):
+        found = _network_recall(_normalize_key(text), bias)
+        if found is None:
+            found = _nominatim_lookup(text, bias)
+            if found is not None:
+                _network_remember(_normalize_key(text), bias, found)
+        if found is None:
+            continue
+        point = (found[0], found[1])
+        if approximate is None or _km(point, approximate) <= _NOMINATIM_DISAGREE_KM:
+            return point
+
+    return approximate
+
+
 _named_locations = {}
 
 
@@ -484,6 +535,10 @@ def _sort_options(options, bias):
     if bias:
         options.sort(key=lambda o: _km(bias, (o["lat"], o["lon"])))
     return options
+
+
+def reverse_geocode(lat, long, responses=1):
+    return tomtom_places.reverse_search(lat, long, responses=responses)
 
 
 def resolve_address(address, bias=None, allow_network=True):
@@ -628,18 +683,27 @@ def _search_places_cached(query, limit, bias_key) -> tuple:
     return tuple(merged)
 
 
-_TOMTOM_MAX_EXTRA = 3
-
-
 def _tomtom_extras(query, limit, bias):
     """A few TomTom place suggestions to sit alongside the local results (never raises)."""
     wanted = min(_TOMTOM_MAX_EXTRA, limit // 2)
     if wanted < 1:
         return []
     try:
-        return tomtom_places.search(query, limit=wanted, bias=_valid_point(bias) if bias else None)
+        found = tomtom_places.search(query, limit=wanted, bias=_valid_point(bias) if bias else None)
     except Exception:
         return []
+
+    # Suggestions arrive without coordinates. Place the ones the local index knows
+    # right now (no network); the rest keep lat/lon None and are located afterwards
+    # through /api/locate-place, so a slow Nominatim never holds the dropdown back.
+    for item in found:
+        try:
+            point = locate_place(item.get("title"), item.get("address"), bias, allow_network=False)
+        except Exception:
+            point = None
+        if point is not None:
+            item["lat"], item["lon"] = point
+    return found
 
 
 def search_places(query, limit=6, bias=None):

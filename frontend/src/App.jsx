@@ -340,7 +340,6 @@ export default function App() {
     setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));
   }
 
-  console.log("recent searches: ", recentSearches);
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false);
 
@@ -402,6 +401,12 @@ export default function App() {
     sharedRoute.mode ||
     validSavedValue(savedPreferences.mode, VALID_MODES, "driving")
   );
+  const [evEnabled, setEvEnabled] = useState(() => savedPreferences.evEnabled === true);
+  const [evProfile, setEvProfile] = useState(() => ({
+    battery_kwh: 60, charge_percent: 80, reserve_percent: 10,
+    consumption_kwh_100km: 18, max_charge_kw: 120, plug: "ccs1",
+    ...(savedPreferences.evProfile || {}),
+  }));
   const [cyclingType, setCyclingType] = useState(() =>
     sharedRoute.cyclingType ||
     validSavedValue(
@@ -435,8 +440,24 @@ export default function App() {
   );
   const [mapStyle, setMapStyle] = useState("satellite");
   const [threeD, setThreeD] = useState(false);
-  const [globe, setGlobe] = useState(false);
   const mapCamera = useRef(null);
+  const twoDCameraGetter = useRef(null);
+  const threeDCamera = useRef(null);
+  const threeDCameraGetter = useRef(null);
+  const [return2DCamera, setReturn2DCamera] = useState(null);
+  const leave3D = () => {
+    // Read Cesium *before* it unmounts; moveEnd may not have fired yet if the
+    // user changes modes while pinching or panning.
+    let camera = null;
+    try { camera = threeDCameraGetter.current?.() || threeDCamera.current; }
+    catch (error) { console.warn("Unable to read 3D camera", error); camera = threeDCamera.current; }
+    if (camera && Array.isArray(camera.center) && camera.center.length === 2 &&
+        camera.center.every(Number.isFinite) && Number.isFinite(camera.zoom)) {
+      mapCamera.current = camera;
+      setReturn2DCamera({ ...camera });
+    }
+    setThreeD(false);
+  };
   const [layersOpen, setLayersOpen] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState(() => {
     try {
@@ -486,6 +507,9 @@ export default function App() {
   const transitLiveRequestId = useRef(0);
   const selectedRouteRef = useRef(null);
   const searchRoutesRef = useRef(null);
+  // the live-transit effect below doesn't re-run when these change, so it reads them through refs
+  const startUsesCurrentLocationRef = useRef(startUsesCurrentLocation);
+  const autoRerouteSignatureRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -494,6 +518,8 @@ export default function App() {
         JSON.stringify({
           mode,
           cyclingType,
+          evEnabled,
+          evProfile,
           startUsesCurrentLocation,
           darkMode,
           mapStyle,
@@ -509,6 +535,8 @@ export default function App() {
   }, [
     mode,
     cyclingType,
+    evEnabled,
+    evProfile,
     startUsesCurrentLocation,
     darkMode,
     mapStyle,
@@ -535,7 +563,7 @@ export default function App() {
     const searchId = searchRequestId.current;
     let cancelled = false;
     const controllers = [];
-    const timers = [650, 1700, 4100, 7100].map(delay => window.setTimeout(async () => {
+    const timers = [1450, 3000, 5400].map(delay => window.setTimeout(async () => {
       if (cancelled || searchId !== searchRequestId.current) return;
       const controller = new AbortController();
       controllers.push(controller);
@@ -696,6 +724,8 @@ export default function App() {
           start: cleanStart,
           destination: cleanDestination,
           mode: requestedMode,
+          ev_enabled: requestedMode === "driving" && evEnabled,
+          ev_profile: requestedMode === "driving" && evEnabled ? evProfile : undefined,
           route_type: requestedMode === "walking"
             ? "regular"
             : requestedCyclingType,
@@ -709,7 +739,6 @@ export default function App() {
           // typed places resolve to the closest match to this
           bias: currentLocation || approxLocation || undefined,
       };
-      console.log("ROUTE REQUEST:", routeRequest);
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -787,6 +816,41 @@ export default function App() {
                                                                           
         window.setTimeout(async () => {
           if (requestId !== searchRequestId.current || altController.signal.aborted) return;
+          // The primary transit route renders immediately. Prefer its detailed
+          // sidewalk shapes before issuing the more expensive alternatives search.
+          // The API only reads completed geometry; it never blocks on a new walk request.
+          const primary = result.routes?.[0];
+          if (primary?.pending_walks?.length) {
+            let pending = primary.pending_walks.slice();
+            const deadline = performance.now() + 1150;
+            while (pending.length && performance.now() < deadline &&
+                   requestId === searchRequestId.current && !altController.signal.aborted) {
+              try {
+                const walkResponse = await fetch("/api/transit/walk-shapes", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  signal: altController.signal, body: JSON.stringify({ pairs: pending }),
+                });
+                if (walkResponse.ok) {
+                  const body = await walkResponse.json();
+                  if (body.success && Object.keys(body.shapes || {}).length) {
+                    const completed = applyWalkShapes(primary, body.shapes);
+                    pending = completed.pending_walks || [];
+                    if (requestId !== searchRequestId.current || altController.signal.aborted) return;
+                    setData(current => current?.mode === "transit"
+                      ? { ...current, routes: current.routes.map((r, i) =>
+                          i === 0 ? applyWalkShapes(r, body.shapes) : r) } : current);
+                  }
+                }
+              } catch (error) {
+                if (error.name === "AbortError") return;
+                break;
+              }
+              if (pending.length && performance.now() < deadline) {
+                await new Promise(resolve => window.setTimeout(resolve, 170));
+              }
+            }
+          }
+          if (requestId !== searchRequestId.current || altController.signal.aborted) return;
           const existing = [result.routes[0]];
           try {
                                                                            
@@ -841,10 +905,16 @@ export default function App() {
           }
         }, 80);
       }
-      setStartMapCoordinate(result.start?.coordinates || null);
+      // A search that started from GPS while the start box says somewhere else (navigation
+      // reroutes) must not overwrite that start's coordinate, or later searches would silently
+      // keep routing from the GPS point while the box still shows the old place.
+      const startedFromGpsOverride = requestedUseCurrentLocation && !startUsesCurrentLocation;
+      if (!startedFromGpsOverride) {
+        setStartMapCoordinate(result.start?.coordinates || null);
+      }
       setDestinationMapCoordinate(result.end?.coordinates || null);
                                                                                        
-      setSelectedRouteNumber(requestedMode === "transit" ? 1 : (result.fastest_route_number || 1));
+      setSelectedRouteNumber(requestedMode === "transit" ? (result.recommended_route_number || 1) : (result.fastest_route_number || 1));
       setRouteFocusKey(key => key + 1);
 
       const scheduledSuffix =
@@ -901,6 +971,7 @@ export default function App() {
 
   useEffect(() => {
     searchRoutesRef.current = searchRoutes;
+    startUsesCurrentLocationRef.current = startUsesCurrentLocation;
   });
 
   useEffect(() => {
@@ -1096,6 +1167,36 @@ export default function App() {
         const cooldownPassed =
           nowMs - transitLastAutoRerouteAt.current > 30000;
         if (!cooldownPassed || !searchRoutesRef.current) {
+          return;
+        }
+
+        // Your GPS position only says anything about this trip if you are navigating it or you
+        // chose "Current location" as the start. For a trip planned from somewhere else (say
+        // Toronto Pearson) a cancelled bus or broken connection must re-plan from THAT start;
+        // using GPS here used to silently restart the route from wherever you are (home), while
+        // the start box still showed the old place. It also stops this background check from
+        // asking for location permission on a plain planning screen.
+        if (!navigationActive && !startUsesCurrentLocationRef.current) {
+          if (!cancelledStep && !connectionFailure) {
+            return;
+          }
+          // a clock-based connection warning can persist on the replacement route; try once per route
+          if (autoRerouteSignatureRef.current === selectedTransitSignature) {
+            return;
+          }
+          autoRerouteSignatureRef.current = selectedTransitSignature;
+          transitLastAutoRerouteAt.current = nowMs;
+          setStatus(
+            cancelledStep
+              ? "Transit trip cancelled • finding the next best route..."
+              : "A live delay breaks your connection • rerouting..."
+          );
+          // no start overrides: searchRoutes uses the start currently shown in the search box
+          searchRoutesRef.current({
+            requestedMode: "transit",
+            requestedTimingMode: "now",
+            requestedTransitPreference: transitPreference,
+          });
           return;
         }
 
@@ -1739,7 +1840,9 @@ export default function App() {
     locationFocusKey, routeFocusKey, stepFocusCoordinate, stepFocusKey,
     darkMode, mapStyle, viewInsets, enabledLayers, onLayerStatus: layerStatusChanged,
     initialCamera: mapCamera.current,
+    returnCamera: threeD ? null : return2DCamera,
     onCameraChange: value => { mapCamera.current = value; },
+    registerCameraGetter: getter => { twoDCameraGetter.current = getter; },
   };
 
   return (
@@ -1804,6 +1907,10 @@ export default function App() {
           cyclingType={cyclingType}
           onModeChange={changeMode}
           onCyclingTypeChange={changeCyclingType}
+          evEnabled={evEnabled}
+          onEvEnabledChange={setEvEnabled}
+          evProfile={evProfile}
+          onEvProfileChange={patch => setEvProfile(current => ({ ...current, ...patch }))}
           onSearch={searchRoutes}
           onSwap={swapLocations}
           loading={loading}
@@ -1998,12 +2105,45 @@ export default function App() {
           </div>
         )}
 
-        {threeD
-          ? <Scene3D {...mapProps} globe={globe} onDisable3D={() => setThreeD(false)} />
-          : <MapView {...mapProps} />}
+        {/* Keep Leaflet's live map and overlays mounted when 3D is active.
+            Visibility preserves layout dimensions and Leaflet tile state. */}
+        <div
+          aria-hidden={threeD}
+          inert={threeD}
+          style={{ position: "absolute", inset: 0,
+            visibility: threeD ? "hidden" : "visible",
+            pointerEvents: threeD ? "none" : "auto" }}
+        >
+          <MapView {...mapProps} />
+        </div>
+        {threeD && (
+          <div style={{ position: "absolute", inset: 0 }}>
+            <Scene3D {...mapProps}
+              initialCamera={mapCamera.current}
+              onCameraChange={value => { threeDCamera.current = value; }}
+              registerCameraGetter={getter => { threeDCameraGetter.current = getter; }}
+              onDisable3D={leave3D} />
+          </div>
+        )}
 
         <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
-          <button type="button" onClick={() => setThreeD(v => !v)}
+          <button type="button" onClick={() => {
+            if (threeD) leave3D();
+            else {
+              // Leaflet may still be animating a zoom or pan. Capture its
+              // *current* centre/zoom before hiding it, not its last moveend.
+              let camera = null;
+              try { camera = twoDCameraGetter.current?.(); }
+              catch (error) { console.warn("Unable to read 2D camera", error); }
+              if (camera && Array.isArray(camera.center) && camera.center.length === 2 &&
+                  camera.center.every(Number.isFinite) && Number.isFinite(camera.zoom)) {
+                mapCamera.current = camera;
+              }
+              threeDCamera.current = null;
+              setReturn2DCamera(null);
+              setThreeD(true);
+            }
+          }}
             aria-pressed={threeD} title="Toggle 3D map"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition 
             ${threeD 
@@ -2015,19 +2155,7 @@ export default function App() {
               : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
           </button>
-          {threeD && <button type="button" onClick={() => setGlobe(v => !v)}
-            title="Switch between globe and flat map"
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-              darkMode
-                ? mapStyle === "hybrid"
-                  ? "hover:bg-hybrid-purple/10"
-                  : mapStyle === "street"
-                    ? "hover:bg-blue/10"
-                    : "hover:bg-green/10"
-                : "hover:bg-black/10"
-            }`}>
-            {globe ? "Flat" : "Globe"}
-          </button>}
+
         </div>
 
         <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2">

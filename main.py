@@ -13,10 +13,12 @@ load_dotenv()
 
 from cycling import get_cycling_route
 from driving import get_driving_route
+from ev_routing import get_ev_route
 from helpers import approx_location
 from helpers.geocoding import (
     address_options,
     explain_address_problem,
+    locate_place,
     remember_place,
     search_places,
 )
@@ -235,6 +237,33 @@ def search():
     return jsonify({"success": True, "results": results})
 
 
+@app.route("/api/locate-place", methods=["GET"])
+def locate():
+    """Position one TomTom suggestion (it arrives without coordinates).
+
+    Local address index first, then Nominatim, so this can take a second or two; the
+    browser calls it in the background after the suggestion list is already showing.
+    """
+    title = request.args.get("title", "").strip()
+    address = request.args.get("address", "").strip()
+    if not (title or address):
+        return jsonify({"success": False, "error": "Nothing to locate."}), 400
+    if len(title) > 200 or len(address) > 200:
+        return jsonify({"success": False, "error": "Place is too long."}), 400
+
+    bias = request_bias([request.args.get("lat"), request.args.get("lon")])
+
+    try:
+        point = locate_place(title, address, bias)
+    except Exception:
+        app.logger.exception("Locating place failed")
+        return jsonify({"success": False, "error": "Place lookup is temporarily unavailable."}), 503
+
+    if point is None:
+        return jsonify({"success": False, "error": "Couldn't place that."}), 404
+    return jsonify({"success": True, "lat": point[0], "lon": point[1]})
+
+
 @app.route("/api/remember-place", methods=["POST"])
 def remember():
     payload = request.get_json() or {}
@@ -398,6 +427,8 @@ def live_transit_state():
     )
 
     from transit import agencies as agency_registry
+    vehicles = [{**v, "agency_label": agency_registry.label(v.get("agency"))}
+                for v in vehicles]
     other_sources = {}
     for agency in agency_registry.AGENCIES.values():
         if agency.id in ("grt_busses", "grt_trains", "go") or not (agency.trip_updates_url or agency.vehicles_url):
@@ -645,11 +676,18 @@ def routes():
     timing = {"start": request_started}
     try:
         if mode == "driving":
-            result = get_driving_route(
-                start, destination, start_coordinates=start_coordinates,
-                end_coordinates=destination_coordinates,
-                timing=timing, bias=bias,
-            )
+            if payload.get("ev_enabled") is True:
+                result = get_ev_route(
+                    start, destination, start_coordinates=start_coordinates,
+                    end_coordinates=destination_coordinates,
+                    options=payload.get("ev_profile"), timing=timing, bias=bias,
+                )
+            else:
+                result = get_driving_route(
+                    start, destination, start_coordinates=start_coordinates,
+                    end_coordinates=destination_coordinates,
+                    timing=timing, bias=bias,
+                )
         elif mode == "walking":
             route_type = str(payload.get("route_type", "regular")).strip().lower()
             if route_type not in VALID_WALKING_TYPES:

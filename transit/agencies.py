@@ -60,20 +60,26 @@ class Agency:
 
 AGENCIES = {agency.id: agency for agency in (
     Agency("grt_trains", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/2",
-           realtime=True, cache="dion.pkl", fallback_mode="tram"),
+           cache="dion.pkl", fallback_mode="tram",
+           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/2",
+           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/2",
+           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
 
     Agency("grt_busses", "GRT", "https://webapps.regionofwaterloo.ca/api/grt-routes/api/staticfeeds/1",
-           realtime=True, cache="dgrt.pkl", fallback_mode="bus"),
+           cache="dgrt.pkl", fallback_mode="bus",
+           trip_updates_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/tripupdates/1",
+           vehicles_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/vehiclepositions/1",
+           alerts_url="https://webapps.regionofwaterloo.ca/api/grt-routes/api/alerts"),
 
     Agency("go", "GO Transit",
            "https://assets.metrolinx.com/raw/upload/Documents/Metrolinx/Open%20Data/GO-GTFS.zip",
            realtime=True, cache="dgo.pkl", fallback_mode="train/bus"),
 
     Agency("ttc", "TTC",
-           "https://ckan0.cf.opendata.inter.prod-toronto.ca/dataset/7795b45e-e65a-4465-81fc-c36b9dfff169/resource/cfb6b2b8-6191-41e3-bda1-b175c51148cb/download/TTC Routes and Schedules Data.zip",
-            trip_updates_url="https://gtfsrt.ttc.ca/trips/update?format=binary",
-            vehicles_url="https://gtfsrt.ttc.ca/vehicles/position?format=binary",
-            alerts_url="https://gtfsrt.ttc.ca/alerts/all?format=binary",
+           "http://opendata.toronto.ca/toronto.transit.commission/ttc-routes-and-schedules/OpenData_TTC_Schedules.zip",
+            trip_updates_url="https://bustime.ttc.ca/gtfsrt/trips",
+            vehicles_url="https://bustime.ttc.ca/gtfsrt/vehicles",
+            alerts_url="https://bustime.ttc.ca/gtfsrt/alerts",
             cache="dttc.pkl", match_live_by_time=True, fallback_mode="TTC"),
 
     Agency("hsr", "HSR", "https://opendata.hamilton.ca/GTFS-Static/google_transit.zip",                         # https://open.hamilton.ca/documents/6eeccf172c824c2db0484aea54ed7fe4/explore
@@ -123,7 +129,13 @@ AGENCIES = {agency.id: agency for agency in (
     Agency("oc", "OC Transpo", "https://oct-gtfs-emasagcnfmcgeham.z01.azurefd.net/public-access/GTFSExport.zip",
            cache="doc.pkl", fallback_mode="OC", key={"header": "Ocp-Apim-Subscription-Key", "key": OC_KEY},
            vehicles_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-vp/beta/v1/VehiclePositions?format=protobuf",
-           trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",)
+           trip_updates_url="https://nextrip-public-api.azure-api.net/octranspo/gtfs-rt-tp/beta/v1/TripUpdates?format=protobuf",),
+
+    Agency("vic", "BC Transit", "https://bct.tmix.se/Tmix.Cap.TdExport.WebApi/gtfs/?operatorIds=48",
+           cache="dvic.pkl", fallback_mode="bus",
+           trip_updates_url="https://bct.tmix.se/gtfs-realtime/tripupdates.pb?operatorIds=48",
+           alerts_url="https://bct.tmix.se/gtfs-realtime/alerts.pb?operatorIds=48",
+           vehicles_url="https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=48")
 
 #     Agency("wt", "Winnipeg Transit", "http://gtfs.winnipegtransit.com/google_transit.zip",
 #            cache="dwp.pkl", fallback_mode="bus")

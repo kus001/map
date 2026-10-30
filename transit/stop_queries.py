@@ -1,6 +1,6 @@
 """Nearby-stop and stop-departure-board queries."""
 
-from . import agencies
+from . import agencies, ttc_surface
 from .go_realtime import gtfs_snapshot as go_gtfs_snapshot
 from .realtime import adjusted_departure, snapshot as realtime_snapshot
 from .stop_boards import upcoming_departures
@@ -44,7 +44,8 @@ def stop_departure_board(stop_id, limit=8, now=None):
         return None
     now = normalize_departure_datetime(now)
     service_date, service_seconds = gtfs_service_clock(now)
-    realtime = combine_realtime(realtime_snapshot(), go_gtfs_snapshot())
+    grt_live = realtime_snapshot()
+    realtime = combine_realtime(grt_live, go_gtfs_snapshot())
 
     schedule = upcoming_departures(
         stop_id, store.graph, service_date=service_date, service_seconds=service_seconds,
@@ -70,6 +71,11 @@ def stop_departure_board(stop_id, limit=8, now=None):
                     item['boarding_stop'] = other_info[2] or raw_stop_id(other_id)
                 schedule = nearby
                 break
+
+    if stop_agency(stop_id) == "ttc":
+        centre = coord(store.stops[stop_id])
+        surface = ttc_surface.live_departures(*centre, store.stops[stop_id][2] or "", grt_live.get("surface_predictions", {}), limit=max(1, min(12, int(limit))), now=now.timestamp())
+        schedule = ttc_surface.merge_departures(schedule, surface, limit=max(1, min(12, int(limit))), now=now.timestamp())
 
     return {"stop_id": stop_id, "name": store.stops[stop_id][2] or stop_id,
             "agency": stop_agency(stop_id),

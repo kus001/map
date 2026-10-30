@@ -153,7 +153,10 @@ def reload_transit_data(changed_agencies=None) -> float:
 
 
 def ensure_transit_loaded(verbose: bool=False) -> float:
-    "Load the heavy transit graph only when transit is actually needed."
+    """Build the transit graph once and start the background workers (realtime, freshness).
+
+    helpers/warmup.py calls this at server startup, and the command-line tools call it themselves.
+    Safe to call again: once the data is loaded it returns immediately."""
     if store._data is not None:
         if verbose:
             print(f"Transit data already loaded ({len(store.stops):,} stops).")

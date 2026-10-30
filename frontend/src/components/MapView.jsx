@@ -1120,11 +1120,12 @@ export default function MapView({
               <Popup>
                 <div className="font-semibold">
                   {vehicle.agency_label || String(vehicle.agency || "").toUpperCase()} • {
-                    estimated ? "Scheduled estimate" : "Live"
+                    estimated ? "Scheduled estimate" : vehicle.route_live ? "Nearby live bus" : "Live"
                   } {vehicle.route ? `route ${vehicle.route}` : "vehicle"}
                 </div>
                 {vehicle.display_headsign || vehicle.headsign ? <div>toward {vehicle.display_headsign || vehicle.headsign}</div> : null}
                 {vehicle.vehicle_label ? <div>{vehicle.vehicle_label}</div> : null}
+                {vehicle.route_live ? <div className="mt-1 text-[10px] opacity-70">live gps on this route, exact trip not confirmed</div> : null}
                 {(() => {
                   const specs = vehicleSpecs(vehicle);
                   return specs ? (

@@ -9,7 +9,6 @@ from helpers.coords import nearest_stops
 from . import store
 from .display import route_details
 from .geo import coord, raw_stop_id, stop_agency
-from .loader import ensure_transit_loaded
 from .paths import combine_realtime
 from .schedule import trip_active
 from .timeutil import gtfs_service_clock, normalize_departure_datetime
@@ -17,7 +16,6 @@ from .timeutil import gtfs_service_clock, normalize_departure_datetime
 
 def nearby_transit_stops(lat, lon, radius_m=3000, limit=25):
     """Stops around map center; cached graph and bounded response size."""
-    ensure_transit_loaded()
     radius_m = max(300, min(1500, float(radius_m)))
     limit = max(1, min(50, int(limit)))
     nearest = nearest_stops(store.stops, float(lat), float(lon), amount_of_stops=limit * 3)
@@ -39,13 +37,12 @@ def nearby_transit_stops(lat, lon, radius_m=3000, limit=25):
 
 
 def stop_departure_board(stop_id, limit=8, now=None):
-    ensure_transit_loaded()
     if stop_id not in store.stops:
         return None
     now = normalize_departure_datetime(now)
     service_date, service_seconds = gtfs_service_clock(now)
-    grt_live = realtime_snapshot()
-    realtime = combine_realtime(grt_live, go_gtfs_snapshot())
+    gtfs_rt = realtime_snapshot()
+    realtime = combine_realtime(gtfs_rt, go_gtfs_snapshot())
 
     schedule = upcoming_departures(
         stop_id, store.graph, service_date=service_date, service_seconds=service_seconds,
@@ -74,7 +71,7 @@ def stop_departure_board(stop_id, limit=8, now=None):
 
     if stop_agency(stop_id) == "ttc":
         centre = coord(store.stops[stop_id])
-        surface = ttc_surface.live_departures(*centre, store.stops[stop_id][2] or "", grt_live.get("surface_predictions", {}), limit=max(1, min(12, int(limit))), now=now.timestamp())
+        surface = ttc_surface.live_departures(*centre, store.stops[stop_id][2] or "", gtfs_rt.get("surface_predictions", {}), limit=max(1, min(12, int(limit))), now=now.timestamp())
         schedule = ttc_surface.merge_departures(schedule, surface, limit=max(1, min(12, int(limit))), now=now.timestamp())
 
     return {"stop_id": stop_id, "name": store.stops[stop_id][2] or stop_id,

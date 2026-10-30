@@ -74,6 +74,7 @@ _worker_started = False
 _cache = {
     "loaded_at": 0.0,
     "trip_updates": {},
+    "surface_predictions": {},
     "vehicles": {},
     "alerts": [],
     "available": False,
@@ -199,13 +200,15 @@ def _parse_vehicles(agency, feed):
 
         vehicle = entity.vehicle
         trip_id = str(vehicle.trip.trip_id or "")
+        vehicle_id = str(vehicle.vehicle.id or entity.id or "")
 
-        if not trip_id or not vehicle.HasField("position"):
+        if (not trip_id and not vehicle_id) or not vehicle.HasField("position"):
             continue
 
         item = {
             "agency": agency,
-            "trip_id": trip_id,
+            "trip_id": trip_id or f"vehicle-{vehicle_id}",
+            "route_id": str(vehicle.trip.route_id or ""),
             "lat": float(vehicle.position.latitude),
             "lon": float(vehicle.position.longitude),
             "timestamp": int(vehicle.timestamp) if vehicle.timestamp else None,
@@ -229,7 +232,7 @@ def _parse_vehicles(agency, feed):
                 item["info"]["seats"] = vehicle_info[3]
                 item["info"]["powertrain"] = vehicle_types.powertrain(vehicle_info[2])
 
-        vehicles[(agency, trip_id)] = item
+        vehicles[(agency, trip_id or f"vehicle-{vehicle_id}")] = item
 
     return vehicles
 
@@ -323,9 +326,22 @@ def _remap_vehicles(vehicles, mapping):
             for (agency, trip_id), item in vehicles.items()}
 
 
+def _surface_predictions(updates, now):
+    by_stop = {}
+    for (_, live_id), update in updates.items():
+        route = str(update.get("route_id") or "")
+        for stop, info in update.get("stops", {}).items():
+            when = info.get("departure_time") or info.get("arrival_time")
+            if when is None or not now - 90 <= when <= now + 5400:
+                continue
+            by_stop.setdefault(str(stop), []).append({"trip_id": live_id, "route": route, "time": int(when), "cancelled": update.get("cancelled", False)})
+    return by_stop
+
+
 def _refresh_once():
     trip_updates = {}
     vehicles = {}
+    surface_predictions = {}
     alerts = []
     trip_feed_timestamps = []
     fresh_feed_found = False
@@ -359,9 +375,13 @@ def _refresh_once():
                     trip_feed_timestamps.append(timestamp)
                 # only trust a feed that is itself fresh (each agency publishes on its own clock)
                 if timestamp and 0 <= now_epoch - timestamp <= MAX_FRESH_AGE_SECONDS:
-                    if agencies.get(agency).match_live_by_time:
-                        parsed, trip_maps[agency], _ = _translate_by_time(agency, parsed)
-                    trip_updates.update(parsed)
+                    if agency == "ttc":
+                        # bustime ids belong to the surface feed, not the subway router
+                        surface_predictions = _surface_predictions(parsed, now_epoch)
+                    else:
+                        if agencies.get(agency).match_live_by_time:
+                            parsed, trip_maps[agency], _ = _translate_by_time(agency, parsed)
+                        trip_updates.update(parsed)
                     fresh_feed_found = True
             elif kind == "vehicle":
                 vehicle_feeds.append((agency, feed))
@@ -377,9 +397,10 @@ def _refresh_once():
     return {
         "loaded_at": time.monotonic(),
         "trip_updates": trip_updates,
+        "surface_predictions": surface_predictions,
         "vehicles": vehicles,
         "alerts": alerts,
-        "available": bool(trip_updates) and fresh_feed_found,
+        "available": fresh_feed_found and bool(trip_updates or surface_predictions),
         "alerts_available": alerts_received,
         "feed_timestamp": newest_timestamp,
     }
@@ -424,6 +445,7 @@ def snapshot():
         return {
             "loaded_at": _cache["loaded_at"],
             "trip_updates": dict(_cache["trip_updates"]),
+            "surface_predictions": _cache["surface_predictions"],
             "vehicles": dict(_cache["vehicles"]),
             "alerts": list(_cache["alerts"]),
             "available": bool(_cache["available"]),
@@ -554,11 +576,15 @@ def matching_alerts(realtime, route_ids, stop_ids=None, limit=5, trip_ids=None, 
 
 def _report_time_match(agency, feed):
     parsed, _ = _parse_trip_updates(agency.id, feed)
-    index = rt_match.get_index(agency.id, block=True)
+    target = "ttc_surface" if agency.id == "ttc" else agency.id
+    if target == "ttc_surface" and not (agencies.TRANSIT_DATA / "GTFS_Files" / target / "stops.txt").is_file():
+        print("  install ttc surface schedule: python -m transit.agency_setup ttc --source surface --redownload")
+        return
+    index = rt_match.get_index(target, block=True)
     live = _live_trips(parsed)
     matched, stats = index.match(live)
     share = 100 * stats["matched"] / max(1, stats["live"])
-    print(f"  matched {stats['matched']}/{stats['live']} live trips to scheduled trips ({share:.0f}%), "
+    print(f"  matched {stats['matched']}/{stats['live']} live trips to {target} scheduled trips ({share:.0f}%), "
           f"median gap to schedule {stats['median_abs_delay_s']}s, {stats['via_stop_code']} via stop_code")
     reasons, nearest_gap, examples = index.diagnose(live, matched)
     if reasons:
@@ -634,7 +660,7 @@ def _check(agency_id, trip_updates_url=None):
             hits = len(ids & static_trips)
             line += f", {hits}/{len(ids)} trip ids match the static feed"
             if agency.match_live_by_time:
-                line += " (not needed: matching by route+stop+time)"
+                line += " (TTC live ids use the separate surface schedule)"
             elif ids and hits < len(ids) / 2:
                 line += "  <-- most don't match; try match_live_by_time=True on the agency entry"
         print(line)

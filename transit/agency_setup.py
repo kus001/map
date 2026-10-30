@@ -6,7 +6,7 @@
     python -m transit.agency_setup all                # set up every configured agency
     python -m transit.agency_setup all --redownload   # refresh every agency
     python -m transit.agency_setup all --skip-installed # leave ready caches alone
-    python -m transit.agency_setup ttc --source surface --redownload # TTC BusTime schedules (no subway)
+    python -m transit.agency_setup ttc --source surface --redownload # live buses + streetcars, keeps subway
 """
 import io
 import csv
@@ -587,6 +587,30 @@ def install_shapes(agency, source=None):
     return path
 
 
+def install_ttc_surface(source=None, redownload=False):
+    # separate feed for live buses/streetcars; dont touch the full ttc router
+    agency = _agency("ttc")
+    folder = GTFS_ROOT / "ttc_surface"
+    GTFS_ROOT.mkdir(parents=True, exist_ok=True)
+    if source is None and _has_required_files(folder) and not redownload:
+        print("ttc surface feed is already installed", flush=True)
+        return folder
+    if source is None:
+        source = _download(agency, source_kind="surface")
+    with tempfile.TemporaryDirectory(prefix=".ttc_surface_stage_", dir=GTFS_ROOT) as temp:
+        staged = Path(temp) / "feed"
+        _extract_files(agency, source, staged)
+        if not _has_required_files(staged):
+            raise ValueError("ttc surface gtfs is incomplete")
+        _install_new_folder(staged, folder)
+    from . import rt_match
+    with rt_match._lock:
+        rt_match._indexes.pop("ttc_surface", None)
+    (GTFS_ROOT.parent / ".rt_match" / "ttc_surface.sqlite").unlink(missing_ok=True)
+    print("ttc surface feed ready, full ttc schedule is untouched", flush=True)
+    return folder
+
+
 def install_agency(agency, source=None, redownload=False, source_kind="full"):
     """Download, validate, and build an agency without destroying a good old feed."""
     agency = _agency(agency)
@@ -595,8 +619,12 @@ def install_agency(agency, source=None, redownload=False, source_kind="full"):
     if source_kind == "surface" and agency.id != "ttc":
         raise ValueError("--source surface is only valid for TTC")
     if source_kind == "surface":
-        print("WARNING: TTC Surface GTFS has buses/streetcars but NO SUBWAY. "
-              "Existing TTC full schedule will be backed up before replacement.", flush=True)
+        return install_ttc_surface(source, redownload)
+
+    if agency.id == "ttc" and source is None and not redownload and _already_downloaded(agency) and agency.cache_path.is_file():
+        print("ttc full schedule already ready, checking surface feed", flush=True)
+        install_ttc_surface()
+        return 0, 0
 
     if source is None:
         if source_kind == "full" and not redownload and _already_downloaded(agency):
@@ -606,19 +634,6 @@ def install_agency(agency, source=None, redownload=False, source_kind="full"):
         else:
             source = _download(agency, source_kind=source_kind)
     source = Path(source)
-
-    # Never replace a working full TTC router without preserving a usable backup.
-    # A surface-only feed is a deliberately explicit emergency fallback, not the default.
-    if source_kind == "surface":
-        saved = GTFS_ROOT / "ttc_full_backup"
-        if folder.is_dir() and not saved.exists():
-            print(f"Backing up full TTC GTFS to {saved}...", flush=True)
-            shutil.copytree(folder, saved)
-        old_cache = agency.cache_path
-        cache_backup = old_cache.with_name(old_cache.stem + "_full_backup" + old_cache.suffix)
-        if old_cache.is_file() and not cache_backup.exists():
-            print(f"Backing up full TTC routing cache to {cache_backup}...", flush=True)
-            shutil.copy2(old_cache, cache_backup)
 
     if source.resolve() == folder.resolve() and _has_required_files(folder):
         # Avoid copying hundreds of MB of stop_times.txt on repeated builds.
@@ -643,8 +658,12 @@ def install_agency(agency, source=None, redownload=False, source_kind="full"):
         except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
             print(f"{agency.label}: timetable ready; optional shapes failed: {error}",
                   flush=True)
-    print(f"{agency.label} ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.",
-          flush=True)
+    print(f"{agency.label} ready: {num_stops:,} stops, {num_trips:,} trips. Restart kmaps.", flush=True)
+    if agency.id == "ttc":
+        try:
+            install_ttc_surface(redownload=redownload)
+        except (OSError, ValueError, RuntimeError, requests.RequestException) as error:
+            print(f"ttc surface data unavailable ({error}); full ttc routing is still ready", flush=True)
     return num_stops, num_trips
 
 
@@ -654,8 +673,7 @@ def install_all(redownload=False, shapes_only=False, skip_installed=False):
     agencies = list(OWN_CACHE_AGENCIES)
     for index, agency in enumerate(agencies, 1):
         print(f"\n[{index}/{len(agencies)}] {agency.id} — {agency.label}", flush=True)
-        if (skip_installed and not redownload and not shapes_only and
-                _already_downloaded(agency) and agency.cache_path.is_file()):
+        if (skip_installed and not redownload and not shapes_only and _already_downloaded(agency) and agency.cache_path.is_file() and (agency.id != "ttc" or _has_required_files(GTFS_ROOT / "ttc_surface"))):
             print("  Already installed; skipped.", flush=True)
             skipped.append(agency.id)
             continue
@@ -685,8 +703,7 @@ def main(argv=None):
                         help="an agency id from transit/agencies.py, or 'all'")
     parser.add_argument("--zip", help="local GTFS ZIP or extracted GTFS directory (one agency)")
     parser.add_argument("--source", choices=["full", "surface"], default="full",
-                        help="TTC: 'full' includes subway; 'surface' uses BusTime-compatible "
-                             "bus/streetcar feed, backs up full route data but excludes subway")
+                        help="TTC: full keeps subway, surface installs a separate live bus/streetcar schedule")
     parser.add_argument("--redownload", action="store_true",
                         help="download a fresh feed even when one is already installed")
     parser.add_argument("--shapes-only", action="store_true",

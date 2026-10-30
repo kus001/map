@@ -113,6 +113,14 @@ all you have to do is **run the following** `git clone https://github.com/kus001
 In general, there was AI usage for this project, however the majority of it was used to debug code after already having spent a lot of time on it. There was also quite a bit of code refinement and comments being added, done by AI. Occasionally, such as with the local geocoding, the feature would be started with AI help then mostly done by hand.
 
 </details>
+
+<details>
+<summary><h3 style="display: inline;">Transit Agencies</h3></summary>
+
+If you would like to add your own transit agencies, it should be really quite easy. `In transit/agencies.py` there is a dictionary titled `AGENCIES` (Around line 64) and it has all the agencies the router is configured for. You can easily add your own agencies from just their links, and then running `python -m transit.agency_setup [agency id]`. You can also put `all` in place of `[agency id]` to set up all new agencies! Setting up an agency involved downloading all the required files, compacting them into a `.pkl` and then setting them up and processing them.
+
+</details>
+
 <div align="center">
 
 ### $$\color{red}\text{Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666}$$

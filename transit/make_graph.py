@@ -4,6 +4,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRANSIT_DATA = PROJECT_ROOT / "transit_data"
 GTFS_ROOT = TRANSIT_DATA / "GTFS_Files"
 
+
 class Graph:
     def __init__(self, graph, node_positions, trip_to_service=None, calendar=None, calendar_dates=None):
         self.graph = graph
@@ -45,8 +46,6 @@ class Graph:
         }
 
     def is_trip_active(self, trip_id, check_date):
-
-
         if not self.trip_to_service and not self.calendar and not self.calendar_dates:
             return True
 
@@ -55,3 +54,8 @@ class Graph:
             return True
 
         return self.is_service_active(service_id, check_date)
+
+
+def make_graph():
+    # No shared agencies any more: every agency lives in its own cache and is merged in by transit.py.
+    return Graph({}, {}, {}, {}, {})

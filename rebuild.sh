@@ -2,14 +2,14 @@
 
 set -e
 
-{
-    echo
-    echo "Starting local osrm..."
-    docker start osrm-foot
-} || {
-    echo "\e[1;31mFAILED. Perhaps there's no local osrm-food process?\e[0m"
-    echo "Continuing to rebuild"
-}
+# {
+#     echo
+#     echo "Starting local osrm..."
+#     docker start osrm-foot
+# } || {
+#     echo "\e[1;31mFAILED. Perhaps there's no local osrm-food process?\e[0m"
+#     echo "Continuing to rebuild"
+# }
 
 echo
 echo "Starting rebuild!!"

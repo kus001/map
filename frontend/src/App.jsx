@@ -1805,7 +1805,7 @@ export default function App() {
       ? mapStyle === "hybrid"
         ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
         : mapStyle === "satellite"
-          ? "border-button bg-charcoal-light text-green-light"
+          ? "border-button bg-charcoal-light text-green"
           : "border-button bg-charcoal-light text-blue-light"
       : "border-button-light bg-white text-green-dark"
   }`;

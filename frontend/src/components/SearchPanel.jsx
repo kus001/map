@@ -614,7 +614,7 @@ export default function SearchPanel({
               onClick={onUseCurrentLocation}
               title="Use current location as start"
               aria-label="Use current location as start"
-              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 ${
+              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm${
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -829,7 +829,7 @@ export default function SearchPanel({
               disabled={loading}
               mapStyle={mapStyle}
               onClick={() => onCyclingTypeChange(option.id)}
-              className={`h-10 whitespace-warp min-w-0 rounded-lg border px-1 text-center min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-[13px] text-[14px] font-regular transition disabled:opacity-50 ${
+              className={`h-10 whitespace-nowarp min-w-0 rounded-lg border px-1 text-center min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-[13px] text-[14px] font-normal transition disabled:opacity-50 ${
                 cyclingType === option.id
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -910,7 +910,7 @@ export default function SearchPanel({
         onClick={() => onSearch()}
         darkMode={darkMode}
         mapStyle={mapStyle}
-        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] 
+        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] min-[761px]:@max-[295px]/sidebar:h-9
         ${darkMode 
           ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
         }`}>

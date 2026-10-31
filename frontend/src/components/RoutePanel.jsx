@@ -391,7 +391,7 @@ export default function RoutePanel({
   const leastTransfers = isTransit ? bestTies(data.routes, transferCount, 0) : new Set();
 
   return (
-    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 max-[760px]:flex-none max-[760px]:overflow-visible">
+    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3 max-[760px]:flex-none max-[760px]:overflow-visible">
       <div
         className={`mb-3 rounded-xl border px-3 py-2.5 text-xs ${
           error

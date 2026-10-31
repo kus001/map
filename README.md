@@ -121,6 +121,15 @@ If you would like to add your own transit agencies, it should be really quite ea
 
 </details>
 
+<details>
+<summary><h3 style="display: inline;">Walking links</h3></summary>
+
+If you would like to have the option to walk between two seperate stops, you have the option to run python -m transit.walk_links to setup walking links between stops. Our server implementation is very, very slow, and thus we recommend that you set up your own OSRM routed server if possible. It takes our server about a minute per thousand links, and the setup stuff as of now (you can check our configs in `walk_links.py`'s `.config` import) had about 26,000 links to make, resulting in a very, very long runtime. And all of this was with a maximum walk distance of just 250m.
+
+It should also be noted that the walking distance that is set will have an exponential impact on routing speed, seeing as the amount of edges that the A* algorithm will explore will go up exponentially as well. Its a trade off of routing time versus absolute best route. Since the trade off is exponential, we settled on 250 meters, but we acknowledge that in big cities it might slow down a lot. If the main purpose of your router is in-city routing, and the occasional long distance run can be slowed down, consider increasing the max travel times.
+
+</details>
+
 <div align="center">
 
 ### $$\color{red}\text{Made with <3 by @kus001, @roc-ket-cod-er and @BigBrain244466666}$$

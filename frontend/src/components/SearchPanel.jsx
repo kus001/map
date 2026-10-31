@@ -721,7 +721,7 @@ export default function SearchPanel({
           type="button"
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50  ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition min-[761px]:@max-[295px]/sidebar:h-7 min-[761px]:@max-[295px]/sidebar:w-7 hover:text-white disabled:opacity-50  ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"

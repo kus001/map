@@ -68,7 +68,7 @@ def interchange_stops(stops):
 
 def transfer_walk_minutes(distance_m: float) -> float:
     """Estimated minutes to walk between two stops `distance_m` apart (as the crow flies)."""
-    return float(distance_m) * TRANSFER_WALK_DETOUR / ACCESS_WALK_SPEED_MPS / 60
+    return round(float(distance_m) * TRANSFER_WALK_DETOUR / ACCESS_WALK_SPEED_MPS / 60, 2)
 
 
 def build_walk_links(
@@ -210,7 +210,7 @@ def apply_walk_times(links, stops, times, max_minutes=TRANSFER_WALK_MAX_MIN,
                 dropped += 1
                 continue
             replaced += 1
-            kept.append((other_id, float(real)))
+            kept.append((other_id, float(round(real, 2))))
         if kept:
             out[stop_id] = tuple(kept)
     return out, replaced, dropped
@@ -242,7 +242,7 @@ def _fetch_row(stop_id, stops, neighbours, timeout=15.0, retries=2):
             row = body["durations"][0]
             if len(row) != len(neighbours):
                 raise ValueError("OSRM returned an unexpected number of durations")
-            return [None if seconds is None else float(seconds) / 60 for seconds in row]
+            return [None if seconds is None else round(float(seconds) / 60, 2) for seconds in row]
         except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as error:
             last = error
             time.sleep(0.4 * (attempt + 1))

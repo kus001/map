@@ -430,7 +430,7 @@ function LocationInput({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         placeholder={placeholder}
         autoComplete="off"
-        className={`h-11 min-w-0 flex-1 rounded-xl border px-4 text-[15px] min-[761px]:@max-[295px]/sidebar:h-9 outline-none transition focus:ring-2 disabled:opacity-60 ${
+        className={`h-11 min-w-0 flex-1 rounded-xl border px-4 text-[15px] min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:rounded-lg outline-none transition focus:ring-2 disabled:opacity-60 ${
           endAction ? "pr-12" : ""
         } ${
           darkMode
@@ -444,7 +444,7 @@ function LocationInput({
       />
 
       {endAction && (
-        <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2">
+        <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2 min-[761px]:@max-[295px]/sidebar:right-1.25">
           {endAction}
         </div>
       )}
@@ -596,7 +596,7 @@ export default function SearchPanel({
           onSelectLocation={onStartCoordinate}
           icon={
             <GoDot
-              className={`text-xl ${
+              className={`text-xl min-[761px]:@max-[295px]/sidebar:text-base ${
                 darkMode 
                   ? mapStyle === "hybrid" 
                     ? "text-hybrid-purple-light" 
@@ -614,7 +614,7 @@ export default function SearchPanel({
               onClick={onUseCurrentLocation}
               title="Use current location as start"
               aria-label="Use current location as start"
-              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm${
+              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm ${
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -652,7 +652,7 @@ export default function SearchPanel({
           onSelectLocation={onDestinationCoordinate}
           icon={
             <PiMapPinFill
-              className={`text-xl ${
+              className={`text-xl min-[761px]:@max-[295px]/sidebar:text-base ${
                 darkMode 
                   ? mapStyle === "hybrid" 
                     ? "text-hybrid-purple-light" 
@@ -708,37 +708,6 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* recent searches 
-      {recentSearches.length > 0 && (
-        <details className={`ml-9 mt-3.5 rounded-xl border ${
-          darkMode
-            ? mapStyle === "hybrid"
-              ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
-              : "border-button bg-charcoal-light"
-            : "border-button-light bg-white"
-        }`}>
-          <summary className={`cursor-pointer px-3 py-2.5 text-xs font-semibold ${
-            darkMode
-              ? mapStyle === "hybrid"
-                ? "text-hybrid-purple-light"
-                : mapStyle === "street"
-                  ? "text-blue-lighter"
-                  : "text-green-lighter"                  
-            : "text-charcoal"
-          }`}>Recent Locations</summary>
-          {recentSearches.map((search, index) => (
-            <div key={index} className={`mx-3 mb-1.5 rounded-lg border p-2 ${
-              darkMode
-                ? "border-button text-darkmode-gray "
-                : "border-button-light text-charcoal"
-            }`}>
-              <p className="text-xs font-medium">{search.start}</p>
-              <p className="mt-1 text-[11px] opacity-70">{search.mode}</p>
-            </div>
-          ))}
-        </details>
-      )} */}
-
       <div className="mt-2 flex items-center justify-between gap-3">
         <span
           className={`text-[10px] whitespace-pre-line ${
@@ -752,7 +721,7 @@ export default function SearchPanel({
           type="button"
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition min-[761px]:@max-[295px]/sidebar:h-7 min-[761px]:@max-[295px]/sidebar:w-7 hover:text-white disabled:opacity-50  ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"
@@ -910,7 +879,7 @@ export default function SearchPanel({
         onClick={() => onSearch()}
         darkMode={darkMode}
         mapStyle={mapStyle}
-        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] min-[761px]:@max-[295px]/sidebar:h-9
+        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-sm
         ${darkMode 
           ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
         }`}>

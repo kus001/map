@@ -1818,19 +1818,16 @@ export default function App() {
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-white/80 bg-white/95 text-charcoal";
 
-
-                                                                                            
   const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
     darkMode
       ? mapStyle === "hybrid"
-        ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light"
+        ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light" 
         : mapStyle === "satellite"
-          ? "border-button bg-charcoal-light text-green-light"
+          ? "border-button bg-charcoal-light text-green"
           : "border-button bg-charcoal-light text-blue-light"
       : "border-button-light bg-white text-green-dark"
   }`;
 
-                                                                                       
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
   const smallButtonY = overlayVisible ? "" : "top-4"
   const mapProps = {
@@ -1865,7 +1862,7 @@ export default function App() {
               ? "border-button/50 bg-hybrid-charcoal"
               : "border-button/50 bg-charcoal"
             : "border-button-light/70 bg-white"
-        } max-[760px]:absolute max-[760px]:bottom-5 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
+        } max-[760px]:absolute max-[760px]:bottom-7 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
           mobileMin
             ? navMin
               ? "max-[760px]:h-auto max-[760px]:max-h-[40dvh] max-[760px]:overflow-y-auto"
@@ -1998,6 +1995,11 @@ export default function App() {
           addressIssue={addressIssue}
           onPickAddressOption={pickAddressOption}
         />
+        </div>
+
+        <div className="hidden min-[761px]:flex h-4 shrink-0 cursor-row-resize items-center justify-center">
+          <div className="h-0.25 w-20 rounded-full bg-gray-400" />
+        </div>
 
         <RoutePanel
           data={data}

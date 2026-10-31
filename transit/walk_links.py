@@ -234,9 +234,13 @@ def _fetch_row(stop_id, stops, neighbours, timeout=15.0, retries=2):
     last = None
     for attempt in range(retries + 1):
         try:
+            # start = time.perf_counter()
             request = urllib.request.Request(url, headers={"User-Agent": "map-router walk-links"})
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = json.load(response)
+            # elapsed = time.perf_counter() - start
+            # print(f"OSRM request: {elapsed:.3f}s")
+            
             if body.get("code") != "Ok":
                 raise ValueError(f"OSRM said {body.get('code')}")
             row = body["durations"][0]
@@ -249,13 +253,14 @@ def _fetch_row(stop_id, stops, neighbours, timeout=15.0, retries=2):
     raise RuntimeError(f"{stop_id}: {last}")
 
 
-def refine_walk_links(links, stops, path=WALK_LINK_TIMES_PATH, workers=8, limit=None,
+def refine_walk_links(links, stops, path=WALK_LINK_TIMES_PATH, workers=64, limit=None,
                       progress=print, fetch_row=_fetch_row):
     """Ask OSRM for the real walking time of every link not yet in the cache; save the cache.
 
     Only links with both stops inside OSRM's coverage are asked. Resumable: the cache is saved
     as it goes, and a second run only fetches what is missing. Returns a small summary dict.
     """
+    print(f"{workers} workers")
     times = load_walk_times(path)
     todo = []
     for stop_id, neighbours in links.items():
@@ -319,7 +324,7 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Fetch real walking times for transfer links from the local OSRM.")
-    parser.add_argument("--workers", type=int, default=8, help="parallel requests (default 8)")
+    parser.add_argument("--workers", type=int, default=64, help="parallel requests (default 64)")
     parser.add_argument("--limit", type=int, default=None, help="only the first N stops (for trying it out)")
     args = parser.parse_args(argv)
 

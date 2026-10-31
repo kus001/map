@@ -1884,7 +1884,7 @@ export default function App() {
         </header>
 
         {/* wrapper for search panel so its height can be changed by drag */}
-        <div ref={searchPanelRef} className="min-[761px]:min-h-0 min-[761px]:shrink-0 min-[761px]:overflow-y-auto">
+        <div ref={searchPanelRef} style={{height: searchHeight === null ? undefined : `${searchHeight}px`}} className="min-[761px]:min-h-0 min-[761px]:shrink-0 min-[761px]:overflow-y-auto max-[761px]:!h-auto">
 
         <SearchPanel
           start={start}
@@ -1934,7 +1934,21 @@ export default function App() {
         />
         </div>
 
-        <div className="hidden min-[761px]:flex h-4 shrink-0 cursor-row-resize items-center justify-center">
+        <div 
+          className="hidden min-[761px]:flex h-4 shrink-0 cursor-row-resize items-center justify-center"
+          onPointerDown={event => { // basically detects how far mouse moved
+            resizeStartRef.current = {
+              y: event.clientY,
+              height: searchPanelRef.current.offsetHeight
+            };
+          }}
+          onPointerMove={event => {
+            if (!resizeStartRef.current) return;
+            const distance = event.clientY - resizeStartRef.current.y;
+            const heightNew = resizeStartRef.current.height + distance;
+            setSearchHeight(heightNew);
+          }}
+        >
           <div className="h-0.25 w-20 rounded-full bg-gray-400" />
         </div>
 

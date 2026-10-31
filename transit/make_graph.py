@@ -46,8 +46,6 @@ class Graph:
         }
 
     def is_trip_active(self, trip_id, check_date):
-
-
         if not self.trip_to_service and not self.calendar and not self.calendar_dates:
             return True
 

@@ -1929,6 +1929,10 @@ export default function App() {
         />
         </div>
 
+        <div className="hidden min-[761px]:flex h-4 shrink-0 cursor-row-resize items-center justify-center">
+          <div className="h-0.25 w-20 rounded-full bg-gray-400" />
+        </div>
+
         <RoutePanel
           data={data}
           selectedRoute={selectedRoute}

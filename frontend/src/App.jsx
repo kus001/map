@@ -329,6 +329,8 @@ const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 const PHONE_MIN_PX = 88;
 const PHONE_NAV_MIN_PX = 176;
 const PHONE_TOP_GAP_PX = 112;
+// full height = screen minus the 28px bottom offset and a 44px strip of map at the top
+const PHONE_FULL_INSET_PX = 96;
 
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
@@ -345,7 +347,12 @@ export default function App() {
   }
 
   const [sidePanel, setIsSidePanel] = useState(false);
-  const [mobileMin, setMobileMin] = useState(false);
+  // phone panel position: "min" (little bar), "mid" (about half) or "full" (almost the whole screen)
+  const [panelSnap, setPanelSnap] = useState("mid");
+  const mobileMin = panelSnap === "min";
+  const mobileFull = panelSnap === "full";
+  const panelSnapRef = useRef(panelSnap);
+  panelSnapRef.current = panelSnap;
 
   const [searchHeight, setSearchHeight] = useState(null);
   const searchPanelRef = useRef(null);
@@ -373,24 +380,27 @@ export default function App() {
 
   function panelHeights() {
     const minH = navigationActive ? PHONE_NAV_MIN_PX : PHONE_MIN_PX;
-    const maxH = Math.max(
+    const midH = Math.max(
       minH,
       Math.min(window.innerHeight * 0.52, window.innerHeight - PHONE_TOP_GAP_PX)
     );
-    return { minH, maxH };
+    const fullH = Math.max(midH, window.innerHeight - PHONE_FULL_INSET_PX);
+    return { minH, midH, fullH };
   }
 
   function handleStartTouch(event) {
     const panel = sidebarRef.current;
     if (!phoneUi || !panel || !event.touches?.length) return;
     clearTimeout(dragTimer.current);
-    const { minH, maxH } = panelHeights();
+    const { minH, midH, fullH } = panelHeights();
     const y = event.touches[0].clientY;
     dragRef.current = {
       startY: y,
       startH: panel.getBoundingClientRect().height,
+      startSnap: panelSnapRef.current,
       minH,
-      maxH,
+      midH,
+      fullH,
       lastY: y,
       lastT: performance.now(),
       velocity: 0,
@@ -414,7 +424,7 @@ export default function App() {
     drag.lastY = y;
     drag.lastT = now;
     // dragging up grows the panel
-    drag.pending = Math.min(drag.maxH, Math.max(drag.minH, drag.startH - (y - drag.startY)));
+    drag.pending = Math.min(drag.fullH, Math.max(drag.minH, drag.startH - (y - drag.startY)));
     if (!drag.raf) {
       drag.raf = requestAnimationFrame(() => {
         drag.raf = 0;
@@ -437,14 +447,24 @@ export default function App() {
       return;
     }
 
-    const current = Math.min(drag.maxH, Math.max(drag.minH, drag.startH - (drag.lastY - drag.startY)));
-    const goMin =
-      drag.velocity > 0.45 ? true : drag.velocity < -0.45 ? false : current < (drag.minH + drag.maxH) / 2;
+    const current = Math.min(drag.fullH, Math.max(drag.minH, drag.startH - (drag.lastY - drag.startY)));
+    const order = ["min", "mid", "full"];
+    const heights = { min: drag.minH, mid: drag.midH, full: drag.fullH };
+    let target;
+    if (Math.abs(drag.velocity) > 0.45) {
+      // a flick moves one step from where the drag began
+      const from = order.indexOf(drag.startSnap);
+      target = order[Math.min(2, Math.max(0, from + (drag.velocity > 0 ? -1 : 1)))];
+    } else {
+      target = order.reduce((best, name) =>
+        Math.abs(heights[name] - current) < Math.abs(heights[best] - current) ? name : best
+      );
+    }
 
     panel.style.transition = "height 200ms ease-out";
-    panel.style.height = `${goMin ? drag.minH : drag.maxH}px`;
+    panel.style.height = `${heights[target]}px`;
     dragTimer.current = setTimeout(() => {
-      setMobileMin(goMin);
+      setPanelSnap(target);
       panel.style.transition = "";
       panel.style.height = "";
     }, 210);
@@ -1871,6 +1891,8 @@ export default function App() {
     }
 
     const measure = () => {
+      // almost full screen leaves no map to aim at: keep the last inset from the half-height panel
+      if (panelSnapRef.current === "full") return;
       const o = panel.getBoundingClientRect();
       const c = container.getBoundingClientRect();
       const next = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -1900,7 +1922,7 @@ export default function App() {
       clearTimeout(settle);
       observer.disconnect();
     };
-  }, [insetSource, mobileMin, navigationActive]);
+  }, [insetSource, panelSnap, navigationActive]);
 
   const controlSurface = darkMode
     ? "border-button bg-charcoal/95 text-darkmode-gray"
@@ -1955,14 +1977,16 @@ export default function App() {
             ? navMin
               ? "max-[760px]:h-[176px] max-[760px]:overflow-y-auto"
               : "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
-            : "max-[760px]:h-[52dvh] max-[760px]:max-h-[calc(100dvh-7rem)] max-[760px]:overflow-y-auto"
+            : mobileFull
+              ? "max-[760px]:h-[calc(100dvh-6rem)] max-[760px]:overflow-y-auto"
+              : "max-[760px]:h-[52dvh] max-[760px]:max-h-[calc(100dvh-7rem)] max-[760px]:overflow-y-auto"
         }`}
       >
         {/* drag handle (phones): drag it, the header or the minimized nav panel; a tap toggles */}
         <div className="hidden touch-none justify-center pt-1.5 max-[760px]:flex" {...panelDragHandlers}>
           <button
             type="button"
-            onClick={() => setMobileMin(value => !value)}
+            onClick={() => setPanelSnap(value => (value === "mid" ? "min" : "mid"))}
             title={mobileMin ? "Expand panel" : "Minimize panel"}
             aria-label={mobileMin ? "Expand panel" : "Minimize panel"}
             className="flex h-5 w-16 items-center justify-center"

@@ -535,7 +535,7 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
               onSetStart(point);
               setPoint(null);
             }}
-            className={`rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition ${
+            className={`rounded-md px-2.5 py-1.5 text-left text-xs font-regular transition ${
               darkMode
                 ? "bg-charcoal-light text-darkmode-gray hover:bg-blue/20"
                 : "bg-slate-100 text-charcoal hover:bg-green/15"
@@ -549,7 +549,7 @@ function MapPointPicker({ darkMode, onSetStart, onSetDestination }) {
               onSetDestination(point);
               setPoint(null);
             }}
-            className={`rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition ${
+            className={`rounded-md px-2.5 py-1.5 text-left text-xs font-regular transition ${
               darkMode
                 ? "bg-charcoal-light text-darkmode-gray hover:bg-blue/20"
                 : "bg-slate-100 text-charcoal hover:bg-green/15"

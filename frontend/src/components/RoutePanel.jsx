@@ -397,7 +397,17 @@ export default function RoutePanel({
 
   const navigationCard = navigationActive ? (
         <div
-          className={`${navOnly ? "" : "mb-3"} rounded-2xl border p-3.5 ${
+          className={`${
+            navOnly
+              // minimized phone panel: the panel itself is the card, so no second box inside it
+              ? `px-3 pb-1 pt-0 ${
+                  navigationOffRoute
+                    ? "border-l-4 border-amber-400 pl-2.5 text-amber-500"
+                    : darkMode
+                      ? "text-darkmode-gray"
+                      : "text-charcoal"
+                }`
+              : `mb-3 rounded-2xl border p-3.5 ${
             navigationOffRoute
               ? "border-amber-400 bg-amber-50 text-amber-950"
               : darkMode
@@ -407,6 +417,7 @@ export default function RoutePanel({
                     ? "border-green/50 bg-green/10 text-darkmode-gray"
                     : "border-blue/50 bg-blue/10 text-darkmode-gray"
                 : "border-green/40 bg-green/10 text-charcoal"
+          }`
           }`}
         >
           <div className="flex items-center justify-between gap-3">

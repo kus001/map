@@ -343,6 +343,10 @@ export default function App() {
   const [sidePanel, setIsSidePanel] = useState(false);
   const [mobileMin, setMobileMin] = useState(false);
 
+  const [searchHeight, setSearchHeight] = useState(null);
+  const searchPanelRef = useRef(null);
+  const resizeStartRef = useRef(null);
+
   // touch screeen yall
   const dragStartY = useRef(null);
 
@@ -1879,7 +1883,8 @@ export default function App() {
           </div>
         </header>
 
-        <div className="min-[761px]:min-h-0 min-[761px]:shrink-0 min-[761px]:overflow-y-auto">
+        {/* wrapper for search panel so its height can be changed by drag */}
+        <div ref={searchPanelRef} className="min-[761px]:min-h-0 min-[761px]:shrink-0 min-[761px]:overflow-y-auto">
 
         <SearchPanel
           start={start}

@@ -327,7 +327,7 @@ const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 // phone panel heights (px): keep in sync with the max-[760px] height classes on the sidebar
 const PHONE_MIN_PX = 88;
-const PHONE_NAV_MIN_PX = 150;
+const PHONE_NAV_MIN_PX = 176;
 const PHONE_TOP_GAP_PX = 112;
 
 export default function App() {
@@ -1953,7 +1953,7 @@ export default function App() {
         } max-[760px]:absolute max-[760px]:bottom-7 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
           mobileMin
             ? navMin
-              ? "max-[760px]:h-[150px] max-[760px]:overflow-y-auto"
+              ? "max-[760px]:h-[176px] max-[760px]:overflow-y-auto"
               : "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
             : "max-[760px]:h-[52dvh] max-[760px]:max-h-[calc(100dvh-7rem)] max-[760px]:overflow-y-auto"
         }`}
@@ -2005,7 +2005,7 @@ export default function App() {
 
         {navMin && (
           <div
-            className="hidden touch-none items-start gap-2 px-2 pb-2 max-[760px]:flex"
+            className="hidden touch-none items-start gap-2 pb-2 max-[760px]:flex"
             {...panelDragHandlers}
           >
             <div className="min-w-0 flex-1">

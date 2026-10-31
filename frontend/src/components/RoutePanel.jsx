@@ -228,11 +228,19 @@ function transitNavigationSummary(info) {
     const board = info.next_transit_step;
     if (board) {
       const minutes = info.minutes_to_departure;
-      const when = Number.isFinite(minutes)
-        ? minutes <= 0
-          ? " (now)"
-          : ` (in ${minutes} min)`
-        : "";
+      const scheduled = info.scheduled_minutes_to_departure;
+      const delay = info.departure_delay_min || 0;
+      let when = "";
+      if (Number.isFinite(minutes)) {
+        if (minutes <= 0) {
+          when = " (now)";
+        } else if (delay !== 0 && Number.isFinite(scheduled) && scheduled > 0 && scheduled + delay === minutes) {
+          // delayed (or early) vehicle: show the timetable wait and what the delay adds
+          when = ` (in ${scheduled}${delay > 0 ? "+" : "\u2212"}${Math.abs(delay)} min)`;
+        } else {
+          when = ` (in ${minutes} min)`;
+        }
+      }
       lines.push(
         `Board ${board.vehicle ? `${board.vehicle} ` : ""}route ${board.route} at ${board.departure_time}${when}`
       );
@@ -275,6 +283,7 @@ export default function RoutePanel({
   onClearRoute = () => {},
   displayedMode,
   navigationActive = false,
+  navOnly = false,
   navigationInfo = null,
   navigationAccuracy = null,
   navigationSpeedMps = null,
@@ -386,27 +395,9 @@ export default function RoutePanel({
   const shortestRoutes = bestTies(data.routes, route => route.distance_km, 0.025);               
   const leastTransfers = isTransit ? bestTies(data.routes, transferCount, 0) : new Set();
 
-  return (
-    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3 max-[760px]:flex-none max-[760px]:overflow-visible min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-sm">
-      <div
-        className={`mb-3 rounded-xl border px-3 py-2.5 text-xs ${
-          error
-            ? "border-red-300 bg-red-50 text-red-700"
-            : darkMode
-              ? mapStyle === "hybrid"
-                ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
-                : mapStyle === "satellite"
-                  ? "border-green bg-green/10 text-darkmode-gray"
-                  : "border-blue bg-charcoal-light text-darkmode-gray"
-              : "border-button-light bg-white text-button-darkest"
-        }`}
-      >
-        {status}
-      </div>
-
-      {navigationActive && (
+  const navigationCard = navigationActive ? (
         <div
-          className={`mb-3 rounded-2xl border p-3.5 ${
+          className={`${navOnly ? "" : "mb-3"} rounded-2xl border p-3.5 ${
             navigationOffRoute
               ? "border-amber-400 bg-amber-50 text-amber-950"
               : darkMode
@@ -469,7 +460,31 @@ export default function RoutePanel({
             </div>
           )}
         </div>
-      )}
+  ) : null;
+
+  if (navOnly) {
+    return navigationCard;
+  }
+
+  return (
+    <div className="map-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3 max-[760px]:flex-none max-[760px]:overflow-visible min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-sm">
+      <div
+        className={`mb-3 rounded-xl border px-3 py-2.5 text-xs ${
+          error
+            ? "border-red-300 bg-red-50 text-red-700"
+            : darkMode
+              ? mapStyle === "hybrid"
+                ? "border-hybrid-purple bg-hybrid-charcoal-light text-darkmode-gray"
+                : mapStyle === "satellite"
+                  ? "border-green bg-green/10 text-darkmode-gray"
+                  : "border-blue bg-charcoal-light text-darkmode-gray"
+              : "border-button-light bg-white text-button-darkest"
+        }`}
+      >
+        {status}
+      </div>
+
+      {navigationCard}
 
       {mode === "transit" && timingMode === "arrive_by" && data?.arrive_by_datetime && (
         <div className={`mb-3 rounded-xl border px-3 py-2.5 text-xs font-semibold ${

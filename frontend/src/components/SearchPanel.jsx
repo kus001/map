@@ -614,7 +614,7 @@ export default function SearchPanel({
               onClick={onUseCurrentLocation}
               title="Use current location as start"
               aria-label="Use current location as start"
-              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 ${
+              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm${
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"

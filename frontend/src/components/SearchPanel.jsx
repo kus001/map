@@ -614,7 +614,7 @@ export default function SearchPanel({
               onClick={onUseCurrentLocation}
               title="Use current location as start"
               aria-label="Use current location as start"
-              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm${
+              className={`flex size-8 items-center justify-center rounded-lg border text-base transition disabled:opacity-50 min-[761px]:@max-[295px]/sidebar:size-7 min-[761px]:@max-[295px]/sidebar:text-sm ${
                 usingCurrentLocation
                   ? darkMode
                     ? mapStyle === "hybrid"
@@ -910,7 +910,7 @@ export default function SearchPanel({
         onClick={() => onSearch()}
         darkMode={darkMode}
         mapStyle={mapStyle}
-        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] min-[761px]:@max-[295px]/sidebar:h-9
+        className={`mt-2.5 h-11 w-full shadow-md active:scale-[0.99] min-[761px]:@max-[295px]/sidebar:h-9 min-[761px]:@max-[295px]/sidebar:text-sm
         ${darkMode 
           ? mapStyle === "hybrid" ? "border-hybrid-charcoal bg-hybrid-charcoal-dark active:bg-hybrid-purple-dark/50" : "border-blue bg-blue active:bg-blue-dark" : "border-green bg-green active:bg-green-dark"
         }`}>

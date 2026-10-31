@@ -242,9 +242,6 @@ function centeredTarget(map, latlng, zoom, insets) {
 }
 
 
-// Pans we make ourselves (panel resized) must not count as the visitor moving the map.
-let ownPanUntil = 0;
-
 function MapInsetEffect({ insets }) {
   const map = useMap();
   const previous = useRef(insets);
@@ -256,7 +253,6 @@ function MapInsetEffect({ insets }) {
     const dx = nx - px;
     const dy = ny - py;
     if (dx || dy) {
-      ownPanUntil = Date.now() + 700;
       map.panBy([-dx, -dy], { animate: true, duration: 0.3 });
     }
   }, [map, insets]);
@@ -349,18 +345,15 @@ function MapThemeEffect({ darkMode, mapStyle }) {
 // position finishing), so move there once more - but only while nobody has moved the map
 // (the user, a route fitting itself, "find me") and only if this is a fresh map rather
 // than one coming back with its saved camera (e.g. after leaving 3D).
-function InitialLocationCenter({ currentLocation, approxLocation, initialCamera, insets }) {
+function InitialLocationCenter({ currentLocation, approxLocation, initialCamera }) {
   const map = useMap();
   const resumed = useRef(Boolean(initialCamera));
   const ownMove = useRef(false);
   const moved = useRef(false);
-  // read through a ref: a panel resize is handled by MapInsetEffect, re-centering here too would double-shift
-  const insetsRef = useRef(insets);
-  insetsRef.current = insets;
 
   useMapEvents({
     movestart() {
-      if (!ownMove.current && Date.now() > ownPanUntil) moved.current = true;
+      if (!ownMove.current) moved.current = true;
     },
   });
 
@@ -372,15 +365,12 @@ function InitialLocationCenter({ currentLocation, approxLocation, initialCamera,
 
     const lat = Number(target[0]);
     const lon = Number(target[1]);
-    // aim at the middle of the part of the map the panel isn't covering
-    const zoom = precise ? PRECISE_ZOOM : APPROX_ZOOM;
-    const aim = centeredTarget(map, [lat, lon], zoom, insetsRef.current || ZERO_INSETS);
     const center = map.getCenter();
-    if (Math.abs(center.lat - aim.lat) < 0.005 && Math.abs(center.lng - aim.lng) < 0.005) return;
+    if (Math.abs(center.lat - lat) < 0.005 && Math.abs(center.lng - lon) < 0.005) return;
 
     ownMove.current = true;
     try {
-      map.setView(aim, zoom, { animate: false });
+      map.setView([lat, lon], precise ? PRECISE_ZOOM : APPROX_ZOOM, { animate: false });
     } finally {
       ownMove.current = false;
     }
@@ -987,7 +977,6 @@ export default function MapView({
         currentLocation={currentLocation}
         approxLocation={approxLocation}
         initialCamera={initialCamera}
-        insets={viewInsets}
       />
       <MapThemeEffect darkMode={darkMode} mapStyle={mapStyle} />
       <Ontario511Layer enabled={enabledLayers} onStatus={onLayerStatus} darkMode={darkMode} />

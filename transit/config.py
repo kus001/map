@@ -43,11 +43,11 @@ TRANSFER_WALK_MAX_MIN = float(os.getenv("TRANSIT_TRANSFER_WALK_MAX_MIN", "10"))
 # higher time cap, so busy bus stops nearby can't crowd them out. Radius 0 turns this off.
 INTERCHANGE_WALK_RADIUS_M = max(0.0, float(os.getenv("TRANSIT_INTERCHANGE_WALK_M", "1000")))
 INTERCHANGE_WALK_MAX_LINKS = max(0, int(os.getenv("TRANSIT_INTERCHANGE_WALK_LINKS", "6")))
-INTERCHANGE_WALK_MAX_MIN = float(os.getenv("TRANSIT_INTERCHANGE_WALK_MAX_MIN", "15"))
+INTERCHANGE_WALK_MAX_MIN = float(os.getenv("TRANSIT_INTERCHANGE_WALK_MAX_MIN", "20"))
 # A stop counts as an interchange if its agency is flagged ``interchange=True`` in agencies.py or its
 # name has one of these words.
 INTERCHANGE_AGENCIES = frozenset(agency.id for agency in AGENCIES.values() if agency.interchange)
-INTERCHANGE_NAME_WORDS = ("station", "terminal", "go", "union")
+INTERCHANGE_NAME_WORDS = ("station", "terminal", "go", "union", "stn", "place")
 WALK_LINK_TIMES_PATH = os.getenv("TRANSIT_WALK_LINK_TIMES") or str(
     Path(__file__).resolve().parents[1] / "transit_data" / "walk_link_times.json"
 )
@@ -78,7 +78,7 @@ TRANSFER_BUFFER_MIN = 4
 HEURISTIC_SPEED_KMH = 100.0
 # A* heuristic: 1 = graph lower bound (tight, fast), 0 = old straight-line distance at HEURISTIC_SPEED_KMH
 TRANSIT_GRAPH_HEURISTIC = os.getenv("TRANSIT_GRAPH_HEURISTIC", "1") == "1"
-ACCESS_WALK_SPEED_MPS = 1.1
+ACCESS_WALK_SPEED_MPS = 1
 SERVICE_DAY_ROLLOVER_HOUR = 4
 REALTIME_SCHEDULE_WINDOW_HOURS = 3
 MAX_SCHEDULED_TRIP_CACHE_ENTRIES = 256

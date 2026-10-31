@@ -7,7 +7,7 @@ export default function Button({
   ...props
 }) {
   const base =
-    "flex items-center justify-center rounded-lg border-2 font-semibold shadow-md transition-all duration-150 hover:-translate-y-0.5 focus:outline-none hover:shadow-md active:translate-y-0 disabled:cursor-default disabled:opacity-50";
+    "flex items-center justify-center rounded-lg border-2 font-normal shadow-md transition-all duration-150 hover:-translate-y-0.5 focus:outline-none hover:shadow-md active:translate-y-0 disabled:cursor-default disabled:opacity-50";
 
   const colors = active
     ? darkMode

@@ -233,6 +233,17 @@ export function navigationSnapshot(location, route, nowMs = null) {
     minutes_to_departure: upcomingTransit
       ? minutesUntilClock(upcomingTransit.departure_time, nowMs)
       : null,
+    // the timetable minutes plus the live delay, so the panel can say "in 5+2 min"
+    scheduled_minutes_to_departure: upcomingTransit
+      ? minutesUntilClock(
+          upcomingTransit.scheduled_departure_time || upcomingTransit.departure_time,
+          nowMs
+        )
+      : null,
+    departure_delay_min:
+      upcomingTransit?.realtime && !upcomingTransit.cancelled
+        ? Math.round(Number(upcomingTransit.delay_min) || 0)
+        : 0,
     off_route_m: position.distance_m,
     route_index: currentRouteIndex,
     remaining_m: routeDistanceFrom(

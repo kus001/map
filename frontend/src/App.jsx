@@ -4,7 +4,6 @@ import { IoLayers, IoClose } from "react-icons/io5";
 import { PiSunFill } from "react-icons/pi";
 import { TbMoonStars } from "react-icons/tb";
 import { MdOpenInNew } from "react-icons/md";
-import { IoIosArrowUp } from "react-icons/io";
 
 import MapView from "./components/MapView.jsx";
 import Scene3D from "./components/Scene3D.jsx";
@@ -326,6 +325,11 @@ function impossibleTransitConnection(steps) {
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
+// phone panel heights (px): keep in sync with the max-[760px] height classes on the sidebar
+const PHONE_MIN_PX = 88;
+const PHONE_NAV_MIN_PX = 150;
+const PHONE_TOP_GAP_PX = 112;
+
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
   useEffect(() => {
@@ -347,25 +351,113 @@ export default function App() {
   const searchPanelRef = useRef(null);
   const resizeStartRef = useRef(null);
 
-  // touch screeen yall
-  const dragStartY = useRef(null);
+  // same breakpoint as the max-[760px] classes: below it the sidebar floats over the map
+  const [phoneUi, setPhoneUi] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px)");
+    const update = () => setPhoneUi(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
-  function handleStartTouch(event) {
-    dragStartY.current = event.touches[0].clientY;
-    console.log("Finger started at: ", dragStartY.current)
+  const sidebarRef = useRef(null);
+  const mainRef = useRef(null);
+
+  // Phone panel: it follows the finger while dragging, then eases to the minimized or expanded height.
+  // Heights match the max-[760px] classes on the <aside> so handing back to the classes doesn't jump.
+  const dragRef = useRef(null);
+  const dragTimer = useRef(null);
+
+  function panelHeights() {
+    const minH = navigationActive ? PHONE_NAV_MIN_PX : PHONE_MIN_PX;
+    const maxH = Math.max(
+      minH,
+      Math.min(window.innerHeight * 0.52, window.innerHeight - PHONE_TOP_GAP_PX)
+    );
+    return { minH, maxH };
   }
 
-  function handleEndTouch(event) {
-    const endY = event.changedTouches[0].clientY;
-    const swipeDistance = endY - dragStartY.current;
-    
-    if (swipeDistance > 50) {
-      setMobileMin(true);
-    } else if (swipeDistance < 50) {
-      setMobileMin(false);
+  function handleStartTouch(event) {
+    const panel = sidebarRef.current;
+    if (!phoneUi || !panel || !event.touches?.length) return;
+    clearTimeout(dragTimer.current);
+    const { minH, maxH } = panelHeights();
+    const y = event.touches[0].clientY;
+    dragRef.current = {
+      startY: y,
+      startH: panel.getBoundingClientRect().height,
+      minH,
+      maxH,
+      lastY: y,
+      lastT: performance.now(),
+      velocity: 0,
+      moved: false,
+      raf: 0,
+      pending: 0,
+    };
+    panel.style.transition = "none";
+  }
+
+  function handleMoveTouch(event) {
+    const drag = dragRef.current;
+    const panel = sidebarRef.current;
+    if (!drag || !panel || !event.touches?.length) return;
+    const y = event.touches[0].clientY;
+    if (Math.abs(y - drag.startY) > 4) drag.moved = true;
+    const now = performance.now();
+    if (now > drag.lastT) {
+      drag.velocity = (y - drag.lastY) / (now - drag.lastT); // px/ms, positive = finger moving down
+    }
+    drag.lastY = y;
+    drag.lastT = now;
+    // dragging up grows the panel
+    drag.pending = Math.min(drag.maxH, Math.max(drag.minH, drag.startH - (y - drag.startY)));
+    if (!drag.raf) {
+      drag.raf = requestAnimationFrame(() => {
+        drag.raf = 0;
+        panel.style.height = `${drag.pending}px`;
+      });
     }
   }
 
+  function handleEndTouch() {
+    const drag = dragRef.current;
+    const panel = sidebarRef.current;
+    dragRef.current = null;
+    if (!drag || !panel) return;
+    cancelAnimationFrame(drag.raf);
+
+    // a tap (or a tiny wobble) is not a drag: put the panel back and let the click through
+    if (!drag.moved) {
+      panel.style.transition = "";
+      panel.style.height = "";
+      return;
+    }
+
+    const current = Math.min(drag.maxH, Math.max(drag.minH, drag.startH - (drag.lastY - drag.startY)));
+    const goMin =
+      drag.velocity > 0.45 ? true : drag.velocity < -0.45 ? false : current < (drag.minH + drag.maxH) / 2;
+
+    panel.style.transition = "height 200ms ease-out";
+    panel.style.height = `${goMin ? drag.minH : drag.maxH}px`;
+    dragTimer.current = setTimeout(() => {
+      setMobileMin(goMin);
+      panel.style.transition = "";
+      panel.style.height = "";
+    }, 210);
+  }
+
+  useEffect(() => () => clearTimeout(dragTimer.current), []);
+
+  const panelDragHandlers = {
+    onTouchStart: handleStartTouch,
+    onTouchMove: handleMoveTouch,
+    onTouchEnd: handleEndTouch,
+    onTouchCancel: handleEndTouch,
+  };
   const overlayRef = useRef(null);
   const [measuredInsets, setMeasuredInsets] = useState(ZERO_INSETS);
   const savedPreferences = useMemo(() => loadPreferences(), []);
@@ -1759,31 +1851,35 @@ export default function App() {
 
                                                                                     
   const overlayVisible = sidePanel === true && navigationActive;
-  const viewInsets = overlayVisible ? measuredInsets : ZERO_INSETS;
+  // on phones the sidebar floats over the map, so it needs the same treatment as the nav overlay
+  const sidebarCoversMap = phoneUi && !sidePanel;
+  // minimized on a phone while navigating: the little panel turns into the nav panel
+  const navMin = mobileMin && navigationActive && !sidePanel;
+  const insetSource = overlayVisible ? "overlay" : sidebarCoversMap ? "sidebar" : null;
+  const viewInsets = insetSource ? measuredInsets : ZERO_INSETS;
 
-                                                                                
-                                                                               
+  // measure how much of the map the floating panel hides, so recentering aims at the visible part
   useEffect(() => {
-    if (!overlayVisible) {
+    if (!insetSource) {
       return undefined;
     }
 
-    const overlay = overlayRef.current;
-    const container = overlay?.parentElement;
-    if (!overlay || !container) {
+    const panel = insetSource === "overlay" ? overlayRef.current : sidebarRef.current;
+    const container = mainRef.current;
+    if (!panel || !container) {
       return undefined;
     }
 
     const measure = () => {
-      const o = overlay.getBoundingClientRect();
+      const o = panel.getBoundingClientRect();
       const c = container.getBoundingClientRect();
       const next = { top: 0, right: 0, bottom: 0, left: 0 };
 
       if (o.width >= c.width * 0.8) {
-                                                      
+        // full-width sheet along the bottom
         next.bottom = Math.max(0, Math.round(c.bottom - o.top));
       } else {
-                                                          
+        // card on the left
         next.left = Math.max(0, Math.round(o.right - c.left));
       }
 
@@ -1791,12 +1887,20 @@ export default function App() {
         prev.left === next.left && prev.bottom === next.bottom ? prev : next
       );
     };
-                                                      
-    const observer = new ResizeObserver(measure);
-    observer.observe(overlay);
+    measure();
+    // the panel resizes every frame while dragged or easing; only react once it settles
+    let settle = null;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(settle);
+      settle = setTimeout(measure, 120);
+    });
+    observer.observe(panel);
     observer.observe(container);
-    return () => observer.disconnect();
-  }, [overlayVisible]);
+    return () => {
+      clearTimeout(settle);
+      observer.disconnect();
+    };
+  }, [insetSource, mobileMin, navigationActive]);
 
   const controlSurface = darkMode
     ? "border-button bg-charcoal/95 text-darkmode-gray"
@@ -1839,7 +1943,8 @@ export default function App() {
       }`}
     >
       <aside
-        className={`map-sidebar @container/sidebar z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[311px] min-w-[280px] md:max-w-[480px] md:resize-x"} ${
+        ref={sidebarRef}
+        className={`map-sidebar @container/sidebar max-[760px]:[transition-property:width,min-width,max-width,opacity,transform,height] max-[760px]:duration-200 z-[1000] flex h-dvh flex-shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r shadow-xl transition-[width,min-width,max-width,opacity,transform] duration-300 ease-in-out ${sidePanel ? "map-sidebar-closed pointer-events-none !w-0 !min-w-0 !max-w-0 !border-0 opacity-0" : "w-[311px] min-w-[280px] md:max-w-[480px] md:resize-x"} ${
           darkMode
             ? mapStyle === "hybrid"
               ? "border-button/50 bg-hybrid-charcoal"
@@ -1847,11 +1952,29 @@ export default function App() {
             : "border-button-light/70 bg-white"
         } max-[760px]:absolute max-[760px]:bottom-7 max-[760px]:left-3 max-[760px]:right-3 max-[760px]:rounded-2xl max-[760px]:border ${sidePanel ? "max-[760px]:!w-auto max-[760px]:!max-w-none max-[760px]:!-translate-x-[110%]" : "max-[760px]:translate-x-0"} max-[760px]:w-auto ${
           mobileMin
-            ? "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
-            : "max-[760px]:h-[60vh] max-[760px]:overflow-y-auto"
+            ? navMin
+              ? "max-[760px]:h-[150px] max-[760px]:overflow-y-auto"
+              : "max-[760px]:h-[88px] max-[760px]:overflow-hidden"
+            : "max-[760px]:h-[52dvh] max-[760px]:max-h-[calc(100dvh-7rem)] max-[760px]:overflow-y-auto"
         }`}
       >
-        <header className="px-5 pb-2 pt-3" onTouchStart={handleStartTouch} onTouchEnd={handleEndTouch}>
+        {/* drag handle (phones): drag it, the header or the minimized nav panel; a tap toggles */}
+        <div className="hidden touch-none justify-center pt-1.5 max-[760px]:flex" {...panelDragHandlers}>
+          <button
+            type="button"
+            onClick={() => setMobileMin(value => !value)}
+            title={mobileMin ? "Expand panel" : "Minimize panel"}
+            aria-label={mobileMin ? "Expand panel" : "Minimize panel"}
+            className="flex h-5 w-16 items-center justify-center"
+          >
+            <span className={`h-1 w-10 rounded-full ${darkMode ? "bg-darkmode-gray/50" : "bg-button-darkest/30"}`} />
+          </button>
+        </div>
+
+        <header
+          className={`touch-none px-5 pb-2 pt-3 max-[760px]:pt-1 ${navMin ? "max-[760px]:hidden" : ""}`}
+          {...panelDragHandlers}
+        >
           <div className="flex items-center justify-between">
             <a
               href="https://github.com/kus001/map"
@@ -1869,9 +1992,6 @@ export default function App() {
             >
               kmaps
             </a>
-            <button className={`hidden max-[760px]:flex ${smallButton}`} onClick={() => setMobileMin(value => !value)}>
-              <IoIosArrowUp />
-            </button>
           </div>
 
           <div
@@ -1883,6 +2003,35 @@ export default function App() {
           </div>
         </header>
 
+        {navMin && (
+          <div
+            className="hidden touch-none items-start gap-2 px-2 pb-2 max-[760px]:flex"
+            {...panelDragHandlers}
+          >
+            <div className="min-w-0 flex-1">
+              <RoutePanel
+                navOnly
+                data={data}
+                selectedRoute={selectedRoute}
+                selectedRouteNumber={selectedRouteNumber}
+                displayedMode={displayedMode}
+                navigationActive={navigationActive}
+                mapStyle={mapStyle}
+                navigationInfo={navigationInfo}
+                navigationAccuracy={navigationAccuracy}
+                navigationSpeedMps={navigationSpeedMps}
+                onStopNavigation={() => stopNavigation()}
+                status={status}
+                error={error}
+                darkMode={darkMode}
+                timingMode={timingMode}
+                departureTime={departureTime}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className={`contents ${navMin ? "max-[760px]:hidden" : ""}`}>
         {/* wrapper for search panel so its height can be changed by drag */}
         <div ref={searchPanelRef} style={{height: searchHeight === null ? undefined : `${searchHeight}px`}} className="min-[761px]:min-h-0 min-[761px]:shrink-0 min-[761px]:overflow-y-auto max-[761px]:!h-auto">
 
@@ -1976,8 +2125,10 @@ export default function App() {
           departureTime={departureTime}
         />
 
+        </div>
+
         <footer
-          className={`flex items-center justify-center gap-2 border-t py-3 text-[11px] ${
+          className={`${navMin ? "max-[760px]:hidden" : ""} flex items-center justify-center gap-2 border-t py-3 text-[11px] ${
             darkMode
               ? "border-button/40 text-darkmode-gray"
               : "border-button-light/50 text-button"
@@ -2037,7 +2188,7 @@ export default function App() {
         </footer>
       </aside>
 
-      <main className="relative h-full min-w-0 flex-1 overflow-hidden">
+      <main ref={mainRef} className="relative h-full min-w-0 flex-1 overflow-hidden">
         <button
           type="button"
           onClick={() => setIsSidePanel(value => !value)}
@@ -2135,7 +2286,9 @@ export default function App() {
           </div>
         )}
 
-        <div className={`absolute bottom-7 right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
+        <div
+          style={viewInsets.bottom > 0 ? { bottom: viewInsets.bottom + 12 } : undefined}
+          className={`absolute ${viewInsets.bottom > 0 ? "" : "bottom-7"} right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
           <button type="button" onClick={() => {
             if (threeD) leave3D();
             else {

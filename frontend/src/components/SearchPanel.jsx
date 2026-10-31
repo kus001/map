@@ -708,37 +708,6 @@ export default function SearchPanel({
         </div>
       )}
 
-      {/* recent searches 
-      {recentSearches.length > 0 && (
-        <details className={`ml-9 mt-3.5 rounded-xl border ${
-          darkMode
-            ? mapStyle === "hybrid"
-              ? "border-hybrid-charcoal-light bg-hybrid-charcoal"
-              : "border-button bg-charcoal-light"
-            : "border-button-light bg-white"
-        }`}>
-          <summary className={`cursor-pointer px-3 py-2.5 text-xs font-semibold ${
-            darkMode
-              ? mapStyle === "hybrid"
-                ? "text-hybrid-purple-light"
-                : mapStyle === "street"
-                  ? "text-blue-lighter"
-                  : "text-green-lighter"                  
-            : "text-charcoal"
-          }`}>Recent Locations</summary>
-          {recentSearches.map((search, index) => (
-            <div key={index} className={`mx-3 mb-1.5 rounded-lg border p-2 ${
-              darkMode
-                ? "border-button text-darkmode-gray "
-                : "border-button-light text-charcoal"
-            }`}>
-              <p className="text-xs font-medium">{search.start}</p>
-              <p className="mt-1 text-[11px] opacity-70">{search.mode}</p>
-            </div>
-          ))}
-        </details>
-      )} */}
-
       <div className="mt-2 flex items-center justify-between gap-3">
         <span
           className={`text-[10px] whitespace-pre-line ${
@@ -752,7 +721,7 @@ export default function SearchPanel({
           type="button"
           onClick={onSwap}
           title="Swap locations"
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50 ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base transition hover:text-white disabled:opacity-50  ${
             darkMode
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-charcoal-light hover:bg-hybrid-purple text-darkmode-gray"

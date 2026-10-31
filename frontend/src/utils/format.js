@@ -161,7 +161,7 @@ export function routeLateness(steps) {
   );
 }
 
-const POWERTRAIN_LABELS = { normal: "Normal", hev: "Hybrid (HEV)", electric: "Electric" };
+const POWERTRAIN_LABELS = { normal: "Normal", hev: "Hybrid", electric: "Electric" };
 
 // Bus details the backend attaches to live GRT vehicles (vehicle.info). Returns null when unknown.
 export function vehicleSpecs(vehicle) {

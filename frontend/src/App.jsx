@@ -1926,7 +1926,7 @@ export default function App() {
 
   const controlSurface = darkMode
     ? "border-button bg-charcoal/95 text-darkmode-gray"
-    : "border-white/80 bg-white/95 text-charcoal";
+    : "border-transparent bg-white/95 text-charcoal";
 
   const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
     darkMode

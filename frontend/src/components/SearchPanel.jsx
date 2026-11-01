@@ -478,8 +478,14 @@ function LocationInput({
               </button>
 
               <IoStar 
-                onClick={() => setFavLocations(true)}
-                className={favLocations ? "text-yellow-400" : "text-gray-400"}   
+                onClick={() => {
+                  setFavLocations(current => 
+                    current.includes(location)
+                      ? current.filter(item => item !== location)
+                      : [...current, location]
+                  );
+                }}
+                className={`cursor-pointer ${favLocations.includes(location) ? "text-yellow-400" : "text-yellow-400/20"}`}   
               />
 
               <button 

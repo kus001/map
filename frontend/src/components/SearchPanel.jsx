@@ -3,7 +3,7 @@ import { BsPersonWalking } from "react-icons/bs";
 import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline, IoClose } from "react-icons/io5";
+import { IoCarOutline, IoClose, IoStar } from "react-icons/io5";
 import {
   MdDirectionsTransit,
   MdMyLocation,
@@ -211,6 +211,7 @@ function LocationInput({
   removeRecentLocation,
 }) {
   const [suggestions, setSuggestions] = useState([]);
+  const [favLocations, setFavLocations] = useState([]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const suppressNextLookup = useRef(false);
@@ -475,6 +476,11 @@ function LocationInput({
                 <GoHistory className="opacity-70" />
                 <span className="truncate">{location}</span>
               </button>
+
+              <IoStar 
+                onClick={() => setFavLocations(true)}
+                className={favLocations ? "text-yellow-400" : "text-gray-400"}   
+              />
 
               <button 
                 className="ml-auto p-1.5 text-red-400 transition hover:text-red-700 active:scale-90" 

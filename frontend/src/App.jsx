@@ -2358,7 +2358,7 @@ export default function App() {
             type="button"
             onClick={mapStyles}
             title="Change map style"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} ${darkMode}`}
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface}`}
           >
             {mapStyle === "street" ? (
               <MdMap className="text-lg" />

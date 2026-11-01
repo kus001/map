@@ -2113,13 +2113,14 @@ export default function App() {
             event.currentTarget.setPointerCapture(event.pointerId);
             resizeStartRef.current = {
               y: event.clientY,
-              height: searchPanelRef.current.offsetHeight
+              height: searchPanelRef.current.offsetHeight,
+              maxHeight: searchPanelRef.current.scrollHeight,
             };
           }}
           onPointerMove={event => {
             if (!resizeStartRef.current) return;
             const distance = event.clientY - resizeStartRef.current.y;
-            const heightNew = resizeStartRef.current.height + distance;
+            const heightNew = Math.max(0, Math.min(resizeStartRef.current.height + distance, resizeStartRef.current.maxHeight));
             setSearchHeight(heightNew);
           }}
           onPointerUp={() => {

@@ -334,6 +334,7 @@ const PHONE_FULL_INSET_PX = 96;
 
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
+  const [favLocations, setFavLocations] = useState([]);
   useEffect(() => {
     try {
       window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));
@@ -2065,6 +2066,8 @@ export default function App() {
           start={start}
           destination={destination}
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
           removeRecentLocation={removeLocation}

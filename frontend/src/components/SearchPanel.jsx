@@ -207,11 +207,12 @@ function LocationInput({
   bias = null,
   onSelectLocation = () => {},
   recentSearches = [],
+  favLocations,
+  setFavLocations,
   recentField,
   removeRecentLocation,
 }) {
   const [suggestions, setSuggestions] = useState([]);
-  const [favLocations, setFavLocations] = useState([]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const suppressNextLookup = useRef(false);
@@ -548,6 +549,8 @@ export default function SearchPanel({
   start,
   destination,
   recentSearches,
+  favLocations,
+  setFavLocations,
   setStart,
   setDestination,
   mode,
@@ -593,6 +596,8 @@ export default function SearchPanel({
       <div className="space-y-2 max-[760px]:space-y-2">
         <LocationInput
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           removeRecentLocation={removeRecentLocation}
           recentField="start"
           key={usingCurrentLocation ? "current-location" : "typed-start"}
@@ -651,6 +656,8 @@ export default function SearchPanel({
 
         <LocationInput
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           removeRecentLocation={removeRecentLocation}
           recentField="destination"
           value={destination}

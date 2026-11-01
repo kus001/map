@@ -1928,14 +1928,16 @@ export default function App() {
     ? "border-button bg-charcoal/95 text-darkmode-gray"
     : "border-transparent bg-white/95 text-charcoal";
 
-  const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+  const smallButton = `rounded-lg border p-2 transition hover:glass hover:-translate-y-px active:scale-90 ${
     darkMode
       ? mapStyle === "hybrid"
         ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light" 
         : mapStyle === "satellite"
           ? "border-button bg-charcoal-light text-green"
           : "border-button bg-charcoal-light text-blue-light"
-      : "border-button-light bg-white text-green-dark"
+      : mapStyle === "street"
+        ? "border-button-light bg-white text-green-dark hover:glass"
+        : "border-button-light bg-white text-green-dark hover:glass hover:text-white/90"
   }`;
 
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";

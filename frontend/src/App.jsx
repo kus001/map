@@ -1937,6 +1937,7 @@ export default function App() {
         <div 
           className="hidden min-[761px]:flex h-4 shrink-0 cursor-row-resize items-center justify-center"
           onPointerDown={event => { // basically detects how far mouse moved
+            event.currentTarget.setPointerCapture(event.pointerId);
             resizeStartRef.current = {
               y: event.clientY,
               height: searchPanelRef.current.offsetHeight
@@ -1947,6 +1948,12 @@ export default function App() {
             const distance = event.clientY - resizeStartRef.current.y;
             const heightNew = resizeStartRef.current.height + distance;
             setSearchHeight(heightNew);
+          }}
+          onPointerUp={() => {
+            resizeStartRef.current = null;
+          }}
+          onPointerCancel={() => {
+            resizeStartRef.current = null;
           }}
         >
           <div className="h-0.25 w-20 rounded-full bg-gray-400" />

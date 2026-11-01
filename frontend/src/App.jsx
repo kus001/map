@@ -2321,7 +2321,7 @@ export default function App() {
         <div
           style={viewInsets.bottom > 0 ? { bottom: viewInsets.bottom + 12 } : undefined}
           className={`absolute ${viewInsets.bottom > 0 ? "" : "bottom-7"} right-15 z-[500] flex gap-1 rounded-xl border p-1 shadow-lg backdrop-blur ${controlSurface}`}>
-          <button type="button" onClick={() => {
+          {/* <button type="button" onClick={() => {
             if (threeD) leave3D();
             else {
               // Leaflet may still be animating a zoom or pan. Capture its
@@ -2348,11 +2348,12 @@ export default function App() {
                   : "bg-green text-white"
               : "hover:bg-black/10"}`}>
             {threeD ? "2D" : "3D"}
-          </button>
+          </button> */}
 
         </div>
 
         <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2">
+          
           <button
             type="button"
             onClick={mapStyles}
@@ -2367,6 +2368,35 @@ export default function App() {
               <IoLayers className="text-lg" />
             )}
             <span>{mapStyle === "street" ? "Satellite" : mapStyle === "satellite" ? "Hybrid" : "Street"}</span>
+          </button>
+
+          <button type="button" onClick={() => {
+            if (threeD) leave3D();
+            else {
+              // Leaflet may still be animating a zoom or pan. Capture its
+              // *current* centre/zoom before hiding it, not its last moveend.
+              let camera = null;
+              try { camera = twoDCameraGetter.current?.(); }
+              catch (error) { console.warn("Unable to read 2D camera", error); }
+              if (camera && Array.isArray(camera.center) && camera.center.length === 2 &&
+                  camera.center.every(Number.isFinite) && Number.isFinite(camera.zoom)) {
+                mapCamera.current = camera;
+              }
+              threeDCamera.current = null;
+              setReturn2DCamera(null);
+              setThreeD(true);
+            }
+          }}
+            aria-pressed={threeD} title="Toggle 3D map"
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} 
+            ${threeD 
+              ? mapStyle === "hybrid"
+                ? "bg-hybrid-purple text-white" 
+                : mapStyle === "street"
+                  ? "bg-blue text-white"
+                  : "bg-green text-white"
+              : "hover:bg-black/10"}`}>
+            {threeD ? "2D" : "3D"}
           </button>
 
           <LayersPanel

@@ -29,7 +29,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
         onClick={onToggleOpen}
         aria-expanded={open}
         aria-label="Map layers"
-        className={`flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-medium shadow-lg backdrop-blur transition-colors ${surface} ${hover}`}
+        className={`flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-medium shadow-lg backdrop-blur transition active:scale-95 hover:glass ${surface} ${hover}`}
       >
         <IoLayersOutline className="text-lg" aria-hidden="true" />
         Layers

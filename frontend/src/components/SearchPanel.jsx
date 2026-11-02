@@ -914,7 +914,9 @@ export default function SearchPanel({
       <details>
           <summary>fav places</summary>
           {favLocations.map((location, index) => (
-            <p key={index}>{location}</p>
+            <button key={index} type="button" onClick={() => setDestination(location)}>
+              {location}
+            </button>
           ))}
       </details>
     </div>

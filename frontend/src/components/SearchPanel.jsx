@@ -911,11 +911,11 @@ export default function SearchPanel({
               : "Find Route"}
       </Button>
 
-      <details>
+      <details className="mt-3 rounded-lg border p-2">
           <summary>fav places</summary>
           {favLocations.map((location, index) => (
-            <div>
-              <button key={index} type="button" onClick={() => setDestination(location)}>
+            <div key={index} className="flex items-center justify-between px-3 py-2">
+              <button type="button" onClick={() => setDestination(location)}>
                 {location}
               </button>
 
@@ -925,7 +925,7 @@ export default function SearchPanel({
                 );
               }}
               >
-                <IoStar />
+                <IoStar className="text-yellow-400"/>
               </button>
             </div>
           ))}

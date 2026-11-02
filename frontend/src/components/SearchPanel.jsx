@@ -910,6 +910,13 @@ export default function SearchPanel({
               ? "Find Arrival Route"
               : "Find Route"}
       </Button>
+
+      <details>
+          <summary>fav places</summary>
+          {favLocations.map((location, index) => (
+            <p key={index}>{location}</p>
+          ))}
+      </details>
     </div>
   );
 }

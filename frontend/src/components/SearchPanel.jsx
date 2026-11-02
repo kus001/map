@@ -912,9 +912,13 @@ export default function SearchPanel({
       </Button>
 
       <details className="mt-3 rounded-lg border p-2">
-          <summary>fav places</summary>
+          <summary className="flex cursor-pointer items-center gap-2 text-sm">fav places</summary>
           {favLocations.map((location, index) => (
-            <div key={index} className="flex items-center justify-between px-3 py-2">
+            <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 ${
+              darkMode
+                ? "border-button bg-charcoal-light text-darkmode-gray"
+                : "border-button-light bg-white text-charcoal"
+            }`}>
               <button type="button" onClick={() => setDestination(location)}>
                 {location}
               </button>

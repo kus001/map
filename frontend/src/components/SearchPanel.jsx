@@ -919,7 +919,7 @@ export default function SearchPanel({
                 {location}
               </button>
 
-              <button type="button" onCLick={() => {
+              <button type="button" onClick={() => {
                 setFavLocations(current => 
                   current.filter(item => item !== location)
                 );

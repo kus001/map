@@ -911,15 +911,23 @@ export default function SearchPanel({
               : "Find Route"}
       </Button>
 
-      <details className="mt-3 rounded-lg border p-2">
-          <summary className="flex cursor-pointer items-center gap-2 text-sm">fav places</summary>
+      <details className={`mt-3 rounded-lg overflow-hidden shadow-lg p-2 ${
+        darkMode
+          ? mapStyle === "hybrid"
+            ? "bg-hybrid-charcoal-light text-darkmode-gray"
+            : "bg-charcoal-light text-darkmode-gray"
+          : "bg-charcoal text-white"
+      }`}>
+          <summary className="flex cursor-pointer items-center gap-2 text-sm">Favourite Places</summary>
           {favLocations.map((location, index) => (
             <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 ${
               darkMode
-                ? "border-button bg-charcoal-light text-darkmode-gray"
-                : "border-button-light bg-white text-charcoal"
+                ? mapStyle === "hybrid"
+                  ? "border-button bg-hybrid-charcoal-light text-darkmode-gray"
+                  : "border-button bg-charcoal-light text-darkmode-gray"
+                : "border-button-light bg-green text-white"
             }`}>
-              <button type="button" onClick={() => setDestination(location)}>
+              <button type="button" className="text-sm" onClick={() => setDestination(location)}>
                 {location}
               </button>
 

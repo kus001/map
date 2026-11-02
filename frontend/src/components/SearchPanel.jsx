@@ -914,9 +914,20 @@ export default function SearchPanel({
       <details>
           <summary>fav places</summary>
           {favLocations.map((location, index) => (
-            <button key={index} type="button" onClick={() => setDestination(location)}>
-              {location}
-            </button>
+            <div>
+              <button key={index} type="button" onClick={() => setDestination(location)}>
+                {location}
+              </button>
+
+              <button type="button" onCLick={() => {
+                setFavLocations(current => 
+                  current.filter(item => item !== location)
+                );
+              }}
+              >
+                <IoStar />
+              </button>
+            </div>
           ))}
       </details>
     </div>

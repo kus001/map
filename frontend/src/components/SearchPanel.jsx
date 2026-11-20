@@ -920,11 +920,11 @@ export default function SearchPanel({
       }`}>
           <summary className="flex cursor-pointer items-center gap-2 text-sm">Favourite Places</summary>
           {favLocations.map((location, index) => (
-            <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 ${
+            <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 mt-2 ${
               darkMode
                 ? mapStyle === "hybrid"
-                  ? "border-button bg-hybrid-charcoal-light text-darkmode-gray"
-                  : "border-button bg-charcoal-light text-darkmode-gray"
+                  ? "border-button bg-hybrid-charcoal text-darkmode-gray"
+                  : "border-button bg-charcoal text-darkmode-gray"
                 : "border-button-light bg-green text-white"
             }`}>
               <button type="button" className="text-sm" onClick={() => setDestination(location)}>

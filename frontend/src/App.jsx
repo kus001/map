@@ -125,6 +125,7 @@ function applyWalkShapes(route, shapes) {
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
 const RECENT_SEARCH_KEY = "kmaps-recent-searches";
+const FAV_LOCATIONS_KEY = "kmaps-favourite-locations";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
@@ -191,6 +192,25 @@ function recentSearch() {
   }
 }
 // console.log("Recent searches: ", recentSearch);
+
+function savedFavs() {
+  try {
+    const raw = window.localStorage.getItem(FAV_LOCATIONS_KEY);
+    console.log("favs: ", raw);
+    if (!raw) {
+      return [];
+    }
+    const saved = JSON.parse(raw);
+    return Array.isArray(saved) ? saved : [];
+  }
+  
+  catch (error) {
+    console.warn("Could not load recent searches", error);
+    return [];
+  }
+}
+
+console.log("Saved favs: ", savedFavs);
 
 function validSavedValue(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;
@@ -334,7 +354,7 @@ const PHONE_FULL_INSET_PX = 96;
 
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
-  const [favLocations, setFavLocations] = useState([]);
+  const [favLocations, setFavLocations] = useState(savedFavs);
   useEffect(() => {
     try {
       window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));

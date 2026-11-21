@@ -486,7 +486,7 @@ function LocationInput({
                       : [...current, location]
                   );
                 }}
-                className={`cursor-pointer ${favLocations.includes(location) ? "text-yellow-400" : "text-yellow-400/20"}`}   
+                className={`cursor-pointer ${favLocations.includes(location) ? "text-yellow-400" : "text-yellow-400/40"}`}   
               />
 
               <button 
@@ -918,14 +918,14 @@ export default function SearchPanel({
             : "bg-charcoal-light text-darkmode-gray"
           : "bg-green-light/40 text-charcoal border border-green/20"
       }`}>
-          <summary className="flex cursor-pointer items-center gap-2 text-sm">Favourite Places</summary>
+          <summary className="flex cursor-pointer items-center gap-2 text-md">Favourite Places</summary>
           {favLocations.map((location, index) => (
             <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 mt-2 ${
               darkMode
                 ? mapStyle === "hybrid"
                   ? "border-button bg-hybrid-charcoal text-darkmode-gray"
                   : "border-button bg-charcoal text-darkmode-gray"
-                : "border-button-light bg-green text-white"
+                : "border-button-light bg-green-dark/35 text-charcoal-light"
             }`}>
               <button type="button" className="text-sm" onClick={() => setDestination(location)}>
                 {location}

@@ -916,7 +916,7 @@ export default function SearchPanel({
           ? mapStyle === "hybrid"
             ? "bg-hybrid-charcoal-light text-darkmode-gray"
             : "bg-charcoal-light text-darkmode-gray"
-          : "bg-charcoal text-white"
+          : "bg-green-light/40 text-charcoal border border-green/20"
       }`}>
           <summary className="flex cursor-pointer items-center gap-2 text-sm">Favourite Places</summary>
           {favLocations.map((location, index) => (

@@ -355,6 +355,7 @@ const PHONE_FULL_INSET_PX = 96;
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
   const [favLocations, setFavLocations] = useState(savedFavs);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));
@@ -362,6 +363,14 @@ export default function App() {
       console.warn("Could not save recent searches", error);
     }
   }, [recentSearches]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FAV_LOCATIONS_KEY, JSON.stringify(favLocations));
+    } catch (error) {
+      console.warn("Could not save fav location.", error);
+    }
+  }, [favLocations])
   
   function removeLocation(location) { // remove location from saved recent
     setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));

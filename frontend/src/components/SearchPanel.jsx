@@ -486,7 +486,16 @@ function LocationInput({
                       : [...current, location]
                   );
                 }}
-                className={`cursor-pointer ${favLocations.includes(location) ? "text-yellow-400" : "text-yellow-400/40"}`}   
+
+                className={`cursor-pointer ${
+                  darkMode
+                    ? favLocations.includes(location)
+                      ? "text-yellow-400"
+                      : "text-yellow-400/40"
+                    : favLocations.includes(location)
+                      ? "text-green"
+                      : "text-green/30"
+                }`}   
               />
 
               <button 
@@ -937,7 +946,7 @@ export default function SearchPanel({
                 );
               }}
               >
-                <IoStar className="text-yellow-400"/>
+                <IoStar className={`${darkMode ? "text-yellow-400" : "text-green-dark"}`}/>
               </button>
             </div>
           ))}

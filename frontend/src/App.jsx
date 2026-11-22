@@ -1963,7 +1963,7 @@ export default function App() {
           : " border-button bg-charcoal-light text-darkmode-gray"
         : mapStyle === "street"
           ? "border-button-light bg-white text-charcoal hover:glass"
-          : "border-button-light bg-white text-charcoal hover:glass"
+          : "border-button-light bg-white text-charcoal hover:text-white/90 hover:glass"
 
   const smallButton = `rounded-lg border p-2 transition hover:glass hover:-translate-y-px active:scale-90 ${
     darkMode

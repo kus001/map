@@ -201,7 +201,13 @@ function savedFavs() {
       return [];
     }
     const saved = JSON.parse(raw);
-    return Array.isArray(saved) ? saved : [];
+    if (!Array.isArray(saved)) return [];
+
+    return saved.map(item => 
+      typeof item === "string"
+        ? {name:item, address:item}
+        : item
+    );
   }
   
   catch (error) {
@@ -210,7 +216,7 @@ function savedFavs() {
   }
 }
 
-console.log("Saved favs: ", savedFavs);
+console.log("Saved favs: ", savedFavs());
 
 function validSavedValue(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;

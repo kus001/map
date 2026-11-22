@@ -3,12 +3,13 @@ import { BsPersonWalking } from "react-icons/bs";
 import { GoDot, GoHistory } from "react-icons/go";
 import { HiArrowsUpDown, HiChevronDown } from "react-icons/hi2";
 import { IoMdBicycle } from "react-icons/io";
-import { IoCarOutline, IoClose } from "react-icons/io5";
+import { IoCarOutline, IoClose, IoStar } from "react-icons/io5";
 import {
   MdDirectionsTransit,
   MdMyLocation,
 } from "react-icons/md";
 import { PiMapPinFill } from "react-icons/pi";
+import { GoChevronRight, GoChevronDown } from "react-icons/go";
 
 import Button from "./Button.jsx";
 
@@ -207,6 +208,8 @@ function LocationInput({
   bias = null,
   onSelectLocation = () => {},
   recentSearches = [],
+  favLocations,
+  setFavLocations,
   recentField,
   removeRecentLocation,
 }) {
@@ -476,6 +479,26 @@ function LocationInput({
                 <span className="truncate">{location}</span>
               </button>
 
+              <IoStar 
+                onClick={() => {
+                  setFavLocations(current => 
+                    current.includes(location)
+                      ? current.filter(item => item !== location)
+                      : [...current, location]
+                  );
+                }}
+
+                className={`cursor-pointer ${
+                  darkMode
+                    ? favLocations.includes(location)
+                      ? "text-yellow-400"
+                      : "text-yellow-400/40"
+                    : favLocations.includes(location)
+                      ? "text-green"
+                      : "text-green/30"
+                }`}   
+              />
+
               <button 
                 className="ml-auto p-1.5 text-red-400 transition hover:text-red-700 active:scale-90" 
                 type="button"
@@ -536,6 +559,8 @@ export default function SearchPanel({
   start,
   destination,
   recentSearches,
+  favLocations,
+  setFavLocations,
   setStart,
   setDestination,
   mode,
@@ -581,6 +606,8 @@ export default function SearchPanel({
       <div className="space-y-2 max-[760px]:space-y-2">
         <LocationInput
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           removeRecentLocation={removeRecentLocation}
           recentField="start"
           key={usingCurrentLocation ? "current-location" : "typed-start"}
@@ -639,6 +666,8 @@ export default function SearchPanel({
 
         <LocationInput
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           removeRecentLocation={removeRecentLocation}
           recentField="destination"
           value={destination}
@@ -891,6 +920,42 @@ export default function SearchPanel({
               ? "Find Arrival Route"
               : "Find Route"}
       </Button>
+
+      <details className={`mt-3 rounded-lg overflow-hidden shadow-lg p-2 group ${
+        darkMode
+          ? mapStyle === "hybrid"
+            ? "bg-hybrid-charcoal-light text-darkmode-gray"
+            : "bg-charcoal-light text-darkmode-gray"
+          : "bg-green-light/40 text-charcoal border border-green/20"
+      }`}>
+          <summary className="flex cursor-pointer justify-between items-center gap-2 text-md">
+            Favourite Places
+
+            <GoChevronRight className="group-open:rotate-90 "/>
+          </summary>
+          {favLocations.map((location, index) => (
+            <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 mt-2 ${
+              darkMode
+                ? mapStyle === "hybrid"
+                  ? "border-button bg-hybrid-charcoal text-darkmode-gray"
+                  : "border-button bg-charcoal text-darkmode-gray"
+                : "border-button-light bg-green-dark/35 text-charcoal-light"
+            }`}>
+              <button type="button" className="text-sm" onClick={() => setDestination(location)}>
+                {location}
+              </button>
+
+              <button type="button" onClick={() => {
+                setFavLocations(current => 
+                  current.filter(item => item !== location)
+                );
+              }}
+              >
+                <IoStar className={`${darkMode ? "text-yellow-400" : "text-green-dark"}`}/>
+              </button>
+            </div>
+          ))}
+      </details>
     </div>
   );
 }

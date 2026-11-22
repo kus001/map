@@ -125,6 +125,7 @@ function applyWalkShapes(route, shapes) {
 
 const PREFERENCES_KEY = "map-router-preferences-v1";
 const RECENT_SEARCH_KEY = "kmaps-recent-searches";
+const FAV_LOCATIONS_KEY = "kmaps-favourite-locations";
 const VALID_MODES = new Set(["driving", "walking", "cycling", "transit"]);
 const VALID_CYCLING_TYPES = new Set(["regular", "road", "mountain", "electric"]);
 const VALID_MAP_STYLES = new Set(["street", "satellite", "hybrid"]);
@@ -191,6 +192,25 @@ function recentSearch() {
   }
 }
 // console.log("Recent searches: ", recentSearch);
+
+function savedFavs() {
+  try {
+    const raw = window.localStorage.getItem(FAV_LOCATIONS_KEY);
+    console.log("favs: ", raw);
+    if (!raw) {
+      return [];
+    }
+    const saved = JSON.parse(raw);
+    return Array.isArray(saved) ? saved : [];
+  }
+  
+  catch (error) {
+    console.warn("Could not load recent searches", error);
+    return [];
+  }
+}
+
+console.log("Saved favs: ", savedFavs);
 
 function validSavedValue(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;
@@ -334,6 +354,8 @@ const PHONE_FULL_INSET_PX = 96;
 
 export default function App() {
   const [recentSearches, setRecentSearches] = useState(recentSearch);
+  const [favLocations, setFavLocations] = useState(savedFavs);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify(recentSearches));
@@ -341,6 +363,14 @@ export default function App() {
       console.warn("Could not save recent searches", error);
     }
   }, [recentSearches]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FAV_LOCATIONS_KEY, JSON.stringify(favLocations));
+    } catch (error) {
+      console.warn("Could not save fav location.", error);
+    }
+  }, [favLocations])
   
   function removeLocation(location) { // remove location from saved recent
     setRecentSearches(current => current.filter(search => search.start !== location && search.destination !== location));
@@ -1924,22 +1954,31 @@ export default function App() {
     };
   }, [insetSource, panelSnap, navigationActive]);
 
-  const controlSurface = darkMode
-    ? "border-button bg-charcoal/95 text-darkmode-gray"
-    : "border-transparent bg-white/95 text-charcoal";
+  const controlSurface = 
+    darkMode
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light text-darkmode-gray"
+        : mapStyle === "satellite"
+          ? "border-button bg-charcoal-light text-darkmode-gray"
+          : " border-button bg-charcoal-light text-darkmode-gray"
+        : mapStyle === "street"
+          ? "border-button-light bg-white text-charcoal hover:glass"
+          : "border-button-light bg-white text-charcoal hover:text-white/90 hover:glass"
 
-  const smallButton = `rounded-lg border p-2 transition hover:-translate-y-px active:scale-90 ${
+  const smallButton = `rounded-lg border p-2 transition hover:glass hover:-translate-y-px active:scale-90 ${
     darkMode
       ? mapStyle === "hybrid"
         ? "border-button bg-hybrid-charcoal-light text-hybrid-purple-light" 
         : mapStyle === "satellite"
           ? "border-button bg-charcoal-light text-green"
           : "border-button bg-charcoal-light text-blue-light"
-      : "border-button-light bg-white text-green-dark"
+      : mapStyle === "street"
+        ? "border-button-light bg-white text-green-dark hover:glass"
+        : "border-button-light bg-white text-green-dark hover:glass hover:text-white/90"
   }`;
 
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
-  const smallButtonY = overlayVisible ? "" : "top-4"
+  const smallButtonY = "top-4"
   const mapProps = {
     data, selectedRoute, selectedRouteNumber, hoveredRouteNumber, displayedMode,
     onSelectRoute: selectRoute, onHoverRoute: setHoveredRouteNumber,
@@ -2063,6 +2102,8 @@ export default function App() {
           start={start}
           destination={destination}
           recentSearches={recentSearches}
+          favLocations={favLocations}
+          setFavLocations={setFavLocations}
           setStart={handleStartChange}
           setDestination={handleDestinationChange}
           removeRecentLocation={removeLocation}
@@ -2358,7 +2399,10 @@ export default function App() {
             type="button"
             onClick={mapStyles}
             title="Change map style"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface}`}
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 
+              px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px active:scale-90
+              hover:glass focus-visible:outline-none ${controlSurface}
+            `}
           >
             {mapStyle === "street" ? (
               <MdMap className="text-lg" />
@@ -2388,7 +2432,7 @@ export default function App() {
             }
           }}
             aria-pressed={threeD} title="Toggle 3D map"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} 
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px active:scale-90 hover:glass focus-visible:outline-none ${controlSurface} 
             ${threeD 
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-purple text-white" 
@@ -2406,6 +2450,8 @@ export default function App() {
             onChange={setEnabledLayers}
             status={layerStatus}
             darkMode={darkMode}
+            controlSurface={controlSurface}
+            mapStyle={mapStyle}
           />
         </div>
       </main>

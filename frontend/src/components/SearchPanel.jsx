@@ -9,6 +9,7 @@ import {
   MdMyLocation,
 } from "react-icons/md";
 import { PiMapPinFill } from "react-icons/pi";
+import { GoChevronRight, GoChevronDown } from "react-icons/go";
 
 import Button from "./Button.jsx";
 
@@ -920,14 +921,18 @@ export default function SearchPanel({
               : "Find Route"}
       </Button>
 
-      <details className={`mt-3 rounded-lg overflow-hidden shadow-lg p-2 ${
+      <details className={`mt-3 rounded-lg overflow-hidden shadow-lg p-2 group ${
         darkMode
           ? mapStyle === "hybrid"
             ? "bg-hybrid-charcoal-light text-darkmode-gray"
             : "bg-charcoal-light text-darkmode-gray"
           : "bg-green-light/40 text-charcoal border border-green/20"
       }`}>
-          <summary className="flex cursor-pointer items-center gap-2 text-md">Favourite Places</summary>
+          <summary className="flex cursor-pointer justify-between items-center gap-2 text-md">
+            Favourite Places
+
+            <GoChevronRight className="group-open:rotate-90 "/>
+          </summary>
           {favLocations.map((location, index) => (
             <div key={index} className={`flex items-center justify-between rounded-lg px-3 py-2 mt-2 ${
               darkMode

@@ -1978,7 +1978,7 @@ export default function App() {
   }`;
 
   const leftEdge = overlayVisible ? "left-4 md:left-87.5" : "left-4";
-  const smallButtonY = overlayVisible ? "" : "top-4"
+  const smallButtonY = "top-4"
   const mapProps = {
     data, selectedRoute, selectedRouteNumber, hoveredRouteNumber, displayedMode,
     onSelectRoute: selectRoute, onHoverRoute: setHoveredRouteNumber,

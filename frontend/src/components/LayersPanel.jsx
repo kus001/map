@@ -27,7 +27,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
           ? "border-button-light bg-white text-charcoal"
           : "border-button-light bg-white text-charcoal"
   const quiet = darkMode ? "text-slate-400" : "text-slate-500";
-  const hover = darkMode ? "hover:bg-white/[0.06]" : "hover:bg-black/[0.035]";
+  const hover = darkMode ? "hover:glass" : "hover:bg-black/[0.035]";
 
   return (
     <div className="relative">
@@ -36,7 +36,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
         onClick={onToggleOpen}
         aria-expanded={open}
         aria-label="Map layers"
-        className={`flex h-11 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm font-medium shadow-lg backdrop-blur transition active:scale-95 hover:glass ${controlSurface} ${hover}`}
+        className={`flex h-11 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm font-medium shadow-lg backdrop-blur transition hover:-translate-y-px active:scale-90 hover:glass ${controlSurface} ${hover}`}
       >
         <IoLayersOutline className="text-lg" aria-hidden="true" />
         Layers

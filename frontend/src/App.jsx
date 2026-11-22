@@ -2400,7 +2400,7 @@ export default function App() {
             onClick={mapStyles}
             title="Change map style"
             className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 
-              px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 
+              px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px active:scale-90
               hover:glass focus-visible:outline-none ${controlSurface}
             `}
           >
@@ -2432,7 +2432,7 @@ export default function App() {
             }
           }}
             aria-pressed={threeD} title="Toggle 3D map"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface} 
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition hover:-translate-y-px active:scale-90 hover:glass focus-visible:outline-none ${controlSurface} 
             ${threeD 
               ? mapStyle === "hybrid"
                 ? "bg-hybrid-purple text-white" 

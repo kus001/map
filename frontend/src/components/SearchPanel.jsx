@@ -482,18 +482,18 @@ function LocationInput({
               <IoStar 
                 onClick={() => {
                   setFavLocations(current => 
-                    current.includes(location)
-                      ? current.filter(item => item !== location)
-                      : [...current, location]
+                    current.some(item => item.address === location) // check if location is alr there
+                      ? current.filter(item => item.address !== location)
+                      : [...current, {name: location, address: location}]
                   );
                 }}
 
                 className={`cursor-pointer ${
                   darkMode
-                    ? favLocations.includes(location)
+                    ? favLocations.some(item => item.address === location)
                       ? "text-yellow-400"
                       : "text-yellow-400/40"
-                    : favLocations.includes(location)
+                    : favLocations.some(item => item.address === location)
                       ? "text-green"
                       : "text-green/30"
                 }`}   

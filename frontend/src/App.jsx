@@ -1954,9 +1954,16 @@ export default function App() {
     };
   }, [insetSource, panelSnap, navigationActive]);
 
-  const controlSurface = darkMode
-    ? "border-button bg-charcoal/95 text-darkmode-gray"
-    : "border-transparent bg-white/95 text-charcoal";
+  const controlSurface = 
+    darkMode
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light text-darkmode-gray"
+        : mapStyle === "satellite"
+          ? "border-button bg-charcoal-light text-darkmode-gray"
+          : " border-button bg-charcoal-light text-darkmode-gray"
+        : mapStyle === "street"
+          ? "border-button-light bg-white text-charcoal hover:glass"
+          : "border-button-light bg-white text-charcoal hover:glass"
 
   const smallButton = `rounded-lg border p-2 transition hover:glass hover:-translate-y-px active:scale-90 ${
     darkMode
@@ -2392,7 +2399,10 @@ export default function App() {
             type="button"
             onClick={mapStyles}
             title="Change map style"
-            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 hover:glass focus-visible:outline-none ${controlSurface}`}
+            className={`flex h-11 items-center gap-1.5 rounded-xl border border-white/10 
+              px-3 text-sm font-semibold shadow-lg backdrop-blur transition active:scale-95 
+              hover:glass focus-visible:outline-none ${controlSurface}
+            `}
           >
             {mapStyle === "street" ? (
               <MdMap className="text-lg" />
@@ -2440,6 +2450,8 @@ export default function App() {
             onChange={setEnabledLayers}
             status={layerStatus}
             darkMode={darkMode}
+            controlSurface={controlSurface}
+            mapStyle={mapStyle}
           />
         </div>
       </main>

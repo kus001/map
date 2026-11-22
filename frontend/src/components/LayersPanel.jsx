@@ -15,10 +15,17 @@ function shortStatus(message) {
   return "";
 }
 
-export default function LayersPanel({ open, onToggleOpen, enabled, onChange, status = {}, darkMode }) {
-  const surface = darkMode
-    ? "border-white/10 bg-charcoal/95 text-darkmode-gray"
-    : "border-black/10 bg-white/95 text-[#1e2933]";
+export default function LayersPanel({ open, onToggleOpen, enabled, onChange, status = {}, darkMode, controlSurface, mapStyle }) {
+  const surface = 
+    darkMode
+      ? mapStyle === "hybrid"
+        ? "border-button bg-hybrid-charcoal-light text-darkmode-gray"
+        : mapStyle === "satellite"
+          ? "border-button bg-charcoal-light text-darkmode-gray"
+          : " border-button bg-charcoal-light text-darkmode-gray"
+        : mapStyle === "street"
+          ? "border-button-light bg-white text-charcoal"
+          : "border-button-light bg-white text-charcoal"
   const quiet = darkMode ? "text-slate-400" : "text-slate-500";
   const hover = darkMode ? "hover:bg-white/[0.06]" : "hover:bg-black/[0.035]";
 
@@ -29,7 +36,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
         onClick={onToggleOpen}
         aria-expanded={open}
         aria-label="Map layers"
-        className={`flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-medium shadow-lg backdrop-blur transition active:scale-95 hover:glass ${surface} ${hover}`}
+        className={`flex h-11 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm font-medium shadow-lg backdrop-blur transition active:scale-95 hover:glass ${controlSurface} ${hover}`}
       >
         <IoLayersOutline className="text-lg" aria-hidden="true" />
         Layers
@@ -42,7 +49,7 @@ export default function LayersPanel({ open, onToggleOpen, enabled, onChange, sta
 
       {open && (
         <div
-          className={`absolute right-0 top-full z-[1100] mt-3 w-[min(292px,calc(100vw-24px))] overflow-hidden rounded-[20px] border p-2 shadow-2xl backdrop-blur-xl ${surface}`}
+          className={`absolute right-0 top-full z-[1100] mt-3 w-[min(292px,calc(100vw-24px))] overflow-hidden rounded-[20px] border border-white/10 p-2 shadow-2xl backdrop-blur-xl ${surface}`}
         >
           <div className="flex items-center justify-between px-3 pb-1 pt-2">
             <div className="text-[15px] font-semibold tracking-[-0.015em]">Layers</div>

@@ -941,7 +941,7 @@ export default function SearchPanel({
                 : "border-button-light bg-green-dark/35 text-charcoal-light"
             }`}>
               <button type="button" className="text-sm" onClick={() => setDestination(location)}>
-                {location}
+                {location.name}
               </button>
 
               <button type="button" onClick={() => {

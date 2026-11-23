@@ -960,6 +960,8 @@ export default function SearchPanel({
                 }}
               />
 
+
+              {/* styling NEEDS to be better, MORE POLISh */}
               <button 
                 type="button"
                 className={`rounded-md px-2 py-1 text-xs text-white shrink-0 ml-2 ${

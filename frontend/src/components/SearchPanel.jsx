@@ -940,7 +940,7 @@ export default function SearchPanel({
                   : "border-button bg-charcoal text-darkmode-gray"
                 : "border-button-light bg-green-dark/35 text-charcoal-light"
             }`}>
-              <button type="button" className="text-sm" onClick={() => setDestination(location)}>
+              <button type="button" className="text-sm" onClick={() => setDestination(location.address)}>
                 {location.name}
               </button>
 

@@ -947,7 +947,7 @@ export default function SearchPanel({
               </button> */}
 
               <input 
-                className="bg-black/10 border border-white/5 rounded-md px-2 py-1 -ml-1 text-sm"
+                className="bg-black/10 border border-white/5 rounded-md px-2 py-1 -ml-1.5 text-sm"
                 value={(location.name)}
                 onChange={e => {
                   const name = e.target.value;
@@ -960,7 +960,23 @@ export default function SearchPanel({
                 }}
               />
 
-              <button type="button" onClick={() => {
+              <button 
+                type="button"
+                className={`rounded-md px-2 py-1 text-xs text-white shrink-0 ml-2 ${
+                  darkMode
+                    ? mapStyle === "hybrid"
+                      ? "bg-hybrid-purple hover:bg-hybrid-purple-dark"
+                      : mapStyle === "street"
+                        ? "bg-blue hover:bg-blue-dark"
+                        : "bg-green hover:bg-green-dark"
+                    : "bg-green hover:bg-green-dark"
+                }`}
+                onClick={() => setDestination(location.address)
+                }>
+                Go
+              </button>
+
+              <button type="button" className="ml-1.5" onClick={() => {
                 setFavLocations(current => 
                   current.filter(item => item.address !== location.address)
                 );

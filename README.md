@@ -43,7 +43,13 @@
 <details>
   <summary>Mobile View</summary>
   
-  ![Mobile Street Dark](assets/mobile_view_dark.png)
+  <div align="center">
+
+  | Normal | Navigating |
+  |:---:|:---:|
+  | ![Mobile Street Dark](assets/mobile_view_dark.png) | ![Mobile Street Dark (navigation)](assets/mobile_navigation_dark.png) |
+  
+  <div/>
 </details>
 
 ## Running / Using [kmaps](https://map.kmaps.ca/)

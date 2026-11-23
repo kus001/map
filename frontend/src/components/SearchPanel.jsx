@@ -483,14 +483,14 @@ function LocationInput({
                 // dont let search menu close before the star is clickeddd
                 onMouseDown={e => e.preventDefault()} // fixed for the weird ahh bug that doesn't let you select fav places when menu open
                 onClick={() => {
-                  setFavLocations(current => 
+                  setFavLocations(current =>  
                     current.some(item => item.address === location) // check if location is alr there
                       ? current.filter(item => item.address !== location)
                       : [...current, {name: location, address: location}]
                   );
                 }}
 
-                className={`cursor-pointer ${
+                className={`cursor-pointer ${ 
                   darkMode
                     ? favLocations.some(item => item.address === location)
                       ? "text-yellow-400"
@@ -947,6 +947,7 @@ export default function SearchPanel({
               </button> */}
 
               <input 
+                className="bg-black/10 border border-white/5 rounded-md px-2 py-1 -ml-1 text-sm"
                 value={(location.name)}
                 onChange={e => {
                   const name = e.target.value;

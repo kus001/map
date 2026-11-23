@@ -480,6 +480,8 @@ function LocationInput({
               </button>
 
               <IoStar 
+                // dont let search menu close before the star is clickeddd
+                onMouseDown={e => e.preventDefault()} // fixed for the weird ahh bug that doesn't let you select fav places when menu open
                 onClick={() => {
                   setFavLocations(current => 
                     current.some(item => item.address === location) // check if location is alr there
@@ -940,13 +942,26 @@ export default function SearchPanel({
                   : "border-button bg-charcoal text-darkmode-gray"
                 : "border-button-light bg-green-dark/35 text-charcoal-light"
             }`}>
-              <button type="button" className="text-sm" onClick={() => setDestination(location.address)}>
+              {/* <button type="button" className="text-sm" onClick={() => setDestination(location.address)}>
                 {location.name}
-              </button>
+              </button> */}
+
+              <input 
+                value={(location.name)}
+                onChange={e => {
+                  const name = e.target.value;
+
+                  setFavLocations(current => current.map(item =>
+                    item.address === location.address
+                      ? {...item, name: name}
+                      : item  
+                  ));
+                }}
+              />
 
               <button type="button" onClick={() => {
                 setFavLocations(current => 
-                  current.filter(item => item !== location)
+                  current.filter(item => item.address !== location.address)
                 );
               }}
               >
